@@ -217,6 +217,10 @@ export function HookFormInput<T extends FieldValues>({
                 "& .MuiOutlinedInput-root": {
                   borderRadius: "0.45rem",
                   backgroundColor: "#fff",
+                  minHeight: "2.5rem",
+                  "@media (max-width:1024px)": {
+                    minHeight: "2.875rem",
+                  },
                   "& fieldset": {
                     borderWidth: "1px",
                     borderColor: "#e5e7eb",
@@ -229,6 +233,10 @@ export function HookFormInput<T extends FieldValues>({
                 "& .MuiOutlinedInput-input": {
                   fontSize: "0.875rem",
                   py: 1,
+                  "@media (max-width:1024px)": {
+                    fontSize: "1rem",
+                    py: 1.2,
+                  },
                   ...(shouldMaskPassword
                     ? { WebkitTextSecurity: "disc" }
                     : {}),

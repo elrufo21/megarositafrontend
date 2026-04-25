@@ -519,7 +519,7 @@ export default function DataTable<T extends RowData>({
         </div>
       </div>
 
-      <div className="space-y-3 px-3 py-3 md:hidden">
+      <div className="space-y-3 px-3 py-3 lg:hidden">
         {isLoading ? (
           <div className="rounded-xl border border-slate-200 bg-white px-4 py-8 text-center text-sm text-slate-500">
             Cargando registros...
@@ -590,7 +590,7 @@ export default function DataTable<T extends RowData>({
       </div>
 
       <div
-        className="hidden overflow-auto md:block"
+        className="hidden overflow-auto lg:block"
         style={{ maxHeight: tableMaxHeight }}
       >
         <table className="w-full min-w-[38rem] border-collapse lg:min-w-[44rem]">
@@ -739,7 +739,7 @@ export default function DataTable<T extends RowData>({
 
             <button
               type="button"
-              className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-slate-300 bg-white text-slate-600 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-45"
+              className="inline-flex h-10 w-10 items-center justify-center rounded-lg border border-slate-300 bg-white text-slate-600 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-45 sm:h-9 sm:w-9"
               onClick={goToFirstPage}
               disabled={!canGoPrev}
               aria-label="Primera página"
@@ -748,7 +748,7 @@ export default function DataTable<T extends RowData>({
             </button>
             <button
               type="button"
-              className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-slate-300 bg-white text-slate-600 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-45"
+              className="inline-flex h-10 w-10 items-center justify-center rounded-lg border border-slate-300 bg-white text-slate-600 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-45 sm:h-9 sm:w-9"
               onClick={goToPreviousPage}
               disabled={!canGoPrev}
               aria-label="Página anterior"
@@ -757,7 +757,7 @@ export default function DataTable<T extends RowData>({
             </button>
             <button
               type="button"
-              className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-slate-300 bg-white text-slate-600 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-45"
+              className="inline-flex h-10 w-10 items-center justify-center rounded-lg border border-slate-300 bg-white text-slate-600 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-45 sm:h-9 sm:w-9"
               onClick={goToNextPage}
               disabled={!canGoNext}
               aria-label="Siguiente página"
@@ -766,7 +766,7 @@ export default function DataTable<T extends RowData>({
             </button>
             <button
               type="button"
-              className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-slate-300 bg-white text-slate-600 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-45"
+              className="inline-flex h-10 w-10 items-center justify-center rounded-lg border border-slate-300 bg-white text-slate-600 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-45 sm:h-9 sm:w-9"
               onClick={goToLastPage}
               disabled={!canGoNext}
               aria-label="Última página"

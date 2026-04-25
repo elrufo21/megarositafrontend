@@ -327,7 +327,7 @@ export default function MainLayout() {
     ],
   );
 
-  useEffect(() => {
+  /** useEffect(() => {
     if (!PASSWORD_EXPIRATION_LOCK_ENABLED || !isPasswordExpired) {
       passwordDialogOpenedRef.current = false;
       resolvingUserRef.current = false;
@@ -377,7 +377,7 @@ export default function MainLayout() {
     hasSessionIdentity,
     isPasswordExpired,
     openPasswordExpiredDialog,
-  ]);
+  ]); */
 
   useEffect(() => {
     setMobileOpen(false);

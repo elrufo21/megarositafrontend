@@ -156,7 +156,7 @@ export function CrudList<T>(props: CrudListProps<T>) {
               <button
                 type="button"
                 onClick={() => onEdit(row.original, id)}
-                className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-emerald-200 bg-emerald-50 text-emerald-700 transition-colors hover:bg-emerald-100"
+                className="inline-flex h-10 w-10 items-center justify-center rounded-lg border border-emerald-200 bg-emerald-50 text-emerald-700 transition-colors hover:bg-emerald-100 sm:h-9 sm:w-9"
                 title="Editar"
                 aria-label="Editar"
               >
@@ -165,7 +165,7 @@ export function CrudList<T>(props: CrudListProps<T>) {
             ) : (
               <Link
                 to={`${basePath}/${id}/edit`}
-                className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-emerald-200 bg-emerald-50 text-emerald-700 transition-colors hover:bg-emerald-100"
+                className="inline-flex h-10 w-10 items-center justify-center rounded-lg border border-emerald-200 bg-emerald-50 text-emerald-700 transition-colors hover:bg-emerald-100 sm:h-9 sm:w-9"
                 title="Editar"
                 aria-label="Editar"
               >
@@ -176,7 +176,7 @@ export function CrudList<T>(props: CrudListProps<T>) {
             <button
               type="button"
               onClick={askDelete}
-              className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-red-200 bg-red-50 text-red-700 transition-colors hover:bg-red-100"
+              className="inline-flex h-10 w-10 items-center justify-center rounded-lg border border-red-200 bg-red-50 text-red-700 transition-colors hover:bg-red-100 sm:h-9 sm:w-9"
               title="Eliminar"
               aria-label="Eliminar"
             >

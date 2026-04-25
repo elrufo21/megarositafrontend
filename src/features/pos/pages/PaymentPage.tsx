@@ -1907,19 +1907,22 @@ const PaymentPage = () => {
     }
   }, [clients.length, fetchClients]);
 
-  // En nuevo registro, preselecciona cliente ID 1 (sin afectar edici�n)
+  // En nuevo registro, preselecciona cliente ID 3364 (sin afectar edicion)
   useEffect(() => {
     if (notaId || isEditingMode || hasLoadedNotaMeta) return;
     if (defaultCustomerAppliedRef.current) return;
+    if (!clients.length) return;
     const hasClientAlready =
       Number(clienteId) > 0 || safeTrim(customerName) || safeTrim(customerId);
     if (hasClientAlready) return;
 
     const defaultClient =
+      clients.find((c) => Number(c.id) === PROFORMA_DEFAULT_CONTACT_ID) ??
       clients.find((c) => Number(c.id) === 1) ??
-      ({} as (typeof clients)[number]);
+      clients[0];
+    if (!defaultClient) return;
 
-    const defaultId = Number(defaultClient?.id ?? 1);
+    const defaultId = Number(defaultClient?.id ?? PROFORMA_DEFAULT_CONTACT_ID);
     if (Number.isFinite(defaultId) && defaultId > 0) {
       setValue("clienteId", defaultId, { shouldDirty: false });
     }
@@ -2608,11 +2611,14 @@ const PaymentPage = () => {
       !isEditingMode &&
       !hasLoadedNotaMeta &&
       (!hasUserSelectedContact || !hasValidClienteId);
+    const isCreateFlow = !notaId && !isEditingMode && !hasLoadedNotaMeta;
     const clienteIdNumber = shouldForceProformaDefaultContact
       ? PROFORMA_DEFAULT_CONTACT_ID
       : hasValidClienteId
         ? rawClienteId
-        : 1;
+        : isCreateFlow
+          ? PROFORMA_DEFAULT_CONTACT_ID
+          : 1;
 
     const bankValue = bankEntity?.trim() || "-";
 
@@ -2898,7 +2904,9 @@ const PaymentPage = () => {
     const createPayloadForApi = {
       nota: {
         notaDocu: editNota.notaDocu,
-        clienteId: Number(editNota.clienteId ?? 1) || 1,
+        clienteId:
+          Number(editNota.clienteId ?? PROFORMA_DEFAULT_CONTACT_ID) ||
+          PROFORMA_DEFAULT_CONTACT_ID,
         notaUsuario: editNota.notaUsuario,
         notaFormaPago:
           safeTrim(editNota.notaFormaPago ?? paymentMethod) || "EFECTIVO",

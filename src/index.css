@@ -1,0 +1,103 @@
+@import "tailwindcss";
+
+:root {
+  --app-shell-header-h: 4rem;
+  --app-shell-main-px: 1.5rem;
+  --app-shell-main-py: 1.25rem;
+  --app-shell-main-pb: calc(1rem + env(safe-area-inset-bottom, 0px));
+  --app-shell-sidebar-open: 15rem;
+  --app-shell-sidebar-collapsed: 4.5rem;
+  --app-shell-content-max: 1760px;
+}
+
+@media (max-width: 1536px) {
+  :root {
+    --app-shell-main-px: 1.25rem;
+    --app-shell-main-py: 1rem;
+    --app-shell-main-pb: calc(1rem + env(safe-area-inset-bottom, 0px));
+  }
+}
+
+/* Prioridad 1366x768 */
+@media (max-width: 1366px) and (min-width: 1024px) {
+  :root {
+    --app-shell-header-h: 3.5rem;
+    --app-shell-main-px: 1rem;
+    --app-shell-main-py: 0.875rem;
+    --app-shell-main-pb: calc(0.9rem + env(safe-area-inset-bottom, 0px));
+    --app-shell-sidebar-open: 13.75rem;
+    --app-shell-sidebar-collapsed: 4rem;
+  }
+}
+
+@media (max-width: 1024px) {
+  :root {
+    --app-shell-header-h: 3.25rem;
+    --app-shell-main-px: 0.85rem;
+    --app-shell-main-py: 0.85rem;
+    --app-shell-main-pb: calc(1rem + env(safe-area-inset-bottom, 0px));
+    --app-shell-sidebar-open: min(88vw, 19rem);
+  }
+}
+
+@media (max-width: 420px) {
+  :root {
+    --app-shell-header-h: 3rem;
+    --app-shell-main-px: 0.625rem;
+    --app-shell-main-py: 0.625rem;
+    --app-shell-main-pb: calc(0.85rem + env(safe-area-inset-bottom, 0px));
+  }
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  min-height: 100%;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  margin: 0;
+  background: #f1f5f9;
+  color: #0f172a;
+  text-rendering: optimizeLegibility;
+  -webkit-text-size-adjust: 100%;
+  overscroll-behavior-y: none;
+}
+
+.app-main-scroll {
+  scrollbar-gutter: stable both-edges;
+}
+
+img,
+svg,
+video,
+canvas {
+  max-width: 100%;
+}
+
+button,
+a,
+[role="button"] {
+  -webkit-tap-highlight-color: transparent;
+}
+
+@media (max-width: 1024px) {
+  input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not(
+      [type="file"]
+    ),
+  textarea,
+  select {
+    font-size: 16px;
+  }
+}
