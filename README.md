@@ -103,7 +103,7 @@ mkcert -install
 2. Genera cert para LAN (ajusta IP):
 
 ```env
-mkcert -cert-file ../certs/lan-cert.pem -key-file ../certs/lan-key.pem 192.168.18.117 localhost 127.0.0.1 ::1
+mkcert -cert-file ../certs/lan-cert.pem -key-file ../certs/lan-key.pem 192.168.100.1 localhost 127.0.0.1 ::1
 ```
 
 3. Configura `.env` (o `.env.lan`) con:
