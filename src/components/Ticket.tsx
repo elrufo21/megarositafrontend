@@ -207,12 +207,13 @@ const numberToWords = (amount: number, currencyLabel = "SOLES") => {
 const styles = StyleSheet.create({
   page: {
     backgroundColor: "#fff",
-    padding: 8,
+    paddingTop: 2,
+    paddingBottom: 2,
+    paddingHorizontal: 8,
     fontFamily: "Helvetica",
     fontSize: 9,
     display: "flex",
     flexDirection: "column",
-    width: "72mm",
   },
   header: {
     marginBottom: 8,
@@ -561,31 +562,45 @@ const TicketDocument = ({
   const qrBase64 =
     preGeneratedQrBase64 || (ticketData.qrData ? generatedQrBase64 : "");
   const pageHeight = useMemo(() => {
-    const companyBlock = 90;
-    const infoBlock = 120;
-    const tableHeader = 25;
-    const rowHeight = 18;
-    const totalsBlock = 90;
-    const footerBlock = 50;
+    const header = 95;
+    const company = 55;
+    const documentInfo = 95;
+    const tableHeader = 22;
+
+    const rowsHeight = ticketData.items.reduce((total, item) => {
+      const descLength =
+        `${formatUnitPrefix(item.unitMeasure)}${item.description}`.length;
+
+      // Si el nombre es largo, ocupa más líneas
+      const lines = Math.ceil(descLength / 22);
+
+      return total + Math.max(18, lines * 13);
+    }, 0);
+
+    const totals = ticketData.isProforma ? 75 : 130;
+    const footer = qrBase64 ? 115 : 45;
+    const securitySpace = 25;
 
     return (
-      companyBlock +
-      infoBlock +
+      header +
+      company +
+      documentInfo +
       tableHeader +
-      ticketData.items.length * rowHeight +
-      totalsBlock +
-      footerBlock
+      rowsHeight +
+      totals +
+      footer +
+      securitySpace
     );
-  }, [ticketData.items.length]);
+  }, [ticketData.items, ticketData.isProforma, qrBase64]);
   return (
     <Document>
-      <Page size={[210, pageHeight]} style={styles.page}>
+      <Page size={[210, pageHeight]} style={styles.page} wrap={false}>
+        {" "}
         <View style={styles.header}>
           {ticketData.logo && (
             <Image src={ticketData.logo} style={styles.logo} />
           )}
         </View>
-
         <View style={styles.companyBox}>
           <Text style={styles.companyText}>{ticketData.companyName}</Text>
           <Text style={styles.companyText}>{ticketData.ruc}</Text>
@@ -593,12 +608,9 @@ const TicketDocument = ({
           <Text style={styles.companyText}>{ticketData.district}</Text>
           <Text style={styles.companyText}>{ticketData.phones}</Text>
         </View>
-
         <Text style={styles.sectionTitle}>{ticketData.documentType}</Text>
         <Text style={styles.ticketNumber}>{ticketData.documentNumber}</Text>
-
         <View style={styles.divider} />
-
         <View style={styles.infoRow}>
           <Text style={styles.infoLabel}>Fecha Emision</Text>
           <Text style={styles.infoValue}>: {ticketData.emissionDate}</Text>
@@ -615,7 +627,6 @@ const TicketDocument = ({
           <Text style={styles.infoLabel}>Cliente</Text>
           <Text style={styles.infoValue}>: {ticketData.clientName}</Text>
         </View>
-
         <View style={styles.infoRow}>
           <Text style={styles.infoLabel}>{ticketData.clientDocLabel}</Text>
           <Text style={styles.infoValue}>: {ticketData.clientDNI}</Text>
@@ -626,9 +637,7 @@ const TicketDocument = ({
             <Text style={styles.infoValue}>: {ticketData.clientAddress}</Text>
           </View>
         )}
-
         <View style={styles.divider} />
-
         <View style={styles.tableHeader}>
           <Text style={[styles.tableHeaderText, styles.colCant]}>Cant.</Text>
           <Text style={[styles.tableHeaderText, styles.colDesc]}>
@@ -639,7 +648,6 @@ const TicketDocument = ({
             Importe
           </Text>
         </View>
-
         {ticketData.items.map((item, index) => (
           <View key={index} style={styles.tableRow}>
             <Text style={styles.colCant}>{item.quantity.toFixed(2)}</Text>
@@ -650,11 +658,8 @@ const TicketDocument = ({
             <Text style={styles.colImporte}>{item.total.toFixed(2)}</Text>
           </View>
         ))}
-
         <Text style={styles.itemsCount}>items: {ticketData.items.length}</Text>
-
         <View style={styles.divider} />
-
         {!ticketData.isProforma && (
           <>
             <View style={styles.summaryRow}>
@@ -695,7 +700,6 @@ const TicketDocument = ({
           <Text style={styles.totalCurrency}>S/</Text>
           <Text style={styles.totalAmount}>{ticketData.total.toFixed(2)}</Text>
         </View>
-
         <View style={styles.footer}>
           <Text style={styles.footerText}>SON: {ticketData.son}</Text>
           {ticketData.authorization ? (
@@ -703,7 +707,6 @@ const TicketDocument = ({
           ) : null}
           <Text style={styles.footerText}>ID: {ticketData.id}</Text>
         </View>
-
         <View>
           {qrBase64 && (
             <Image
