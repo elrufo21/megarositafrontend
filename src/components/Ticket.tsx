@@ -562,24 +562,21 @@ const TicketDocument = ({
   const qrBase64 =
     preGeneratedQrBase64 || (ticketData.qrData ? generatedQrBase64 : "");
   const pageHeight = useMemo(() => {
-    const header = 95;
-    const company = 55;
-    const documentInfo = 95;
-    const tableHeader = 22;
+    const header = 65; // era 95, reducido porque el logo es 60px + poco margen
+    const company = 50; // era 55
+    const documentInfo = ticketData.isFactura ? 105 : 90; // era fijo 95
+    const tableHeader = 20; // era 22
 
     const rowsHeight = ticketData.items.reduce((total, item) => {
       const descLength =
         `${formatUnitPrefix(item.unitMeasure)}${item.description}`.length;
-
-      // Si el nombre es largo, ocupa más líneas
       const lines = Math.ceil(descLength / 22);
-
-      return total + Math.max(18, lines * 13);
+      return total + Math.max(16, lines * 12); // era 18 y 13
     }, 0);
 
-    const totals = ticketData.isProforma ? 75 : 130;
-    const footer = qrBase64 ? 115 : 45;
-    const securitySpace = 25;
+    const totals = ticketData.isProforma ? 65 : 120; // era 75 y 130
+    const footer = qrBase64 ? 105 : 40; // era 115 y 45
+    const securitySpace = 15; // era 25
 
     return (
       header +
@@ -591,7 +588,7 @@ const TicketDocument = ({
       footer +
       securitySpace
     );
-  }, [ticketData.items, ticketData.isProforma, qrBase64]);
+  }, [ticketData.items, ticketData.isFactura, ticketData.isProforma, qrBase64]);
   return (
     <Document>
       <Page size={[210, pageHeight]} style={styles.page} wrap={false}>
