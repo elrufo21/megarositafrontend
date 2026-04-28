@@ -31,7 +31,7 @@ import { useDialogStore } from "@/store/app/dialog.store";
 import { useBoletasSummaryStore } from "@/store/boletasSummary/boletasSummary.store";
 import type { PosCartItem } from "@/types/pos";
 import type { Client } from "@/types/customer";
-import { buildApiUrl } from "@/config";
+import { buildApiUrl, buildRootApiUrl } from "@/config";
 import {
   IGV_FACTOR,
   buildSaleMonetarySummary,
@@ -389,11 +389,7 @@ const PaymentPage = () => {
       .join(" - ");
   const isCancelledStatusValue = (value: unknown) => {
     const normalized = safeTrim(value).toUpperCase();
-    return (
-      normalized.includes("ANUL") ||
-      normalized.includes("BAJA") ||
-      normalized.includes("CANCELAD")
-    );
+    return normalized.includes("ANUL") || normalized.includes("BAJA");
   };
   const isRejectedStatusValue = (value: unknown) => {
     const normalized = safeTrim(value).toUpperCase();
@@ -543,9 +539,7 @@ const PaymentPage = () => {
     null,
   );
   const [hasLoadedNotaMeta, setHasLoadedNotaMeta] = useState(false);
-  const [activeTab, setActiveTab] = useState<"items" | "note" | "pdf">(
-    "items",
-  );
+  const [activeTab, setActiveTab] = useState<"items" | "note" | "pdf">("items");
   const [isMobileViewport, setIsMobileViewport] = useState(() => {
     if (typeof window === "undefined") return false;
     return window.matchMedia("(max-width: 767px)").matches;
@@ -1647,7 +1641,8 @@ const PaymentPage = () => {
         IdProducto: Number(detalle.idProducto ?? 0),
         DetalleCantidad: Number(detalle.detalleCantidad ?? 0),
         DetalleUm: normalizeUnidadForEdit(detalle.detalleUm),
-        DetalleDescripcion: safeTrim(detalle.detalleDescripcion ?? "") || "ITEM",
+        DetalleDescripcion:
+          safeTrim(detalle.detalleDescripcion ?? "") || "ITEM",
         DetalleCosto: Number(detalle.detalleCosto ?? 0),
         DetallePrecio: Number(detalle.detallePrecio ?? 0),
         DetalleImporte: Number(detalle.detalleImporte ?? 0),
@@ -2599,12 +2594,11 @@ const PaymentPage = () => {
     const isProformaDoc = safeTrim(docTypeName).toUpperCase() === "PROFORMA V";
     const hasUserSelectedContact = Boolean(
       dirtyFields?.clienteId ||
-        dirtyFields?.customerName ||
-        dirtyFields?.customerId,
+      dirtyFields?.customerName ||
+      dirtyFields?.customerId,
     );
     const rawClienteId = Number(clienteId ?? 0);
-    const hasValidClienteId =
-      Number.isFinite(rawClienteId) && rawClienteId > 0;
+    const hasValidClienteId = Number.isFinite(rawClienteId) && rawClienteId > 0;
     const shouldForceProformaDefaultContact =
       isProformaDoc &&
       !notaId &&
@@ -4551,19 +4545,37 @@ const PaymentPage = () => {
 
     try {
       setIsPrinting(true);
-      await createComprobanteBlob();
+      const blob = await createComprobanteBlob();
+      const fileName = getComprobanteFileName();
+      const file = new File([blob], fileName, { type: "application/pdf" });
+      const formData = new FormData();
+      formData.append("file", file);
 
-      /** const res = await fetch("http://localhost:3000/print", {
+      const printUrl = buildRootApiUrl("/api/print/pdf");
+      const result = await apiRequest({
+        url: printUrl,
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ pdfBase64: base64, printerName }),
+        data: formData,
+        config: {
+          headers: {
+            Accept: "application/json",
+          },
+        },
+        fallback: null,
       });
-      const data = await res.json(); 
-       if (!res.ok || !data.ok) {
-        throw new Error(data.error || "Error al imprimir");
+
+      const printOk = Boolean(
+        result && typeof result === "object" && (result as any).ok,
+      );
+      if (!printOk) {
+        const printMessage =
+          result && typeof result === "object"
+            ? safeTrim((result as any).message ?? (result as any).Message ?? "")
+            : "";
+        throw new Error(printMessage || "No se pudo imprimir el comprobante.");
       }
-      toast.success("Impresión enviada");
-      */
+
+      toast.success("PDF enviado a imprimir");
     } catch (error) {
       const message =
         error instanceof Error ? error.message : "No se pudo imprimir";

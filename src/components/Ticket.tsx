@@ -207,12 +207,12 @@ const numberToWords = (amount: number, currencyLabel = "SOLES") => {
 const styles = StyleSheet.create({
   page: {
     backgroundColor: "#fff",
-    padding: "15px",
+    padding: 8,
     fontFamily: "Helvetica",
     fontSize: 9,
     display: "flex",
     flexDirection: "column",
-    width: "80mm",
+    width: "72mm",
   },
   header: {
     marginBottom: 8,
@@ -294,17 +294,17 @@ const styles = StyleSheet.create({
     fontWeight: "bold",
   },
   colCant: {
-    width: "15%",
+    width: "14%",
   },
   colDesc: {
-    width: "45%",
+    width: "42%",
   },
   colPUni: {
     width: "20%",
     textAlign: "right",
   },
   colImporte: {
-    width: "20%",
+    width: "18%",
     textAlign: "right",
   },
   tableRow: {
@@ -563,7 +563,7 @@ const TicketDocument = ({
 
   return (
     <Document>
-      <Page size={[226, 700]} style={styles.page}>
+      <Page size={[210, 700]} style={styles.page}>
         <View style={styles.header}>
           {ticketData.logo && (
             <Image src={ticketData.logo} style={styles.logo} />
