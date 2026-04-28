@@ -214,6 +214,7 @@ const styles = StyleSheet.create({
     fontSize: 9,
     display: "flex",
     flexDirection: "column",
+    justifyContent: "flex-start", // ← AGREGAR ESTO
   },
   header: {
     marginBottom: 8,
@@ -562,160 +563,209 @@ const TicketDocument = ({
   const qrBase64 =
     preGeneratedQrBase64 || (ticketData.qrData ? generatedQrBase64 : "");
   const pageHeight = useMemo(() => {
-    const header = 65; // era 95, reducido porque el logo es 60px + poco margen
-    const company = 50; // era 55
-    const documentInfo = ticketData.isFactura ? 105 : 90; // era fijo 95
-    const tableHeader = 20; // era 22
+    // Medidas calibradas píxel a píxel en puntos PDF (1pt ≈ 1px en react-pdf)
+    const LOGO = 60 + 6; // height + marginBottom
+    const HEADER_MB = 8; // marginBottom del View header
 
-    const rowsHeight = ticketData.items.reduce((total, item) => {
+    const COMPANY_LINES = 5; // 5 Text dentro del companyBox
+    const COMPANY_LINE_H = 8 + 2; // fontSize + marginBottom
+    const COMPANY_PADDING = 6 * 2;
+    const COMPANY_MB = 8;
+    const company =
+      COMPANY_LINES * COMPANY_LINE_H + COMPANY_PADDING + COMPANY_MB;
+
+    const SECTION_TITLE = 10 + 10 + 8; // fontSize + marginTop + marginBottom
+    const TICKET_NUMBER = 11 + 10; // fontSize + marginBottom
+    const DIVIDER = 1 + 8 * 2; // border + marginVertical x2
+
+    const INFO_ROWS = ticketData.isFactura ? 6 : 5;
+    const INFO_ROW_H = 8 + 4; // fontSize + marginBottom
+    const clientNameLines = Math.ceil(
+      (ticketData.clientName?.length ?? 0) / 28,
+    );
+    const infoSection =
+      (INFO_ROWS - 1) * INFO_ROW_H +
+      (clientNameLines * 8 + 4) + // fila cliente con wrap
+      DIVIDER;
+
+    const TABLE_HEADER = 8 + 4 + 6 + 8; // paddingBottom + marginBottom + marginTop + border
+
+    const rowsHeight = ticketData.items.reduce((acc, item) => {
       const descLength =
         `${formatUnitPrefix(item.unitMeasure)}${item.description}`.length;
       const lines = Math.ceil(descLength / 22);
-      return total + Math.max(16, lines * 12); // era 18 y 13
+      return acc + Math.max(8 + 6, lines * 9 + 6); // (fontSize + marginBottom) mínimo
     }, 0);
 
-    const totals = ticketData.isProforma ? 65 : 120; // era 75 y 130
-    const footer = qrBase64 ? 105 : 40; // era 115 y 45
-    const securitySpace = 15; // era 25
+    const ITEMS_COUNT = 8 + 6 + 6; // fontSize + marginTop + marginBottom
+    const DIVIDER2 = 1 + 8 * 2;
+
+    const summaryRows = ticketData.isProforma
+      ? 0
+      : (3 + (ticketData.showDiscount ? 1 : 0)) * (9 + 3); // rows * (fontSize + marginBottom)
+
+    const TOTAL_ROW = 12 + 6 + 6 + 1; // fontSize + marginTop + paddingTop + border
+
+    const authTextLength = ticketData.authorization?.length ?? 0;
+    const authLines = Math.ceil(authTextLength / 42); // ~42 chars por línea en fontSize 7
+    const footerLines = 1 + authLines + 1; // SON + auth + ID
+    const FOOTER = 12 + footerLines * (7 + 3);
+    const QR = qrBase64 ? 80 + 10 : 0; // height + marginTop
+
+    const PADDING = 2 + 2; // paddingTop + paddingBottom
 
     return (
-      header +
+      LOGO +
+      HEADER_MB +
       company +
-      documentInfo +
-      tableHeader +
+      SECTION_TITLE +
+      TICKET_NUMBER +
+      DIVIDER +
+      infoSection +
+      TABLE_HEADER +
       rowsHeight +
-      totals +
-      footer +
-      securitySpace
+      ITEMS_COUNT +
+      DIVIDER2 +
+      summaryRows +
+      TOTAL_ROW +
+      FOOTER +
+      QR +
+      PADDING +
+      8 // buffer mínimo
     );
-  }, [ticketData.items, ticketData.isFactura, ticketData.isProforma, qrBase64]);
+  }, [ticketData, qrBase64]);
   return (
     <Document>
-      <Page size={[210, pageHeight]} style={styles.page} wrap={false}>
-        {" "}
-        <View style={styles.header}>
-          {ticketData.logo && (
-            <Image src={ticketData.logo} style={styles.logo} />
-          )}
-        </View>
-        <View style={styles.companyBox}>
-          <Text style={styles.companyText}>{ticketData.companyName}</Text>
-          <Text style={styles.companyText}>{ticketData.ruc}</Text>
-          <Text style={styles.companyText}>{ticketData.address}</Text>
-          <Text style={styles.companyText}>{ticketData.district}</Text>
-          <Text style={styles.companyText}>{ticketData.phones}</Text>
-        </View>
-        <Text style={styles.sectionTitle}>{ticketData.documentType}</Text>
-        <Text style={styles.ticketNumber}>{ticketData.documentNumber}</Text>
-        <View style={styles.divider} />
-        <View style={styles.infoRow}>
-          <Text style={styles.infoLabel}>Fecha Emision</Text>
-          <Text style={styles.infoValue}>: {ticketData.emissionDate}</Text>
-        </View>
-        <View style={styles.infoRow}>
-          <Text style={styles.infoLabel}>Tipo Moneda</Text>
-          <Text style={styles.infoValue}>: {ticketData.currency}</Text>
-        </View>
-        <View style={styles.infoRow}>
-          <Text style={styles.infoLabel}>Forma Pago</Text>
-          <Text style={styles.infoValue}>: {ticketData.paymentMethod}</Text>
-        </View>
-        <View style={styles.infoRow}>
-          <Text style={styles.infoLabel}>Cliente</Text>
-          <Text style={styles.infoValue}>: {ticketData.clientName}</Text>
-        </View>
-        <View style={styles.infoRow}>
-          <Text style={styles.infoLabel}>{ticketData.clientDocLabel}</Text>
-          <Text style={styles.infoValue}>: {ticketData.clientDNI}</Text>
-        </View>
-        {ticketData.isFactura && (
+      <Page size={[210, pageHeight]} style={styles.page}>
+        <View wrap={false}>
+          <View style={styles.header}>
+            {ticketData.logo && (
+              <Image src={ticketData.logo} style={styles.logo} />
+            )}
+          </View>
+          <View style={styles.companyBox}>
+            <Text style={styles.companyText}>{ticketData.companyName}</Text>
+            <Text style={styles.companyText}>{ticketData.ruc}</Text>
+            <Text style={styles.companyText}>{ticketData.address}</Text>
+            <Text style={styles.companyText}>{ticketData.district}</Text>
+            <Text style={styles.companyText}>{ticketData.phones}</Text>
+          </View>
+          <Text style={styles.sectionTitle}>{ticketData.documentType}</Text>
+          <Text style={styles.ticketNumber}>{ticketData.documentNumber}</Text>
+          <View style={styles.divider} />
           <View style={styles.infoRow}>
-            <Text style={styles.infoLabel}>DIRECCION</Text>
-            <Text style={styles.infoValue}>: {ticketData.clientAddress}</Text>
+            <Text style={styles.infoLabel}>Fecha Emision</Text>
+            <Text style={styles.infoValue}>: {ticketData.emissionDate}</Text>
           </View>
-        )}
-        <View style={styles.divider} />
-        <View style={styles.tableHeader}>
-          <Text style={[styles.tableHeaderText, styles.colCant]}>Cant.</Text>
-          <Text style={[styles.tableHeaderText, styles.colDesc]}>
-            Descripción
-          </Text>
-          <Text style={[styles.tableHeaderText, styles.colPUni]}>P.Uni</Text>
-          <Text style={[styles.tableHeaderText, styles.colImporte]}>
-            Importe
-          </Text>
-        </View>
-        {ticketData.items.map((item, index) => (
-          <View key={index} style={styles.tableRow}>
-            <Text style={styles.colCant}>{item.quantity.toFixed(2)}</Text>
-            <Text style={styles.colDesc}>
-              {`${formatUnitPrefix(item.unitMeasure)}${item.description}`}
-            </Text>
-            <Text style={styles.colPUni}>{item.unitPrice.toFixed(2)}</Text>
-            <Text style={styles.colImporte}>{item.total.toFixed(2)}</Text>
+          <View style={styles.infoRow}>
+            <Text style={styles.infoLabel}>Tipo Moneda</Text>
+            <Text style={styles.infoValue}>: {ticketData.currency}</Text>
           </View>
-        ))}
-        <Text style={styles.itemsCount}>items: {ticketData.items.length}</Text>
-        <View style={styles.divider} />
-        {!ticketData.isProforma && (
-          <>
-            <View style={styles.summaryRow}>
-              <Text style={styles.summaryLabel}>OP.GRAVADA :</Text>
-              <Text style={styles.summaryCurrency}>S/</Text>
-              <Text style={styles.summaryAmount}>
-                {ticketData.operacionGravada.toFixed(2)}
-              </Text>
+          <View style={styles.infoRow}>
+            <Text style={styles.infoLabel}>Forma Pago</Text>
+            <Text style={styles.infoValue}>: {ticketData.paymentMethod}</Text>
+          </View>
+          <View style={styles.infoRow}>
+            <Text style={styles.infoLabel}>Cliente</Text>
+            <Text style={styles.infoValue}>: {ticketData.clientName}</Text>
+          </View>
+          <View style={styles.infoRow}>
+            <Text style={styles.infoLabel}>{ticketData.clientDocLabel}</Text>
+            <Text style={styles.infoValue}>: {ticketData.clientDNI}</Text>
+          </View>
+          {ticketData.isFactura && (
+            <View style={styles.infoRow}>
+              <Text style={styles.infoLabel}>DIRECCION</Text>
+              <Text style={styles.infoValue}>: {ticketData.clientAddress}</Text>
             </View>
-            {ticketData.showDiscount && (
+          )}
+          <View style={styles.divider} />
+          <View style={styles.tableHeader}>
+            <Text style={[styles.tableHeaderText, styles.colCant]}>Cant.</Text>
+            <Text style={[styles.tableHeaderText, styles.colDesc]}>
+              Descripción
+            </Text>
+            <Text style={[styles.tableHeaderText, styles.colPUni]}>P.Uni</Text>
+            <Text style={[styles.tableHeaderText, styles.colImporte]}>
+              Importe
+            </Text>
+          </View>
+          {ticketData.items.map((item, index) => (
+            <View key={index} style={styles.tableRow}>
+              <Text style={styles.colCant}>{item.quantity.toFixed(2)}</Text>
+              <Text style={styles.colDesc}>
+                {`${formatUnitPrefix(item.unitMeasure)}${item.description}`}
+              </Text>
+              <Text style={styles.colPUni}>{item.unitPrice.toFixed(2)}</Text>
+              <Text style={styles.colImporte}>{item.total.toFixed(2)}</Text>
+            </View>
+          ))}
+          <Text style={styles.itemsCount}>
+            items: {ticketData.items.length}
+          </Text>
+          <View style={styles.divider} />
+          {!ticketData.isProforma && (
+            <>
               <View style={styles.summaryRow}>
-                <Text style={styles.summaryLabel}>DESCUENTO :</Text>
+                <Text style={styles.summaryLabel}>OP.GRAVADA :</Text>
                 <Text style={styles.summaryCurrency}>S/</Text>
                 <Text style={styles.summaryAmount}>
-                  {ticketData.descuento.toFixed(2)}
+                  {ticketData.operacionGravada.toFixed(2)}
                 </Text>
               </View>
-            )}
-            <View style={styles.summaryRow}>
-              <Text style={styles.summaryLabel}>SUBTOTAL :</Text>
-              <Text style={styles.summaryCurrency}>S/</Text>
-              <Text style={styles.summaryAmount}>
-                {ticketData.subtotal.toFixed(2)}
-              </Text>
-            </View>
-            <View style={styles.summaryRow}>
-              <Text style={styles.summaryLabel}>I.G.V. :</Text>
-              <Text style={styles.summaryCurrency}>S/</Text>
-              <Text style={styles.summaryAmount}>
-                {ticketData.igv.toFixed(2)}
-              </Text>
-            </View>
-          </>
-        )}
-        {/* Totals are still shown for all document types */}
-        <View style={styles.totalRow}>
-          <Text style={styles.totalLabel}>TOTAL :</Text>
-          <Text style={styles.totalCurrency}>S/</Text>
-          <Text style={styles.totalAmount}>{ticketData.total.toFixed(2)}</Text>
-        </View>
-        <View style={styles.footer}>
-          <Text style={styles.footerText}>SON: {ticketData.son}</Text>
-          {ticketData.authorization ? (
-            <Text style={styles.footerText}>{ticketData.authorization}</Text>
-          ) : null}
-          <Text style={styles.footerText}>ID: {ticketData.id}</Text>
-        </View>
-        <View>
-          {qrBase64 && (
-            <Image
-              src={qrBase64}
-              style={{
-                width: 80,
-                height: 80,
-                alignSelf: "center",
-                marginTop: 10,
-              }}
-            />
+              {ticketData.showDiscount && (
+                <View style={styles.summaryRow}>
+                  <Text style={styles.summaryLabel}>DESCUENTO :</Text>
+                  <Text style={styles.summaryCurrency}>S/</Text>
+                  <Text style={styles.summaryAmount}>
+                    {ticketData.descuento.toFixed(2)}
+                  </Text>
+                </View>
+              )}
+              <View style={styles.summaryRow}>
+                <Text style={styles.summaryLabel}>SUBTOTAL :</Text>
+                <Text style={styles.summaryCurrency}>S/</Text>
+                <Text style={styles.summaryAmount}>
+                  {ticketData.subtotal.toFixed(2)}
+                </Text>
+              </View>
+              <View style={styles.summaryRow}>
+                <Text style={styles.summaryLabel}>I.G.V. :</Text>
+                <Text style={styles.summaryCurrency}>S/</Text>
+                <Text style={styles.summaryAmount}>
+                  {ticketData.igv.toFixed(2)}
+                </Text>
+              </View>
+            </>
           )}
+          {/* Totals are still shown for all document types */}
+          <View style={styles.totalRow}>
+            <Text style={styles.totalLabel}>TOTAL :</Text>
+            <Text style={styles.totalCurrency}>S/</Text>
+            <Text style={styles.totalAmount}>
+              {ticketData.total.toFixed(2)}
+            </Text>
+          </View>
+          <View style={styles.footer}>
+            <Text style={styles.footerText}>SON: {ticketData.son}</Text>
+            {ticketData.authorization ? (
+              <Text style={styles.footerText}>{ticketData.authorization}</Text>
+            ) : null}
+            <Text style={styles.footerText}>ID: {ticketData.id}</Text>
+          </View>
+          <View>
+            {qrBase64 && (
+              <Image
+                src={qrBase64}
+                style={{
+                  width: 80,
+                  height: 80,
+                  alignSelf: "center",
+                  marginTop: 10,
+                }}
+              />
+            )}
+          </View>
         </View>
       </Page>
     </Document>
