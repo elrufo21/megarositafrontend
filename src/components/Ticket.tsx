@@ -560,10 +560,26 @@ const TicketDocument = ({
 
   const qrBase64 =
     preGeneratedQrBase64 || (ticketData.qrData ? generatedQrBase64 : "");
+  const pageHeight = useMemo(() => {
+    const companyBlock = 90;
+    const infoBlock = 120;
+    const tableHeader = 25;
+    const rowHeight = 18;
+    const totalsBlock = 90;
+    const footerBlock = 50;
 
+    return (
+      companyBlock +
+      infoBlock +
+      tableHeader +
+      ticketData.items.length * rowHeight +
+      totalsBlock +
+      footerBlock
+    );
+  }, [ticketData.items.length]);
   return (
     <Document>
-      <Page size={[210, 700]} style={styles.page}>
+      <Page size={[210, pageHeight]} style={styles.page}>
         <View style={styles.header}>
           {ticketData.logo && (
             <Image src={ticketData.logo} style={styles.logo} />
