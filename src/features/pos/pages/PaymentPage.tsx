@@ -11,12 +11,13 @@ import {
   Trash2,
   Loader2,
 } from "lucide-react";
-import { PDFViewer, pdf } from "@react-pdf/renderer";
+import { pdf } from "@react-pdf/renderer";
 import { useForm, useWatch } from "react-hook-form";
 import { usePosStore, selectTotals } from "@/store/pos/pos.store";
 import { toast } from "@/shared/ui/toast";
 import { getLocalDateISO } from "@/shared/helpers/localDate";
 import TicketDocument from "@/components/Ticket";
+import TicketHTML from "@/components/TicketHtml";
 import { generateTicketQrBase64 } from "@/components/ticketQr";
 import { apiRequest } from "@/shared/helpers/apiRequest";
 import { HookForm } from "@/components/forms/HookForm";
@@ -3094,8 +3095,14 @@ const PaymentPage = () => {
         return normalized ? normalized.padStart(8, "0") : null;
       }
 
+      const formattedMatch = raw.match(/([A-Z]{1,4}\d{0,4})[-\s]?(\d{1,12})/i);
+      if (formattedMatch?.[2]) {
+        const normalized = formattedMatch[2].replace(/\D/g, "");
+        return normalized ? normalized.padStart(8, "0") : null;
+      }
+
       const matches = raw.match(/(\d+)/g);
-      if (matches && matches.length >= 2) {
+      if (matches && matches.length >= 1) {
         const candidate = matches[matches.length - 1] ?? "";
         const normalized = candidate.replace(/\D/g, "");
         return normalized ? normalized.padStart(8, "0") : null;
@@ -3103,9 +3110,55 @@ const PaymentPage = () => {
 
       return null;
     };
+    const parseNotaSerie = (val: any): string | null => {
+      const parseSerieFromString = (rawValue: unknown): string | null => {
+        const raw = safeTrim(rawValue);
+        if (!raw) return null;
+        const formattedMatch = raw.match(/([A-Z]{1,4}\d{0,4})[-\s]?(\d{1,12})/i);
+        if (formattedMatch?.[1]) {
+          return safeTrim(formattedMatch[1]).toUpperCase();
+        }
+        return null;
+      };
+
+      if (val && typeof val === "object") {
+        const objSerie = safeTrim(
+          (val as any).notaSerie ??
+            (val as any).serie ??
+            (val as any).Serie ??
+            (val as any).NotaSerie ??
+            (val as any)?.nota?.notaSerie ??
+            (val as any)?.data?.notaSerie ??
+            (val as any)?.data?.serie ??
+            (val as any)?.serieNumero ??
+            (val as any)?.data?.serieNumero ??
+            "",
+        );
+        if (objSerie) {
+          const parsedFromObjSerie = parseSerieFromString(objSerie);
+          if (parsedFromObjSerie) return parsedFromObjSerie;
+          return objSerie.toUpperCase();
+        }
+      }
+
+      if (typeof val === "string") return parseSerieFromString(val);
+
+      const rawFromNested =
+        (val as any)?.resultado ??
+        (val as any)?.Resultado ??
+        (val as any)?.result ??
+        (val as any)?.message ??
+        (val as any)?.data?.resultado ??
+        (val as any)?.data;
+      return parseSerieFromString(rawFromNested);
+    };
 
     const parsedNotaId = isEditing ? notaId : parseNotaId(result);
     const parsedNotaCorrelative = parseNotaCorrelative(result);
+    const parsedNotaSerie = parseNotaSerie(result);
+    if (parsedNotaSerie) {
+      setNotaSerieOverride(parsedNotaSerie);
+    }
     if (parsedNotaCorrelative) {
       setNotaNumero(parsedNotaCorrelative);
     }
@@ -3485,7 +3538,21 @@ const PaymentPage = () => {
     } else {
       toast.success("Pago registrado");
     }
-    void handlePrint({ skipConfirmedCheck: true });
+    const serieForImmediatePrint = safeTrim(parsedNotaSerie || notaSerie);
+    const numeroForImmediatePrint = safeTrim(
+      parsedNotaCorrelative || paddedNotaNumero,
+    );
+    const immediateDocumentNumber =
+      serieForImmediatePrint && numeroForImmediatePrint
+        ? `${serieForImmediatePrint}-${numeroForImmediatePrint}`
+        : safeTrim(documentNumber);
+
+    void handlePrint({
+      skipConfirmedCheck: true,
+      previewPropsOverride: immediateDocumentNumber
+        ? { documentNumber: immediateDocumentNumber }
+        : undefined,
+    });
   };
 
   const handleMobileTopConfirm = () => {
@@ -4380,49 +4447,62 @@ const PaymentPage = () => {
     }
   };
 
-  const createComprobanteBlob = useCallback(async () => {
-    const clean = (value: unknown) => String(value ?? "").trim();
-    const now = new Date();
-    const emissionDateISO = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
-    const qrDocTypeCode =
-      ticketPreviewProps.docType === "factura"
-        ? "01"
-        : ticketPreviewProps.docType === "boleta"
-          ? "03"
-          : "";
-    const qrClientDocTypeCode =
-      ticketPreviewProps.docType === "factura" ? "06" : "01";
-    const qrClientDoc =
-      clean(ticketPreviewProps.clientId) ||
-      (qrClientDocTypeCode === "06" ? "00000000000" : "00000000");
-    const qrIgv = Number(ticketPreviewProps.summary?.igv);
-    const qrTotal = Number(ticketPreviewProps.summary?.total);
-    const safeQrIgv = Number.isFinite(qrIgv) ? Math.max(0, qrIgv) : 0;
-    const safeQrTotal = Number.isFinite(qrTotal) ? Math.max(0, qrTotal) : 0;
+  const createComprobanteBlob = useCallback(
+    async (previewPropsOverride?: Partial<typeof ticketPreviewProps>) => {
+      const effectiveTicketPreviewProps = previewPropsOverride
+        ? {
+            ...ticketPreviewProps,
+            ...previewPropsOverride,
+            summary: {
+              ...ticketPreviewProps.summary,
+              ...(previewPropsOverride.summary ?? {}),
+            },
+          }
+        : ticketPreviewProps;
+      const clean = (value: unknown) => String(value ?? "").trim();
+      const now = new Date();
+      const emissionDateISO = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+      const qrDocTypeCode =
+        effectiveTicketPreviewProps.docType === "factura"
+          ? "01"
+          : effectiveTicketPreviewProps.docType === "boleta"
+            ? "03"
+            : "";
+      const qrClientDocTypeCode =
+        effectiveTicketPreviewProps.docType === "factura" ? "06" : "01";
+      const qrClientDoc =
+        clean(effectiveTicketPreviewProps.clientId) ||
+        (qrClientDocTypeCode === "06" ? "00000000000" : "00000000");
+      const qrIgv = Number(effectiveTicketPreviewProps.summary?.igv);
+      const qrTotal = Number(effectiveTicketPreviewProps.summary?.total);
+      const safeQrIgv = Number.isFinite(qrIgv) ? Math.max(0, qrIgv) : 0;
+      const safeQrTotal = Number.isFinite(qrTotal) ? Math.max(0, qrTotal) : 0;
 
-    let preGeneratedQrBase64 = "";
-    if (qrDocTypeCode) {
-      const qrData = [
-        clean(ticketPreviewProps.companyRuc) || "20601070155",
-        qrDocTypeCode,
-        clean(ticketPreviewProps.documentNumber) || "-",
-        safeQrIgv.toFixed(2),
-        safeQrTotal.toFixed(2),
-        emissionDateISO,
-        qrClientDocTypeCode,
-        qrClientDoc,
-      ].join("|");
+      let preGeneratedQrBase64 = "";
+      if (qrDocTypeCode) {
+        const qrData = [
+          clean(effectiveTicketPreviewProps.companyRuc) || "20601070155",
+          qrDocTypeCode,
+          clean(effectiveTicketPreviewProps.documentNumber) || "-",
+          safeQrIgv.toFixed(2),
+          safeQrTotal.toFixed(2),
+          emissionDateISO,
+          qrClientDocTypeCode,
+          qrClientDoc,
+        ].join("|");
 
-      preGeneratedQrBase64 = await generateTicketQrBase64(qrData);
-    }
+        preGeneratedQrBase64 = await generateTicketQrBase64(qrData);
+      }
 
-    return pdf(
-      <TicketDocument
-        {...ticketPreviewProps}
-        preGeneratedQrBase64={preGeneratedQrBase64}
-      />,
-    ).toBlob();
-  }, [ticketPreviewProps]);
+      return pdf(
+        <TicketDocument
+          {...effectiveTicketPreviewProps}
+          preGeneratedQrBase64={preGeneratedQrBase64}
+        />,
+      ).toBlob();
+    },
+    [ticketPreviewProps],
+  );
 
   const getComprobanteFileName = useCallback(() => {
     const safeCorrelative =
@@ -4521,7 +4601,10 @@ const PaymentPage = () => {
     isNotaAnulada,
   ]);
 
-  const handlePrint = async (options?: { skipConfirmedCheck?: boolean }) => {
+  const handlePrint = async (options?: {
+    skipConfirmedCheck?: boolean;
+    previewPropsOverride?: Partial<typeof ticketPreviewProps>;
+  }) => {
     const skipConfirmedCheck = options?.skipConfirmedCheck === true;
     if (isNotaAnulada) {
       toast.error("Documento anulado. Impresión no permitida.");
@@ -4545,7 +4628,7 @@ const PaymentPage = () => {
 
     try {
       setIsPrinting(true);
-      const blob = await createComprobanteBlob();
+      const blob = await createComprobanteBlob(options?.previewPropsOverride);
       const fileName = getComprobanteFileName();
       const file = new File([blob], fileName, { type: "application/pdf" });
       const formData = new FormData();
@@ -4900,14 +4983,10 @@ const PaymentPage = () => {
     <div className="relative overflow-hidden rounded-xl border border-slate-200 bg-white">
       {isPdfEnabled ? (
         canPreviewPdf ? (
-          <div className="h-[68vh] min-h-[420px] sm:h-[620px]">
-            <PDFViewer
-              key={previewKey}
-              style={{ width: "100%", height: "100%" }}
-              showToolbar={false}
-            >
-              <TicketDocument {...ticketPreviewProps} />
-            </PDFViewer>
+          <div className="h-[68vh] min-h-[420px] overflow-auto bg-slate-100 p-3 sm:h-[620px] sm:p-4">
+            <div className="mx-auto w-[80mm] rounded-md bg-white shadow-sm">
+              <TicketHTML key={previewKey} {...ticketPreviewProps} />
+            </div>
           </div>
         ) : (
           <div className="p-4 text-xs text-gray-500">
@@ -5026,7 +5105,7 @@ const PaymentPage = () => {
                   : "Descargar PDF"}
             </button>
           )}
-          {isPdfEnabled && (
+          {isPdfEnabled && !isFactura && (
             <button
               type="button"
               className="inline-flex shrink-0 items-center justify-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-medium text-slate-800 transition-colors hover:bg-slate-50 disabled:opacity-50"
@@ -5400,14 +5479,16 @@ const PaymentPage = () => {
                 : "Descargar PDF"}
           </button>
         )}
-        <button
-          className="inline-flex w-full items-center justify-center gap-2 rounded-lg border border-slate-200 bg-white py-2.5 text-slate-800 transition-colors hover:bg-slate-50 disabled:opacity-50"
-          onClick={() => handlePrint()}
-          disabled={isPrinting || !isConfirmed || isNotaAnulada}
-        >
-          <Printer className="w-5 h-5" />
-          {isPrinting ? "Imprimiendo..." : "Imprimir comprobante"}
-        </button>
+        {!isFactura && (
+          <button
+            className="inline-flex w-full items-center justify-center gap-2 rounded-lg border border-slate-200 bg-white py-2.5 text-slate-800 transition-colors hover:bg-slate-50 disabled:opacity-50"
+            onClick={() => handlePrint()}
+            disabled={isPrinting || !isConfirmed || isNotaAnulada}
+          >
+            <Printer className="w-5 h-5" />
+            {isPrinting ? "Imprimiendo..." : "Imprimir comprobante"}
+          </button>
+        )}
       </div>
     </>
   );
