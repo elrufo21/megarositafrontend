@@ -11,6 +11,10 @@ import React, { useEffect, useMemo, useState } from "react";
 import type { PosCartItem, PosTotals } from "@/types/pos";
 import { generateTicketQrBase64 } from "@/components/ticketQr";
 
+const MM_TO_PT = 2.834645669;
+const TICKET_WIDTH_MM = 77;
+const TICKET_PAGE_WIDTH_PT = TICKET_WIDTH_MM * MM_TO_PT;
+
 type TicketDocumentProps = {
   clientName?: string;
   clientId?: string;
@@ -209,9 +213,11 @@ const styles = StyleSheet.create({
     backgroundColor: "#fff",
     paddingTop: 2,
     paddingBottom: 2,
-    paddingHorizontal: 8,
+    // zona segura: algunos drivers térmicos recortan borde izquierdo
+    paddingLeft: 11,
+    paddingRight: 7,
     fontFamily: "Helvetica",
-    fontSize: 9,
+    fontSize: 10,
     display: "flex",
     flexDirection: "column",
     justifyContent: "flex-start", // ← AGREGAR ESTO
@@ -248,19 +254,20 @@ const styles = StyleSheet.create({
     //  backgroundColor: "#fffbeb",
   },
   companyText: {
-    fontSize: 8,
+    fontSize: 9,
+    fontWeight: "bold",
     textAlign: "center",
     marginBottom: 2,
   },
   sectionTitle: {
-    fontSize: 10,
+    fontSize: 11,
     fontWeight: "bold",
     marginTop: 10,
     marginBottom: 8,
     textAlign: "center",
   },
   ticketNumber: {
-    fontSize: 11,
+    fontSize: 12,
     fontWeight: "bold",
     textAlign: "center",
     marginBottom: 10,
@@ -273,7 +280,7 @@ const styles = StyleSheet.create({
   infoRow: {
     flexDirection: "row",
     marginBottom: 4,
-    fontSize: 8,
+    fontSize: 9,
     textTransform: "uppercase",
   },
   infoLabel: {
@@ -292,37 +299,39 @@ const styles = StyleSheet.create({
     marginTop: 8,
   },
   tableHeaderText: {
-    fontSize: 8,
+    fontSize: 9,
     fontWeight: "bold",
   },
   colCant: {
-    width: "14%",
+    width: "12%",
   },
   colDesc: {
-    width: "42%",
+    width: "40%",
   },
   colPUni: {
     width: "20%",
     textAlign: "right",
   },
   colImporte: {
-    width: "18%",
+    width: "22%",
     textAlign: "right",
   },
   tableRow: {
     flexDirection: "row",
     marginBottom: 6,
-    fontSize: 8,
+    fontSize: 9,
+    fontWeight: "bold",
   },
   itemsCount: {
-    fontSize: 8,
+    fontSize: 9,
+    fontWeight: "bold",
     marginTop: 6,
     marginBottom: 6,
   },
   summaryRow: {
     flexDirection: "row",
     marginBottom: 3,
-    fontSize: 9,
+    fontSize: 10,
     alignItems: "center",
   },
   summaryLabel: {
@@ -335,6 +344,7 @@ const styles = StyleSheet.create({
   },
   summaryAmount: {
     width: "35%",
+    fontWeight: "bold",
     textAlign: "right",
   },
   totalRow: {
@@ -346,27 +356,28 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   totalLabel: {
-    width: "55%",
-    fontSize: 11,
+    width: "52%",
+    fontSize: 12,
     fontWeight: "bold",
   },
   totalCurrency: {
-    width: "10%",
-    fontSize: 12,
+    width: "8%",
+    fontSize: 13,
     fontWeight: "bold",
     textAlign: "center",
   },
   totalAmount: {
-    width: "35%",
-    fontSize: 12,
+    width: "40%",
+    fontSize: 13,
     fontWeight: "bold",
     textAlign: "right",
   },
   footer: {
     marginTop: 12,
-    fontSize: 7,
+    fontSize: 8,
+    fontWeight: "bold",
     textAlign: "center",
-    color: "#333",
+    color: "#111",
   },
   footerText: {
     marginBottom: 3,
@@ -631,12 +642,12 @@ const TicketDocument = ({
       FOOTER +
       QR +
       PADDING +
-      8 // buffer mínimo
+      40 // buffer extra para evitar recortes con tipografía más grande
     );
   }, [ticketData, qrBase64]);
   return (
     <Document>
-      <Page size={[210, pageHeight]} style={styles.page}>
+      <Page size={[TICKET_PAGE_WIDTH_PT, pageHeight]} style={styles.page}>
         <View wrap={false}>
           <View style={styles.header}>
             {ticketData.logo && (

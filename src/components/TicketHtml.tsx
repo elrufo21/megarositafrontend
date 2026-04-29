@@ -173,21 +173,31 @@ const injectPrintStyles = () => {
   style.id = PRINT_STYLE_ID;
   style.textContent = `
     @media print {
+      html, body {
+        margin: 0 !important;
+        padding: 0 !important;
+      }
+      body {
+        margin: 0 !important;
+        -webkit-print-color-adjust: exact;
+        print-color-adjust: exact;
+      }
       body > * { display: none !important; }
       #ticket-html-print-root { display: block !important; }
       #ticket-html-print-root * { visibility: visible !important; }
 
       @page {
         size: 80mm auto;
-        margin: 0;
+        margin: 0 !important;
       }
 
       #ticket-html-print-root {
         position: fixed;
-        top: 0;
+        top: -1.5mm;
         left: 0;
-        width: 80mm;
-        padding: 2mm 3mm;
+        width: 80mm !important;
+        margin: 0 !important;
+        padding: 0 3mm 2mm 3mm !important;
         background: white;
         color: black;
       }
@@ -384,11 +394,12 @@ const TicketHTML = ({
   const s = {
     page: {
       backgroundColor: "#fff",
-      paddingTop: 2,
+      paddingTop: 0,
       paddingBottom: 2,
       paddingLeft: 8,
       paddingRight: 8,
-      fontFamily: "Helvetica, Arial, sans-serif",
+      // react-pdf no soporta fallback list tipo CSS; necesita una familia registrada/unica
+      fontFamily: "Helvetica",
       fontSize: 9,
       color: "#000",
       width: "100%",

@@ -11,13 +11,12 @@ import {
   Trash2,
   Loader2,
 } from "lucide-react";
-import { pdf } from "@react-pdf/renderer";
+import { pdf, PDFViewer } from "@react-pdf/renderer";
 import { useForm, useWatch } from "react-hook-form";
 import { usePosStore, selectTotals } from "@/store/pos/pos.store";
 import { toast } from "@/shared/ui/toast";
 import { getLocalDateISO } from "@/shared/helpers/localDate";
 import TicketDocument from "@/components/Ticket";
-import TicketHTML from "@/components/TicketHtml";
 import { generateTicketQrBase64 } from "@/components/ticketQr";
 import { apiRequest } from "@/shared/helpers/apiRequest";
 import { HookForm } from "@/components/forms/HookForm";
@@ -3114,7 +3113,9 @@ const PaymentPage = () => {
       const parseSerieFromString = (rawValue: unknown): string | null => {
         const raw = safeTrim(rawValue);
         if (!raw) return null;
-        const formattedMatch = raw.match(/([A-Z]{1,4}\d{0,4})[-\s]?(\d{1,12})/i);
+        const formattedMatch = raw.match(
+          /([A-Z]{1,4}\d{0,4})[-\s]?(\d{1,12})/i,
+        );
         if (formattedMatch?.[1]) {
           return safeTrim(formattedMatch[1]).toUpperCase();
         }
@@ -4984,8 +4985,13 @@ const PaymentPage = () => {
       {isPdfEnabled ? (
         canPreviewPdf ? (
           <div className="h-[68vh] min-h-[420px] overflow-auto bg-slate-100 p-3 sm:h-[620px] sm:p-4">
-            <div className="mx-auto w-[80mm] rounded-md bg-white shadow-sm">
-              <TicketHTML key={previewKey} {...ticketPreviewProps} />
+            <div className="mx-auto h-full w-full overflow-hidden rounded-md bg-white shadow-sm">
+              <PDFViewer
+                key={previewKey}
+                style={{ width: "100%", height: "100%", border: "none" }}
+              >
+                <TicketDocument {...ticketPreviewProps} />
+              </PDFViewer>
             </div>
           </div>
         ) : (
