@@ -230,6 +230,18 @@ const PaymentPage = () => {
       normalized === "ok"
     );
   };
+  const parsePercentageLikeValue = (
+    value: unknown,
+    fallback = 0,
+  ): number => {
+    const normalized = safeTrim(value)
+      .replace("%", "")
+      .replace(",", ".");
+    if (!normalized) return fallback;
+    const numeric = Number(normalized);
+    if (!Number.isFinite(numeric) || numeric < 0) return fallback;
+    return numeric;
+  };
   const parseRecordLikeValue = (
     value: unknown,
   ): Record<string, unknown> | null => {
@@ -653,6 +665,7 @@ const PaymentPage = () => {
     certificadoBase64FromSession,
     entornoFromSession,
     boletaPorLoteFromSession,
+    cardPercentageFromSession,
   } = useMemo(() => {
     if (typeof window === "undefined") {
       return {
@@ -671,6 +684,7 @@ const PaymentPage = () => {
         certificadoBase64FromSession: "",
         entornoFromSession: "",
         boletaPorLoteFromSession: false,
+        cardPercentageFromSession: 5,
       };
     }
 
@@ -794,6 +808,17 @@ const PaymentPage = () => {
       }
       return false;
     })();
+    const cardPercentageFromSession = parsePercentageLikeValue(
+      parsedSession?.user?.cardPercentage ??
+        parsedSession?.user?.tarjetaPorcentaje ??
+        parsedSession?.user?.TarjetaPorcentaje ??
+        parsedSession?.tarjetaPorcentaje ??
+        parsedSession?.TarjetaPorcentaje ??
+        parsedSession?.loginPayload?.tarjetaPorcentaje ??
+        parsedSession?.loginPayload?.TarjetaPorcentaje ??
+        5,
+      5,
+    );
 
     return {
       companyId: safeCompanyId,
@@ -811,6 +836,7 @@ const PaymentPage = () => {
       certificadoBase64FromSession: certificadoBase64,
       entornoFromSession: entorno,
       boletaPorLoteFromSession,
+      cardPercentageFromSession,
     };
   }, []);
 
@@ -1373,6 +1399,7 @@ const PaymentPage = () => {
     : isProforma
       ? discountedTotal
       : roundCurrency(monetarySummary.totalWithIgv);
+  const cardChargeRate = Math.max(0, cardPercentageFromSession) / 100;
 
   const notaAdicional = viewTotalsOverride
     ? roundCurrency(
@@ -1382,7 +1409,7 @@ const PaymentPage = () => {
         ),
       )
     : paymentMethod === "TARJETA"
-      ? documentTotalWithIgv * 0.05
+      ? roundCurrency(documentTotalWithIgv * cardChargeRate)
       : 0;
   const totalAPagar = viewTotalsOverride
     ? viewTotalsOverride.totalToPay
@@ -1465,6 +1492,14 @@ const PaymentPage = () => {
         detalle?.Precio ??
         0,
     );
+    const costo = Number(
+      detalle?.detalleCosto ??
+        detalle?.costo ??
+        detalle?.Costo ??
+        detalle?.precioCosto ??
+        detalle?.PrecioCosto ??
+        0,
+    );
     const detalleImporte = Number(
       detalle?.detalleImporte ?? detalle?.importe ?? detalle?.Importe ?? 0,
     );
@@ -1517,6 +1552,7 @@ const PaymentPage = () => {
         ) || "Producto",
       unidadMedida:
         safeTrim(detalle?.detalleUm ?? detalle?.unidadMedida ?? "") || "UND",
+      costo: Number.isFinite(costo) ? Math.max(costo, 0) : 0,
       precio: Math.max(
         Number.isFinite(precioFromImporte)
           ? precioFromImporte
@@ -2391,10 +2427,11 @@ const PaymentPage = () => {
   const validateDniLength = useCallback(
     (value: any) => {
       const doc = resolveDocumentValue(value, "dni");
-      if (!doc) return true;
+      if (docTypeCode !== "03") return true;
+      if (!doc) return "El DNI es obligatorio para Boleta";
       return /^\d{8}$/.test(doc) || "El DNI debe tener 8 digitos";
     },
-    [resolveDocumentValue],
+    [docTypeCode, resolveDocumentValue],
   );
 
   const validateRucLength = useCallback(
@@ -2434,6 +2471,41 @@ const PaymentPage = () => {
 
     if (!/^\d{11}$/.test(ruc)) {
       toast.error("Para Factura debes ingresar un RUC valido de 11 digitos.");
+      window.requestAnimationFrame(() => {
+        setFocus("customerId");
+      });
+      return false;
+    }
+
+    return true;
+  }, [docTypeCode, getValues, resolveDocumentValue, setFocus]);
+
+  const ensureBoletaCustomerAndDni = useCallback(() => {
+    if (docTypeCode !== "03") return true;
+
+    const selectedClientId = Number(getValues("clienteId") ?? 0);
+    const selectedName = safeTrim(getValues("customerName"));
+    const resolvedDni = resolveDocumentValue(getValues("customerId"), "dni");
+    const dni = safeTrim(resolvedDni);
+
+    if (!selectedName) {
+      toast.error("Para Boleta el nombre del cliente es obligatorio.");
+      window.requestAnimationFrame(() => {
+        setFocus("customerName");
+      });
+      return false;
+    }
+
+    if (selectedClientId <= 0) {
+      toast.error("Para Boleta debes seleccionar un cliente valido.");
+      window.requestAnimationFrame(() => {
+        setFocus("customerName");
+      });
+      return false;
+    }
+
+    if (!/^\d{8}$/.test(dni)) {
+      toast.error("Para Boleta debes ingresar un DNI valido de 8 digitos.");
       window.requestAnimationFrame(() => {
         setFocus("customerId");
       });
@@ -2522,6 +2594,12 @@ const PaymentPage = () => {
       noteId: notaId,
       summary: {
         operacionGravada: Number(gravada.toFixed(2)),
+        cardAdditional: Number(notaAdicional.toFixed(2)),
+        cardPercentage:
+          paymentMethod === "TARJETA"
+            ? Number(cardPercentageFromSession.toFixed(2))
+            : 0,
+        showCardAdditional: paymentMethod === "TARJETA" && notaAdicional > 0,
         descuento: Number(descuento.toFixed(2)),
         showDiscount: applyDiscount,
         subtotal: Number(gravada.toFixed(2)),
@@ -2556,6 +2634,8 @@ const PaymentPage = () => {
     documentTotalWithIgv,
     igvAmount,
     totalAPagar,
+    notaAdicional,
+    cardPercentageFromSession,
     companyCommercialFromSession,
     companyNameFromSession,
     companyRucFromSession,
@@ -2615,6 +2695,23 @@ const PaymentPage = () => {
           : 1;
 
     const bankValue = bankEntity?.trim() || "-";
+    const notaGananciaCalculada = roundCurrency(
+      safeItems.reduce((acc, item) => {
+        const cantidad = Number(item.cantidad ?? 0);
+        const precio = Number(item.precio ?? 0);
+        const costo = Number(
+          (item as any).costo ??
+            (item as any).detalleCosto ??
+            (item as any).precioCosto ??
+            (item as any).PrecioCosto ??
+            0,
+        );
+        if (!Number.isFinite(cantidad) || !Number.isFinite(precio)) return acc;
+        const safeCantidad = Math.max(cantidad, 0);
+        const safeCosto = Number.isFinite(costo) ? costo : 0;
+        return acc + (precio - safeCosto) * safeCantidad;
+      }, 0),
+    );
 
     return {
       nota: {
@@ -2634,9 +2731,11 @@ const PaymentPage = () => {
         notaDescuento: Number(descuento.toFixed(2)),
         notaTotal: Number(documentTotalWithIgv.toFixed(2)),
         notaAcuenta: 0,
-        notaSaldo: Number(documentTotalWithIgv.toFixed(2)),
+        notaSaldo: Number(totalAPagar.toFixed(2)),
         notaAdicional: Number(notaAdicional.toFixed(2)),
-        notaTarjeta: 0,
+        notaTarjeta: isCard
+          ? Number(totalAPagar.toFixed(2))
+          : 0,
         notaPagar: Number(totalAPagar.toFixed(2)),
         notaEstado: "PENDIENTE",
         companiaId: companyId,
@@ -2646,7 +2745,7 @@ const PaymentPage = () => {
         notaConcepto: "MERCADERIA",
         notaSerie,
         notaNumero: paddedNotaNumero || "00000000",
-        notaGanancia: 0,
+        notaGanancia: Number(notaGananciaCalculada.toFixed(2)),
         icbper: 0,
         entidadBancaria: bankValue,
         nroOperacion: isCash ? "" : safeTrim(nroOperacion) || "",
@@ -2663,7 +2762,12 @@ const PaymentPage = () => {
         );
         const detalleUnidad = safeTrim(item.unidadMedida ?? "") || "UND";
         const detalleCosto = Number(
-          (item as any).detalleCosto ?? (item as any).costo ?? item.precio ?? 0,
+          (item as any).detalleCosto ??
+            (item as any).costo ??
+            (item as any).precioCosto ??
+            (item as any).PrecioCosto ??
+            item.precio ??
+            0,
         );
         const detalleEstado =
           safeTrim((item as any).detalleEstado ?? "") || "PENDIENTE";
@@ -2716,6 +2820,8 @@ const PaymentPage = () => {
     safeItemsForFiscal,
     totalAPagar,
     isCash,
+    isCard,
+    cardPercentageFromSession,
   ]);
 
   useEffect(() => {
@@ -2730,6 +2836,7 @@ const PaymentPage = () => {
   const confirmPayment = async () => {
     if (isReadOnlyNoteView) return;
     if (!ensureExistingCustomerByName(getValues("customerName"))) return;
+    if (!ensureBoletaCustomerAndDni()) return;
     if (!ensureFacturaCustomerAndRuc()) return;
 
     const sourceItems = hasLiveItems ? items : purchasedItems;
@@ -2904,7 +3011,7 @@ const PaymentPage = () => {
         notaUsuario: editNota.notaUsuario,
         notaFormaPago:
           safeTrim(editNota.notaFormaPago ?? paymentMethod) || "EFECTIVO",
-        notaCondicion: "INMEDIATA",
+        notaCondicion: "ALCONTADO",
         notaDireccion: safeTrim(editNota.notaDireccion ?? ""),
         notaTelefono: safeTrim(editNota.notaTelefono ?? ""),
         notaSubtotal: Number(editNota.notaSubtotal ?? 0),
@@ -2912,7 +3019,7 @@ const PaymentPage = () => {
         notaDescuento: Number(editNota.notaDescuento ?? 0),
         notaTotal: Number(editNota.notaTotal ?? 0),
         notaAcuenta: Number(editNota.notaTotal ?? 0),
-        notaSaldo: 0,
+        notaSaldo: Number(editNota.notaPagar ?? editNota.notaTotal ?? 0),
         notaAdicional: Number(editNota.notaAdicional ?? 0),
         notaTarjeta: Number(editNota.notaTarjeta ?? 0),
         notaPagar: Number(editNota.notaPagar ?? editNota.notaTotal ?? 0),
@@ -5184,12 +5291,14 @@ const PaymentPage = () => {
           options={docTypeCode === "01" ? facturaClientOptions : clientOptions}
           rules={{
             validate: (value: any) => {
-              if (docTypeCode !== "01") return true;
               const normalized = safeTrim(value);
-              if (!normalized) {
+              if (docTypeCode === "03" && !normalized) {
+                return "Nombre de cliente obligatorio para Boleta";
+              }
+              if (docTypeCode === "01" && !normalized) {
                 return "Nombre de cliente obligatorio para Factura";
               }
-              if (normalized.toUpperCase() === "VARIOS") {
+              if (docTypeCode === "01" && normalized.toUpperCase() === "VARIOS") {
                 return "Para Factura el cliente no puede ser VARIOS";
               }
               return true;
@@ -5379,6 +5488,14 @@ const PaymentPage = () => {
             <span>Op. gravada</span>
             <span className="font-semibold">S/ {gravada.toFixed(2)}</span>
           </div>
+          {paymentMethod === "TARJETA" && (
+            <div className="flex justify-between text-sm text-gray-700">
+              <span>
+                Adicional {cardPercentageFromSession.toFixed(2)}%
+              </span>
+              <span className="font-semibold">S/ {notaAdicional.toFixed(2)}</span>
+            </div>
+          )}
 
           {applyDiscount && (
             <div className="flex items-center justify-between gap-3 text-sm text-gray-700">

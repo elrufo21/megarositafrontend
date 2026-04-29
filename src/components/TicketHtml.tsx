@@ -18,6 +18,9 @@ type TicketHTMLProps = {
   companyDistrict?: string;
   summary?: {
     operacionGravada?: number;
+    cardAdditional?: number;
+    cardPercentage?: number;
+    showCardAdditional?: boolean;
     descuento?: number;
     showDiscount?: boolean;
     subtotal?: number;
@@ -245,6 +248,8 @@ const TicketHTML = ({
     const fallbackTotal = hasItems ? Number(totals?.total ?? 0) : 100.0;
 
     const operacionGravadaValue = Number(summary?.operacionGravada);
+    const cardAdditionalValue = Number(summary?.cardAdditional);
+    const cardPercentageValue = Number(summary?.cardPercentage);
     const descuentoValue = Number(summary?.descuento);
     const subtotalValue = Number(summary?.subtotal);
     const igvValue = Number(summary?.igv);
@@ -256,6 +261,14 @@ const TicketHTML = ({
     const safeDescuento = Number.isFinite(descuentoValue)
       ? Math.max(0, descuentoValue)
       : 0;
+    const safeCardAdditional = Number.isFinite(cardAdditionalValue)
+      ? Math.max(0, cardAdditionalValue)
+      : 0;
+    const safeCardPercentage = Number.isFinite(cardPercentageValue)
+      ? Math.max(0, cardPercentageValue)
+      : 0;
+    const showCardAdditional =
+      Boolean(summary?.showCardAdditional) && safeCardAdditional > 0;
     const showDiscount = Boolean(summary?.showDiscount);
     const safeSubtotal = Number.isFinite(subtotalValue)
       ? Math.max(0, subtotalValue)
@@ -343,6 +356,9 @@ const TicketHTML = ({
             },
           ],
       operacionGravada: safeOperacionGravada,
+      cardAdditional: safeCardAdditional,
+      cardPercentage: safeCardPercentage,
+      showCardAdditional,
       descuento: safeDescuento,
       showDiscount,
       subtotal: safeSubtotal,
@@ -668,6 +684,17 @@ const TicketHTML = ({
               {ticketData.operacionGravada.toFixed(2)}
             </span>
           </div>
+          {ticketData.showCardAdditional && (
+            <div style={s.summaryRow}>
+              <span style={s.summaryLabel}>
+                ADICIONAL {ticketData.cardPercentage.toFixed(2)}% :
+              </span>
+              <span style={s.summaryCurrency}>S/</span>
+              <span style={s.summaryAmount}>
+                {ticketData.cardAdditional.toFixed(2)}
+              </span>
+            </div>
+          )}
           {ticketData.showDiscount && (
             <div style={s.summaryRow}>
               <span style={s.summaryLabel}>DESCUENTO :</span>

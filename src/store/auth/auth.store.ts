@@ -4,6 +4,7 @@ import { API_BASE_URL } from "@/config";
 import { apiRequest } from "@/shared/helpers/apiRequest";
 
 const STORAGE_KEY = "sgo.auth.session";
+const LOGIN_RESPONSE_STORAGE_KEY = "sgo.auth.login-response";
 const SESSION_EXPIRED_MESSAGE = "Tu sesión expiró. Ingresa nuevamente.";
 
 export interface AuthUser {
@@ -25,6 +26,7 @@ export interface AuthUser {
   claveCertificado: string;
   entorno: string;
   maxDiscount: number;
+  cardPercentage: number;
   boletaPorLote: boolean;
 }
 
@@ -37,7 +39,7 @@ export interface AuthSession {
 }
 
 interface LoginPayload {
-  username: string;
+  email: string;
   password: string;
 }
 
@@ -77,6 +79,7 @@ interface LoginResponse {
   Entorno?: string | number | null;
   FechaVencimientoClave?: string | null;
   DescuentoMax?: string | number | null;
+  TarjetaPorcentaje?: string | number | null;
   BoletaPorLote?: string | number | boolean | null;
   Token?: string | null;
   ExpiresAtUtc?: string | null;
@@ -113,9 +116,18 @@ const persistSession = (session: AuthSession) => {
   window.localStorage.setItem(STORAGE_KEY, JSON.stringify(session));
 };
 
+const persistLoginResponse = (response: LoginResponse) => {
+  if (typeof window === "undefined") return;
+  window.localStorage.setItem(
+    LOGIN_RESPONSE_STORAGE_KEY,
+    JSON.stringify(response),
+  );
+};
+
 const clearSession = () => {
   if (typeof window === "undefined") return;
   window.localStorage.removeItem(STORAGE_KEY);
+  window.localStorage.removeItem(LOGIN_RESPONSE_STORAGE_KEY);
 };
 
 const scheduleSessionExpiration = (expiresAt: number, onExpire: () => void) => {
@@ -174,6 +186,17 @@ const normalizeMaxDiscount = (value: unknown): number => {
   const numeric = Number(value ?? 0);
   if (!Number.isFinite(numeric)) return 0;
   return Math.max(0, numeric);
+};
+
+const normalizeCardPercentage = (value: unknown, fallback = 5): number => {
+  const normalized = String(value ?? "")
+    .trim()
+    .replace("%", "")
+    .replace(",", ".");
+  if (!normalized) return fallback;
+  const numeric = Number(normalized);
+  if (!Number.isFinite(numeric) || numeric < 0) return fallback;
+  return numeric;
 };
 
 const normalizeText = (value: unknown): string => String(value ?? "").trim();
@@ -256,6 +279,10 @@ const normalizeAuthUser = (user: AuthUser): AuthUser => ({
   entorno: normalizeText((user as AuthUser & { entorno?: unknown }).entorno),
   maxDiscount: normalizeMaxDiscount(
     (user as AuthUser & { maxDiscount?: unknown }).maxDiscount,
+  ),
+  cardPercentage: normalizeCardPercentage(
+    (user as AuthUser & { cardPercentage?: unknown }).cardPercentage,
+    5,
   ),
   boletaPorLote: normalizeBooleanFlag(
     (user as AuthUser & { boletaPorLote?: unknown }).boletaPorLote,
@@ -346,14 +373,14 @@ export const useAuthStore = create<AuthState>((set, get) => {
       persistSession(session);
     },
 
-    login: async ({ username, password }) => {
+    login: async ({ email, password }) => {
       set({ loading: true, error: null });
 
       const response = await apiRequest<LoginResponse>({
         url: `${API_BASE_URL}/User/acceso`,
         method: "POST",
         data: {
-          email: username.trim(),
+          email: email.trim(),
           password: password.trim(),
         },
       });
@@ -398,6 +425,14 @@ export const useAuthStore = create<AuthState>((set, get) => {
               1000
           : null);
       const boletaPorLote = resolveBoletaPorLoteFlag(parsed);
+      const cardPercentage = normalizeCardPercentage(
+        readLoginValue(parsed, "TarjetaPorcentaje", "tarjetaPorcentaje"),
+        5,
+      );
+      const normalizedEmail = email.trim();
+      const resolvedUsername =
+        normalizeText(readLoginValue(parsed, "Usuario", "usuario")) ||
+        normalizedEmail;
 
       const session: AuthSession = {
         token,
@@ -414,9 +449,8 @@ export const useAuthStore = create<AuthState>((set, get) => {
           id: normalizeText(readLoginValue(parsed, "Id", "id")),
           personalId: normalizeText(readLoginValue(parsed, "PersonalId", "personalId")),
           area: normalizeText(readLoginValue(parsed, "Area", "area")),
-          username,
-          displayName:
-            normalizeText(readLoginValue(parsed, "Usuario", "usuario")) || username,
+          username: resolvedUsername,
+          displayName: resolvedUsername,
           companyId: normalizeText(readLoginValue(parsed, "CompaniaId", "companiaId")),
           companyName: normalizeText(readLoginValue(parsed, "RazonSocial", "razonSocial")),
           companyRuc: normalizeText(readLoginValue(parsed, "CompaniaRuc", "companiaRuc")),
@@ -444,6 +478,7 @@ export const useAuthStore = create<AuthState>((set, get) => {
           maxDiscount: normalizeMaxDiscount(
             readLoginValue(parsed, "DescuentoMax", "descuentoMax"),
           ),
+          cardPercentage,
           boletaPorLote,
         },
         loginPayload: {
@@ -478,6 +513,7 @@ export const useAuthStore = create<AuthState>((set, get) => {
             const raw = readLoginValue(parsed, "DescuentoMax", "descuentoMax");
             return raw === null || raw === undefined ? null : String(raw);
           })(),
+          TarjetaPorcentaje: String(cardPercentage),
           BoletaPorLote: boletaPorLote,
 
           // Compatibilidad temporal con consumidores legacy.
@@ -511,11 +547,13 @@ export const useAuthStore = create<AuthState>((set, get) => {
             const raw = readLoginValue(parsed, "DescuentoMax", "descuentoMax");
             return raw === null || raw === undefined ? null : String(raw);
           })(),
+          tarjetaPorcentaje: String(cardPercentage),
           boletaPorLote: boletaPorLote ? "1" : "0",
         },
       };
 
       persistSession(session);
+      persistLoginResponse(parsed);
       set({
         loading: false,
         isAuthenticated: true,

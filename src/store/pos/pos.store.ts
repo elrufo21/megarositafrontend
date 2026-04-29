@@ -127,6 +127,12 @@ export const usePosStore = create<PosState>()(
             toNumber((product as any).preVenta ?? 0) ||
             toNumber((product as any).preVentaB ?? 0) ||
             0;
+          const baseCost = toNonNegative(
+            (product as any).preCosto ??
+              (product as any).precioCosto ??
+              (product as any).costo ??
+              0
+          );
           const minPrice = Math.max(
             toNonNegative((product as any).preVentaB ?? 0),
             toNonNegative(basePrice)
@@ -178,6 +184,7 @@ export const usePosStore = create<PosState>()(
                       ...item,
                       cantidad: nextQty,
                       precio: nextPrice,
+                      costo: baseCost,
                       precioMinimo: minPrice,
                       valorUM: reductionValue,
                       codigoSunat: item.codigoSunat || productCodigoSunat || undefined,
@@ -193,6 +200,7 @@ export const usePosStore = create<PosState>()(
                   nombre: product.nombre,
                   unidadMedida: product.unidadMedida,
                   detalleId: normalizedDetailId,
+                  costo: baseCost,
                   precio: Math.max(toNonNegative(basePrice), minPrice),
                   precioMinimo: minPrice,
                   cantidad: nextQty,

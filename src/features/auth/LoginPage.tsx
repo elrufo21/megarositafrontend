@@ -14,7 +14,7 @@ import { HookForm } from "@/components/forms/HookForm";
 import { useAuthStore } from "@/store/auth/auth.store";
 
 type LoginFormValues = {
-  username: string;
+  email: string;
   password: string;
 };
 
@@ -32,7 +32,7 @@ export function LoginPage() {
 
   const formMethods = useForm<LoginFormValues>({
     defaultValues: {
-      username: "",
+      email: "",
       password: "",
     },
   });
@@ -41,7 +41,7 @@ export function LoginPage() {
     setFormError(null);
 
     const success = await login({
-      username: values.username.trim(),
+      email: values.email.trim(),
       password: values.password.trim(),
     });
 
@@ -198,7 +198,7 @@ export function LoginPage() {
               className="mt-5 space-y-3"
             >
               <Controller
-                name="username"
+                name="email"
                 control={formMethods.control}
                 rules={{
                   required: "Ingresa usuario",

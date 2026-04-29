@@ -31,6 +31,9 @@ type TicketDocumentProps = {
   companyDistrict?: string;
   summary?: {
     operacionGravada?: number;
+    cardAdditional?: number;
+    cardPercentage?: number;
+    showCardAdditional?: boolean;
     descuento?: number;
     showDiscount?: boolean;
     subtotal?: number;
@@ -322,6 +325,12 @@ const styles = StyleSheet.create({
     fontSize: 9,
     fontWeight: "bold",
   },
+  additionalDetailSeparator: {
+    borderTopWidth: 1,
+    borderTopColor: "#000",
+    marginTop: 2,
+    marginBottom: 4,
+  },
   itemsCount: {
     fontSize: 9,
     fontWeight: "bold",
@@ -429,6 +438,8 @@ const TicketDocument = ({
     const fallbackTotal = hasItems ? Number(totals?.total ?? 0) : 100.0;
 
     const operacionGravadaValue = Number(summary?.operacionGravada);
+    const cardAdditionalValue = Number(summary?.cardAdditional);
+    const cardPercentageValue = Number(summary?.cardPercentage);
     const descuentoValue = Number(summary?.descuento);
     const subtotalValue = Number(summary?.subtotal);
     const igvValue = Number(summary?.igv);
@@ -440,6 +451,14 @@ const TicketDocument = ({
     const safeDescuento = Number.isFinite(descuentoValue)
       ? Math.max(0, descuentoValue)
       : 0;
+    const safeCardAdditional = Number.isFinite(cardAdditionalValue)
+      ? Math.max(0, cardAdditionalValue)
+      : 0;
+    const safeCardPercentage = Number.isFinite(cardPercentageValue)
+      ? Math.max(0, cardPercentageValue)
+      : 0;
+    const showCardAdditional =
+      Boolean(summary?.showCardAdditional) && safeCardAdditional > 0;
     const showDiscount = Boolean(summary?.showDiscount);
     const safeSubtotal = Number.isFinite(subtotalValue)
       ? Math.max(0, subtotalValue)
@@ -525,6 +544,9 @@ const TicketDocument = ({
             },
           ],
       operacionGravada: safeOperacionGravada,
+      cardAdditional: safeCardAdditional,
+      cardPercentage: safeCardPercentage,
+      showCardAdditional,
       descuento: safeDescuento,
       showDiscount,
       subtotal: safeSubtotal,
@@ -607,6 +629,9 @@ const TicketDocument = ({
       const lines = Math.ceil(descLength / 22);
       return acc + Math.max(8 + 6, lines * 9 + 6); // (fontSize + marginBottom) mínimo
     }, 0);
+    const cardAdditionalDetailRowHeight = ticketData.showCardAdditional
+      ? 8 + 6
+      : 0;
 
     const ITEMS_COUNT = 8 + 6 + 6; // fontSize + marginTop + marginBottom
     const DIVIDER2 = 1 + 8 * 2;
@@ -635,6 +660,7 @@ const TicketDocument = ({
       infoSection +
       TABLE_HEADER +
       rowsHeight +
+      cardAdditionalDetailRowHeight +
       ITEMS_COUNT +
       DIVIDER2 +
       summaryRows +
@@ -711,6 +737,19 @@ const TicketDocument = ({
               <Text style={styles.colImporte}>{item.total.toFixed(2)}</Text>
             </View>
           ))}
+          {ticketData.showCardAdditional && (
+            <View>
+              <View style={styles.additionalDetailSeparator} />
+              <View style={styles.tableRow}>
+                <Text style={styles.colCant}></Text>
+                <Text style={styles.colDesc}>MV/CT/DS</Text>
+                <Text style={styles.colPUni}></Text>
+                <Text style={styles.colImporte}>
+                  {ticketData.cardAdditional.toFixed(2)}
+                </Text>
+              </View>
+            </View>
+          )}
           <Text style={styles.itemsCount}>
             items: {ticketData.items.length}
           </Text>
