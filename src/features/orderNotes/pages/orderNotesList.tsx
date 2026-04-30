@@ -675,20 +675,6 @@ const OrderNotesList = () => {
                   Buscar
                 </span>
               </div>
-
-              <div className="relative group">
-                <button
-                  type="button"
-                  onClick={handleExportExcel}
-                  className="inline-flex h-11 w-11 items-center justify-center rounded-xl bg-emerald-600 text-white transition-colors hover:bg-emerald-700"
-                  aria-label="Exportar a Excel"
-                >
-                  <FileSpreadsheet className="h-4 w-4" />
-                </button>
-                <span className="pointer-events-none absolute -top-9 left-1/2 -translate-x-1/2 rounded-md bg-slate-900 px-2 py-1 text-xs font-medium text-white opacity-0 shadow transition-opacity group-hover:opacity-100">
-                  Excel
-                </span>
-              </div>
             </div>
           </LocalizationProvider>
         }

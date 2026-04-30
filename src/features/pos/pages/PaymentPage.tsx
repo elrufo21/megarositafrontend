@@ -401,7 +401,11 @@ const PaymentPage = () => {
       .join(" - ");
   const isCancelledStatusValue = (value: unknown) => {
     const normalized = safeTrim(value).toUpperCase();
-    return normalized.includes("ANUL") || normalized.includes("BAJA");
+    return (
+      normalized.includes("ANUL") ||
+      normalized.includes("BAJA") ||
+      normalized.includes("CANCEL")
+    );
   };
   const isEmittedStatusValue = (value: unknown) => {
     const normalized = safeTrim(value).toUpperCase();
@@ -5109,6 +5113,7 @@ const PaymentPage = () => {
               <PDFViewer
                 key={previewKey}
                 style={{ width: "100%", height: "100%", border: "none" }}
+                showToolbar={false}
               >
                 <TicketDocument {...ticketPreviewProps} />
               </PDFViewer>

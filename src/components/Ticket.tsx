@@ -236,9 +236,8 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   logo: {
-    width: 60,
-    height: 60,
-    marginBottom: 6,
+    width: 100,
+    height: 100,
     alignSelf: "center",
     objectFit: "contain",
   },
@@ -327,12 +326,16 @@ const styles = StyleSheet.create({
   },
   tableItemRow: {
     flexDirection: "row",
-    marginBottom: 4,
-    paddingBottom: 4,
-    borderBottomWidth: 1,
-    borderBottomColor: "#bdbdbd",
+    marginTop: 2,
+    marginBottom: 0,
     fontSize: 9,
     fontWeight: "bold",
+  },
+  tableItemSeparator: {
+    borderBottomWidth: 1,
+    borderBottomColor: "#bdbdbd",
+    marginTop: 10,
+    marginBottom: 6,
   },
   additionalDetailSeparator: {
     borderTopWidth: 1,
@@ -512,7 +515,7 @@ const TicketDocument = ({
     return {
       isFactura: docType === "factura",
       isProforma: docType === "proforma",
-      logo: "/LogoManuel.png",
+      logo: "/LogoHuillca.PNG",
       qrData,
       companyName: companyName?.trim() || "CONSORCIO FERRETERO ROSITA E.I.R.L.",
       ruc: companyRuc?.trim() || "20601070155",
@@ -637,7 +640,7 @@ const TicketDocument = ({
       const descLength =
         `${formatUnitPrefix(item.unitMeasure)}${item.description}`.length;
       const lines = Math.ceil(descLength / 22);
-      return acc + Math.max(8 + 8, lines * 9 + 8); // incluye separador por fila
+      return acc + Math.max(8 + 18, lines * 9 + 18); // fila + separador con margen
     }, 0);
     const cardAdditionalDetailRowHeight = ticketData.showCardAdditional
       ? 8 + 6
@@ -740,13 +743,16 @@ const TicketDocument = ({
             </Text>
           </View>
           {ticketData.items.map((item, index) => (
-            <View key={index} style={styles.tableItemRow}>
-              <Text style={styles.colCant}>{item.quantity.toFixed(2)}</Text>
-              <Text style={styles.colDesc}>
-                {`${formatUnitPrefix(item.unitMeasure)}${item.description}`}
-              </Text>
-              <Text style={styles.colPUni}>{item.unitPrice.toFixed(2)}</Text>
-              <Text style={styles.colImporte}>{item.total.toFixed(2)}</Text>
+            <View key={index}>
+              <View style={styles.tableItemRow}>
+                <Text style={styles.colCant}>{item.quantity.toFixed(2)}</Text>
+                <Text style={styles.colDesc}>
+                  {`${formatUnitPrefix(item.unitMeasure)}${item.description}`}
+                </Text>
+                <Text style={styles.colPUni}>{item.unitPrice.toFixed(2)}</Text>
+                <Text style={styles.colImporte}>{item.total.toFixed(2)}</Text>
+              </View>
+              <View style={styles.tableItemSeparator} />
             </View>
           ))}
           {ticketData.showCardAdditional && (
@@ -759,12 +765,12 @@ const TicketDocument = ({
                   {ticketData.cardAdditional.toFixed(2)}
                 </Text>
               </View>
+              <View style={styles.tableItemSeparator} />
             </View>
           )}
           <Text style={styles.itemsCount}>
             items: {ticketData.items.length}
           </Text>
-          <View style={styles.divider} />
           {!ticketData.isProforma && (
             <>
               <View style={styles.summaryRow}>

@@ -93,6 +93,7 @@ const normalizeSearchText = (value: unknown) =>
     .trim();
 
 const SEARCH_STORAGE_PREFIX = "sgo:datatable:search:";
+const SEARCH_ACTIVE_MODULE_KEY = "sgo:datatable:active-module";
 
 const resolveSearchScope = (pathname: string): string => {
   const segments = pathname.split("/").filter(Boolean);
@@ -194,13 +195,27 @@ export default function DataTable<T extends RowData>({
     if (typeof window === "undefined") return;
 
     try {
+      const previousScope = String(
+        window.sessionStorage.getItem(SEARCH_ACTIVE_MODULE_KEY) ?? "",
+      ).trim();
+
+      if (previousScope && previousScope !== searchScope) {
+        window.sessionStorage.removeItem(
+          `${SEARCH_STORAGE_PREFIX}${previousScope}`,
+        );
+      }
+
+      window.sessionStorage.setItem(SEARCH_ACTIVE_MODULE_KEY, searchScope);
+
       const storedValue = window.sessionStorage.getItem(globalFilterStorageKey);
       const nextValue = String(storedValue ?? "");
-      setGlobalFilter((previous) => (previous === nextValue ? previous : nextValue));
+      setGlobalFilter((previous) =>
+        previous === nextValue ? previous : nextValue,
+      );
     } catch {
       // ignore storage errors
     }
-  }, [globalFilterStorageKey, isGlobalFilterControlled]);
+  }, [globalFilterStorageKey, isGlobalFilterControlled, searchScope]);
 
   const handleGlobalFilterChange = (value: string) => {
     setGlobalFilter(value);
@@ -220,6 +235,7 @@ export default function DataTable<T extends RowData>({
   }, [globalFilterValue, isGlobalFilterControlled]);
 
   useEffect(() => {
+    if (isGlobalFilterControlled) return;
     if (typeof window === "undefined") return;
     try {
       const value = String(globalFilter ?? "");
@@ -231,7 +247,7 @@ export default function DataTable<T extends RowData>({
     } catch {
       // ignore storage errors
     }
-  }, [globalFilter, globalFilterStorageKey]);
+  }, [globalFilter, globalFilterStorageKey, isGlobalFilterControlled]);
 
   const filteredData = useMemo(() => {
     if (disableLocalFiltering) return data;

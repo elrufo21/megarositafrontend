@@ -163,6 +163,32 @@ export function CrudList<T>(props: CrudListProps<T>) {
                   return;
                 }
 
+                if (result instanceof Error) {
+                  const raw = result as Error & {
+                    response?: {
+                      data?: {
+                        mensaje?: unknown;
+                        Mensaje?: unknown;
+                        message?: unknown;
+                        Message?: unknown;
+                      };
+                    };
+                  };
+                  const backendMessage = String(
+                    raw.response?.data?.mensaje ??
+                      raw.response?.data?.Mensaje ??
+                      raw.response?.data?.message ??
+                      raw.response?.data?.Message ??
+                      "",
+                  ).trim();
+                  toast.error(
+                    backendMessage ||
+                      raw.message ||
+                      "No se pudo eliminar el registro.",
+                  );
+                  return;
+                }
+
                 if (result && typeof result === "object") {
                   const payload = result as {
                     ok?: boolean;

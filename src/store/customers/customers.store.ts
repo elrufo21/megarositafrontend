@@ -154,6 +154,76 @@ const parseExistsMessage = (payload: unknown): string | null => {
   return null;
 };
 
+const resolveDeleteClientErrorMessage = (payload: unknown): string => {
+  if (!payload) return "";
+
+  if (typeof payload === "string") {
+    const raw = payload.trim();
+    if (!raw) return "";
+    if (raw.startsWith("{") && raw.endsWith("}")) {
+      try {
+        const parsed = JSON.parse(raw) as {
+          mensaje?: unknown;
+          Mensaje?: unknown;
+          message?: unknown;
+          Message?: unknown;
+        };
+        return String(
+          parsed.mensaje ??
+            parsed.Mensaje ??
+            parsed.message ??
+            parsed.Message ??
+            raw,
+        ).trim();
+      } catch {
+        return raw;
+      }
+    }
+    return raw;
+  }
+
+  if (payload && typeof payload === "object") {
+    const obj = payload as {
+      mensaje?: unknown;
+      Mensaje?: unknown;
+      message?: unknown;
+      Message?: unknown;
+      data?: {
+        mensaje?: unknown;
+        Mensaje?: unknown;
+        message?: unknown;
+        Message?: unknown;
+      };
+      response?: {
+        data?: {
+          mensaje?: unknown;
+          Mensaje?: unknown;
+          message?: unknown;
+          Message?: unknown;
+        };
+      };
+    };
+
+    const fromResponseData = resolveDeleteClientErrorMessage(obj.response?.data);
+    if (fromResponseData) return fromResponseData;
+
+    const fromData = resolveDeleteClientErrorMessage(obj.data);
+    if (fromData) return fromData;
+
+    const fromMensaje = String(obj.mensaje ?? obj.Mensaje ?? "").trim();
+    if (fromMensaje) return fromMensaje;
+
+    const fromMessage = String(obj.message ?? obj.Message ?? "").trim();
+    const isAxiosGenericMessage =
+      /^Request failed with status code\s+\d+$/i.test(fromMessage);
+    if (!isAxiosGenericMessage && fromMessage) return fromMessage;
+
+    return "";
+  }
+
+  return "";
+};
+
 export const useClientsStore = create<ClientsState>((set) => ({
   clients: [],
   loading: false,
@@ -266,18 +336,63 @@ export const useClientsStore = create<ClientsState>((set) => ({
       return { ok: false, error: "No se pudo eliminar el cliente." };
     }
 
+    if (result instanceof Error) {
+      const messageFromPayload = resolveDeleteClientErrorMessage(result);
+      return {
+        ok: false,
+        error:
+          messageFromPayload ||
+          result.message ||
+          "No se pudo eliminar el cliente.",
+      };
+    }
+
     if (result && typeof result === "object") {
       const payload = result as {
         ok?: unknown;
+        Ok?: unknown;
         mensaje?: unknown;
+        Mensaje?: unknown;
         message?: unknown;
+        Message?: unknown;
+        data?: {
+          ok?: unknown;
+          Ok?: unknown;
+          mensaje?: unknown;
+          Mensaje?: unknown;
+          message?: unknown;
+          Message?: unknown;
+        };
+        response?: {
+          status?: unknown;
+          data?: {
+            ok?: unknown;
+            Ok?: unknown;
+            mensaje?: unknown;
+            Mensaje?: unknown;
+            message?: unknown;
+            Message?: unknown;
+          };
+        };
       };
-      if (payload.ok === false) {
+      const payloadData = payload.data;
+      const responseData = payload.response?.data;
+      const responseStatus = Number(payload.response?.status ?? 0);
+      const hasHttpErrorStatus =
+        Number.isFinite(responseStatus) && responseStatus >= 400;
+      const resolvedOk =
+        payload.ok ??
+        payload.Ok ??
+        payloadData?.ok ??
+        payloadData?.Ok ??
+        responseData?.ok;
+      const resolvedMessage =
+        resolveDeleteClientErrorMessage(payload);
+
+      if (resolvedOk === false || hasHttpErrorStatus) {
         return {
           ok: false,
-          error:
-            String(payload.mensaje ?? payload.message ?? "").trim() ||
-            "No se pudo eliminar el cliente.",
+          error: resolvedMessage || "No se pudo eliminar el cliente.",
         };
       }
     }
