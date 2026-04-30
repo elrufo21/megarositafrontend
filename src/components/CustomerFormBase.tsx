@@ -51,7 +51,7 @@ const buildDefaults = (
   estado: data?.estado ?? "ACTIVO",
   fecha: data?.fecha ?? null,
   tipoDocumento: data?.dni ? "dni" : "ruc",
-  numeroDocumento: data?.dni ?? data?.ruc ?? "",
+  numeroDocumento: "",
 });
 
 export default function CustomerFormBase({

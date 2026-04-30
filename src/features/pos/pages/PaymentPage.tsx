@@ -403,6 +403,10 @@ const PaymentPage = () => {
     const normalized = safeTrim(value).toUpperCase();
     return normalized.includes("ANUL") || normalized.includes("BAJA");
   };
+  const isEmittedStatusValue = (value: unknown) => {
+    const normalized = safeTrim(value).toUpperCase();
+    return normalized.includes("EMITID");
+  };
   const isRejectedStatusValue = (value: unknown) => {
     const normalized = safeTrim(value).toUpperCase();
     return normalized.includes("RECHAZ");
@@ -507,7 +511,7 @@ const PaymentPage = () => {
     if (!state || typeof state !== "object") return false;
     return (state as Record<string, unknown>).fromOrderNotesViewButton === true;
   }, [pathname, state]);
-  const shouldBackToOrderNotesList = isReadOnlyNoteView;
+  const shouldBackToOrderNotesList = isOrderNotesFlow;
   const backRoute = shouldBackToOrderNotesList
     ? "/sales/order_notes"
     : "/sales/pos";
@@ -909,8 +913,18 @@ const PaymentPage = () => {
   const hasLiveItems = !isOrderNotesFlow && items.length > 0;
   const itemsToRender = hasLiveItems ? items : purchasedItems;
   const totalsToRender = hasLiveItems ? totals : paidTotals;
+  const isNotaBlockedForItemActions =
+    isCancelledStatusValue(
+      safeTrim(notaEstadoActual).toUpperCase(),
+    ) ||
+    isEmittedStatusValue(
+    safeTrim(notaEstadoActual).toUpperCase(),
+  );
   const canEditItems =
-    !isConfirmed && !isReadOnlyNoteView && (hasLiveItems || isEditingMode);
+    !isConfirmed &&
+    !isReadOnlyNoteView &&
+    !isNotaBlockedForItemActions &&
+    (hasLiveItems || isEditingMode);
   const ticketIdNumber = Number(notaId ?? 0);
   const hasTicketId = Number.isFinite(ticketIdNumber) && ticketIdNumber > 0;
   const previousItemsCountRef = useRef(items.length);
@@ -1153,8 +1167,6 @@ const PaymentPage = () => {
   const clienteId = watch("clienteId");
   const customerName = watch("customerName");
   const customerId = watch("customerId");
-  const bankEntity = watch("bankEntity");
-  const nroOperacion = watch("nroOperacion");
   const notes = watch("notes");
   const applyDiscount = useWatch({
     control,
@@ -1214,17 +1226,14 @@ const PaymentPage = () => {
     if (docTypeCode === "01" || docTypeCode === "03") return docTypeCode;
     return "";
   })();
-  const canManageDocumentFromOrderNotes =
-    isReadOnlyNoteView || cameFromOrderNotesViewButton;
   const isNotaAnulada = isCancelledStatusValue(normalizedNotaEstado);
+  const isNotaEmitida = isEmittedStatusValue(normalizedNotaEstado);
   const isNotaRechazada = isRejectedStatusValue(normalizedNotaEstado);
   const isEditRestrictedByDocumentRules =
     Boolean(notaId) &&
     hasLoadedNotaMeta &&
     isEditingMode &&
-    (!isProforma || isNotaAnulada);
-  const canVoidDocumentFromOrderNotes =
-    hasTicketId && canManageDocumentFromOrderNotes && !isNotaAnulada;
+    (!isProforma || isNotaAnulada || isNotaEmitida);
   const formLocked =
     isConfirmed || isReadOnlyNoteView || isEditRestrictedByDocumentRules;
   const isPersistingToDb =
@@ -1241,7 +1250,9 @@ const PaymentPage = () => {
         : isResendingDocument
           ? "Reenviando documento..."
           : "Procesando...";
-  const shouldShowOrderNotesDocumentAction = canVoidDocumentFromOrderNotes;
+  const shouldShowOrderNotesDocumentAction = false;
+  const shouldShowShareAndDownloadActions = false;
+  const shouldShowBankTransferFields = false;
   const orderNotesDocumentActionPending = isVoidingTicket;
   const orderNotesDocumentActionClass =
     "border border-[#B23636]/25 bg-[#B23636]/10 text-[#B23636] hover:bg-[#B23636]/15";
@@ -1273,6 +1284,8 @@ const PaymentPage = () => {
       toast.info(
         isNotaAnulada
           ? "Si está anulado no se puede editar."
+          : isNotaEmitida
+            ? "Si está emitido no se puede editar."
           : "Si es boleta o factura no se puede editar.",
       );
       editRestrictionNotifiedRef.current = true;
@@ -1286,6 +1299,7 @@ const PaymentPage = () => {
     hasLoadedNotaMeta,
     isEditRestrictedByDocumentRules,
     isNotaAnulada,
+    isNotaEmitida,
     isOrderNotesFlow,
     notaId,
     navigate,
@@ -2694,7 +2708,6 @@ const PaymentPage = () => {
           ? PROFORMA_DEFAULT_CONTACT_ID
           : 1;
 
-    const bankValue = bankEntity?.trim() || "-";
     const notaGananciaCalculada = roundCurrency(
       safeItems.reduce((acc, item) => {
         const cantidad = Number(item.cantidad ?? 0);
@@ -2747,8 +2760,8 @@ const PaymentPage = () => {
         notaNumero: paddedNotaNumero || "00000000",
         notaGanancia: Number(notaGananciaCalculada.toFixed(2)),
         icbper: 0,
-        entidadBancaria: bankValue,
-        nroOperacion: isCash ? "" : safeTrim(nroOperacion) || "",
+        entidadBancaria: "",
+        nroOperacion: "",
         efectivo: isCash ? Number(totalAPagar.toFixed(2)) : 0,
         deposito: isCash ? 0 : Number(totalAPagar.toFixed(2)),
       },
@@ -2797,7 +2810,6 @@ const PaymentPage = () => {
       }),
     };
   }, [
-    bankEntity,
     notaId,
     companyId,
     clienteId,
@@ -2813,7 +2825,6 @@ const PaymentPage = () => {
     documentTotalWithIgv,
     gravada,
     notaAdicional,
-    nroOperacion,
     resolvedNotaUsuario,
     paymentMethod,
     monetarySummary,
@@ -3655,12 +3666,14 @@ const PaymentPage = () => {
         ? `${serieForImmediatePrint}-${numeroForImmediatePrint}`
         : safeTrim(documentNumber);
 
-    void handlePrint({
-      skipConfirmedCheck: true,
-      previewPropsOverride: immediateDocumentNumber
-        ? { documentNumber: immediateDocumentNumber }
-        : undefined,
-    });
+    if (!isFactura) {
+      void handlePrint({
+        skipConfirmedCheck: true,
+        previewPropsOverride: immediateDocumentNumber
+          ? { documentNumber: immediateDocumentNumber }
+          : undefined,
+      });
+    }
   };
 
   const handleMobileTopConfirm = () => {
@@ -3771,8 +3784,8 @@ const PaymentPage = () => {
   };
 
   const handleEnableEditing = () => {
-    if (isNotaAnulada) {
-      toast.info("Si está anulado no se puede editar.");
+    if (isNotaAnulada || isNotaEmitida) {
+      toast.info("Si está anulado o emitido no se puede editar.");
       return;
     }
     if (!isProforma) {
@@ -5188,7 +5201,7 @@ const PaymentPage = () => {
               {isReadOnlyNoteView ? "Ir a edición" : "Editar"}
             </button>
           )}
-          {isConfirmed && (
+          {shouldShowShareAndDownloadActions && isConfirmed && (
             <button
               type="button"
               className="inline-flex shrink-0 items-center justify-center gap-1.5 rounded-lg border border-green-300 bg-green-50 px-3 py-2 text-xs font-medium text-green-800 transition-colors hover:bg-green-100 disabled:cursor-not-allowed disabled:opacity-50"
@@ -5201,7 +5214,7 @@ const PaymentPage = () => {
               WhatsApp
             </button>
           )}
-          {isConfirmed && (
+          {shouldShowShareAndDownloadActions && isConfirmed && (
             <button
               type="button"
               className="inline-flex shrink-0 items-center justify-center gap-1.5 rounded-lg border border-blue-300 bg-blue-50 px-3 py-2 text-xs font-medium text-blue-800 transition-colors hover:bg-blue-100 disabled:opacity-50"
@@ -5410,7 +5423,9 @@ const PaymentPage = () => {
             Agregar cliente
           </button>
         )}
-        {paymentMethod !== "EFECTIVO" && paymentMethod !== "SELECCIONE" && (
+        {shouldShowBankTransferFields &&
+          paymentMethod !== "EFECTIVO" &&
+          paymentMethod !== "SELECCIONE" && (
           <HookFormSelect
             name="bankEntity"
             label="Entidad bancaria"
@@ -5437,7 +5452,9 @@ const PaymentPage = () => {
             ]}
           />
         )}
-        {paymentMethod !== "EFECTIVO" && paymentMethod !== "SELECCIONE" && (
+        {shouldShowBankTransferFields &&
+          paymentMethod !== "EFECTIVO" &&
+          paymentMethod !== "SELECCIONE" && (
           <HookFormInput
             name="nroOperacion"
             label="N° Operación"
@@ -5574,7 +5591,7 @@ const PaymentPage = () => {
         )}
       </HookForm>
       <div className="hidden gap-2 sm:gap-3 md:grid">
-        {isConfirmed && (
+        {shouldShowShareAndDownloadActions && isConfirmed && (
           <button
             className="inline-flex w-full items-center justify-center gap-2 rounded-lg border border-green-300 bg-green-50 py-2.5 text-green-800 transition-colors hover:bg-green-100 disabled:cursor-not-allowed disabled:opacity-50"
             onClick={() => {
@@ -5586,7 +5603,7 @@ const PaymentPage = () => {
             Enviar por WhatsApp
           </button>
         )}
-        {isConfirmed && (
+        {shouldShowShareAndDownloadActions && isConfirmed && (
           <button
             className="inline-flex w-full items-center justify-center gap-2 rounded-lg border border-blue-300 bg-blue-50 py-2.5 text-blue-800 transition-colors hover:bg-blue-100 disabled:opacity-50"
             onClick={() => {

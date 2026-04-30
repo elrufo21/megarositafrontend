@@ -60,8 +60,8 @@ const CustomerEdit = () => {
       onConfirm: async () => {
         try {
           const result = await deleteClient(Number(id));
-          if (result === false) {
-            toast.error("No se pudo eliminar el cliente.");
+          if (!result.ok) {
+            toast.error(result.error ?? "No se pudo eliminar el cliente.");
             return;
           }
           toast.success("Cliente eliminado correctamente");

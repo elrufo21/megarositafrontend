@@ -97,7 +97,9 @@ const isCreditNoteDocument = (value: unknown) => {
 };
 
 const isProformaVDocument = (value: unknown) => {
-  const normalized = String(splitDocumentLabel(value).tipoDocumento || value || "")
+  const normalized = String(
+    splitDocumentLabel(value).tipoDocumento || value || "",
+  )
     .normalize("NFD")
     .replace(/[\u0300-\u036f]/g, "")
     .toUpperCase();
@@ -570,6 +572,8 @@ const OrderNotesList = () => {
           "estadoSunat",
           "fecha",
           "documento",
+          "formaPago",
+          "usuario",
         ]}
         toolbarLeading={
           <BackArrowButton className="inline-flex h-11 w-11 items-center justify-center rounded-xl border border-slate-300 bg-white text-slate-700 hover:bg-slate-100 transition-colors" />
@@ -690,7 +694,7 @@ const OrderNotesList = () => {
         }
         footerContent={
           <div className="flex justify-end">
-            <div className="grid w-full max-w-3xl grid-cols-1 overflow-hidden rounded-xl border border-slate-200 bg-white sm:grid-cols-3">
+            {/**   <div className="grid w-full max-w-3xl grid-cols-1 overflow-hidden rounded-xl border border-slate-200 bg-white sm:grid-cols-3">
               <div className="border-b border-slate-200 px-4 py-3 text-right sm:border-b-0 sm:border-r">
                 <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
                   SOLES - EFECTIVO
@@ -717,7 +721,7 @@ const OrderNotesList = () => {
                   {formatAmount(solesTotals.total)}
                 </p>
               </div>
-            </div>
+            </div> */}
           </div>
         }
       />

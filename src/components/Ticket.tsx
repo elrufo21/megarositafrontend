@@ -325,6 +325,15 @@ const styles = StyleSheet.create({
     fontSize: 9,
     fontWeight: "bold",
   },
+  tableItemRow: {
+    flexDirection: "row",
+    marginBottom: 4,
+    paddingBottom: 4,
+    borderBottomWidth: 1,
+    borderBottomColor: "#bdbdbd",
+    fontSize: 9,
+    fontWeight: "bold",
+  },
   additionalDetailSeparator: {
     borderTopWidth: 1,
     borderTopColor: "#000",
@@ -374,6 +383,7 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: "bold",
     textAlign: "center",
+    marginLeft: 18,
   },
   totalAmount: {
     width: "40%",
@@ -627,7 +637,7 @@ const TicketDocument = ({
       const descLength =
         `${formatUnitPrefix(item.unitMeasure)}${item.description}`.length;
       const lines = Math.ceil(descLength / 22);
-      return acc + Math.max(8 + 6, lines * 9 + 6); // (fontSize + marginBottom) mínimo
+      return acc + Math.max(8 + 8, lines * 9 + 8); // incluye separador por fila
     }, 0);
     const cardAdditionalDetailRowHeight = ticketData.showCardAdditional
       ? 8 + 6
@@ -681,9 +691,11 @@ const TicketDocument = ({
             )}
           </View>
           <View style={styles.companyBox}>
-            <Text style={styles.companyText}>{ticketData.companyName}</Text>
+            <Text style={[styles.companyText]}>{ticketData.companyName}</Text>
             <Text style={styles.companyText}>{ticketData.ruc}</Text>
-            <Text style={styles.companyText}>{ticketData.address}</Text>
+            <Text style={[styles.companyText, { textTransform: "lowercase" }]}>
+              {ticketData.address}
+            </Text>
             <Text style={styles.companyText}>{ticketData.district}</Text>
             <Text style={styles.companyText}>{ticketData.phones}</Text>
           </View>
@@ -728,7 +740,7 @@ const TicketDocument = ({
             </Text>
           </View>
           {ticketData.items.map((item, index) => (
-            <View key={index} style={styles.tableRow}>
+            <View key={index} style={styles.tableItemRow}>
               <Text style={styles.colCant}>{item.quantity.toFixed(2)}</Text>
               <Text style={styles.colDesc}>
                 {`${formatUnitPrefix(item.unitMeasure)}${item.description}`}
@@ -739,8 +751,7 @@ const TicketDocument = ({
           ))}
           {ticketData.showCardAdditional && (
             <View>
-              <View style={styles.additionalDetailSeparator} />
-              <View style={styles.tableRow}>
+              <View style={styles.tableItemRow}>
                 <Text style={styles.colCant}></Text>
                 <Text style={styles.colDesc}>MV/CT/DS</Text>
                 <Text style={styles.colPUni}></Text>

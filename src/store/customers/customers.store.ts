@@ -14,7 +14,9 @@ interface ClientsState {
     id: number,
     data: Partial<Client>,
   ) => Promise<{ ok: boolean; error?: string }>;
-  deleteClient: (id: number) => Promise<boolean>;
+  deleteClient: (
+    id: number,
+  ) => Promise<{ ok: boolean; error?: string }>;
 }
 
 const mapApiToClient = (item: unknown): Client => {
@@ -257,17 +259,33 @@ export const useClientsStore = create<ClientsState>((set) => ({
       url: `${API_BASE_URL}/Cliente/${id}`,
       method: "DELETE",
       config: { headers: { Accept: "*/*" } },
-      fallback: true,
+      fallback: false,
     });
 
     if (result === false) {
-      return false;
+      return { ok: false, error: "No se pudo eliminar el cliente." };
+    }
+
+    if (result && typeof result === "object") {
+      const payload = result as {
+        ok?: unknown;
+        mensaje?: unknown;
+        message?: unknown;
+      };
+      if (payload.ok === false) {
+        return {
+          ok: false,
+          error:
+            String(payload.mensaje ?? payload.message ?? "").trim() ||
+            "No se pudo eliminar el cliente.",
+        };
+      }
     }
 
     set((state) => ({
       clients: state.clients.filter((c) => c.id !== id),
     }));
 
-    return result !== false;
+    return { ok: true };
   },
 }));

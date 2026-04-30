@@ -32,7 +32,27 @@ export interface CrudListConfig<T> {
 interface CrudListProps<T> {
   data: T[];
   fetchData: () => Promise<unknown> | void;
-  deleteItem: (id: number) => Promise<boolean | void> | boolean | void;
+  deleteItem: (
+    id: number,
+  ) =>
+    | Promise<
+        | boolean
+        | void
+        | {
+            ok?: boolean;
+            error?: string;
+            mensaje?: string;
+            message?: string;
+          }
+      >
+    | boolean
+    | void
+    | {
+        ok?: boolean;
+        error?: string;
+        mensaje?: string;
+        message?: string;
+      };
   basePath: string;
   columns: ColumnConfig<T>[];
   idKey?: keyof T & string;
@@ -140,6 +160,28 @@ export function CrudList<T>(props: CrudListProps<T>) {
                 const result = await deleteItem(id);
                 if (result === false) {
                   toast.error("No se pudo eliminar el registro.");
+                  return;
+                }
+
+                if (result && typeof result === "object") {
+                  const payload = result as {
+                    ok?: boolean;
+                    error?: string;
+                    mensaje?: string;
+                    message?: string;
+                  };
+                  if (payload.ok === false) {
+                    toast.error(
+                      payload.error ||
+                        payload.mensaje ||
+                        payload.message ||
+                        "No se pudo eliminar el registro.",
+                    );
+                    return;
+                  }
+                }
+
+                if (result === undefined) {
                   return;
                 }
                 toast.success("Elemento eliminado.");
