@@ -3,6 +3,7 @@ export interface PosCartItem {
   codigo: string;
   codigoSunat?: string;
   nombre: string;
+  productoMarca?: string;
   unidadMedida?: string;
   costo?: number;
   precio: number;

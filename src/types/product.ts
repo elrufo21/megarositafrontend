@@ -14,8 +14,12 @@ export interface Product {
   id: number;
   idSubLinea?: number | null;
   categoria?: string;
+  nombreLinea?: string;
+  nombreSublinea?: string;
   codigo: string;
   nombre: string;
+  productoMarca?: string;
+  descripcion?: string;
   unidadMedida: string;
   valorCritico: number;
   preCosto: number;

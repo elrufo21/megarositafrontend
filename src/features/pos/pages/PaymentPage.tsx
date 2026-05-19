@@ -10,6 +10,8 @@ import {
   UserPlus,
   Trash2,
   Loader2,
+  Eye,
+  EyeOff,
 } from "lucide-react";
 import { pdf, PDFViewer } from "@react-pdf/renderer";
 import { useForm, useWatch } from "react-hook-form";
@@ -56,6 +58,41 @@ type LoadedNotaMonetaryTotals = {
   subtotalWithoutIgv: number;
   totalWithIgv: number;
   totalToPay: number;
+};
+
+type PersonalByCodeResponse = {
+  personalId?: number;
+  personalEstado?: string;
+  nombreApellido?: string;
+};
+
+type PersonalCodeFieldProps = {
+  onInputRef: (node: HTMLInputElement | null) => void;
+};
+
+const PersonalCodeField = ({ onInputRef }: PersonalCodeFieldProps) => {
+  const [isCodeVisible, setIsCodeVisible] = useState(false);
+
+  return (
+    <div className="relative">
+      <input
+        ref={onInputRef}
+        type={isCodeVisible ? "text" : "password"}
+        autoFocus
+        placeholder="Codigo de usuario"
+        className="h-10 w-full rounded-lg border border-slate-300 px-3 pr-10 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+      />
+      <button
+        type="button"
+        onClick={() => setIsCodeVisible((prev) => !prev)}
+        className="absolute right-2 top-1/2 inline-flex -translate-y-1/2 items-center justify-center rounded-md p-1 text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-700"
+        aria-label={isCodeVisible ? "Ocultar codigo" : "Mostrar codigo"}
+        title={isCodeVisible ? "Ocultar codigo" : "Mostrar codigo"}
+      >
+        {isCodeVisible ? <EyeOff size={16} /> : <Eye size={16} />}
+      </button>
+    </div>
+  );
 };
 
 const AUTO_SEND_TO_OSE_ON_CREATE = false;
@@ -187,6 +224,31 @@ const numberToWords = (amount: number, currencyLabel = "SOLES") => {
   return `${parts.join(" ").trim()} CON ${cents}/100 ${currencyLabel}`.toUpperCase();
 };
 
+const normalizeSearchText = (value: unknown) =>
+  String(value ?? "")
+    .trim()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/\s+/g, " ")
+    .toLowerCase();
+
+const tokenizeSearchText = (value: unknown) =>
+  normalizeSearchText(value).split(" ").filter(Boolean);
+
+const composeProductDisplayName = (name: unknown, brand?: unknown): string => {
+  const normalizedName = String(name ?? "").trim();
+  const normalizedBrand = String(brand ?? "").trim();
+
+  if (!normalizedName) return normalizedBrand || "Producto";
+  if (!normalizedBrand) return normalizedName;
+
+  const lowerName = normalizedName.toLowerCase();
+  const lowerBrand = normalizedBrand.toLowerCase();
+  if (lowerName.includes(lowerBrand)) return normalizedName;
+
+  return `${normalizedName} ${normalizedBrand}`.trim();
+};
+
 const PaymentPage = () => {
   const { notaId: notaIdParam } = useParams<{ notaId?: string }>();
   const { pathname, search, state } = useLocation();
@@ -230,13 +292,8 @@ const PaymentPage = () => {
       normalized === "ok"
     );
   };
-  const parsePercentageLikeValue = (
-    value: unknown,
-    fallback = 0,
-  ): number => {
-    const normalized = safeTrim(value)
-      .replace("%", "")
-      .replace(",", ".");
+  const parsePercentageLikeValue = (value: unknown, fallback = 0): number => {
+    const normalized = safeTrim(value).replace("%", "").replace(",", ".");
     if (!normalized) return fallback;
     const numeric = Number(normalized);
     if (!Number.isFinite(numeric) || numeric < 0) return fallback;
@@ -918,12 +975,8 @@ const PaymentPage = () => {
   const itemsToRender = hasLiveItems ? items : purchasedItems;
   const totalsToRender = hasLiveItems ? totals : paidTotals;
   const isNotaBlockedForItemActions =
-    isCancelledStatusValue(
-      safeTrim(notaEstadoActual).toUpperCase(),
-    ) ||
-    isEmittedStatusValue(
-    safeTrim(notaEstadoActual).toUpperCase(),
-  );
+    isCancelledStatusValue(safeTrim(notaEstadoActual).toUpperCase()) ||
+    isEmittedStatusValue(safeTrim(notaEstadoActual).toUpperCase());
   const canEditItems =
     !isConfirmed &&
     !isReadOnlyNoteView &&
@@ -1290,7 +1343,7 @@ const PaymentPage = () => {
           ? "Si está anulado no se puede editar."
           : isNotaEmitida
             ? "Si está emitido no se puede editar."
-          : "Si es boleta o factura no se puede editar.",
+            : "Si es boleta o factura no se puede editar.",
       );
       editRestrictionNotifiedRef.current = true;
     }
@@ -2235,15 +2288,106 @@ const PaymentPage = () => {
     [openDialog],
   );
 
+  const requestPersonalAuthorizationForPayment = () =>
+    new Promise<string | null>((resolve) => {
+      let codeInputRef: HTMLInputElement | null = null;
+
+      openDialog({
+        title: "Validar usuario",
+        confirmText: "Validar",
+        cancelText: "Cancelar",
+        disableBackdropClose: true,
+        content: (
+          <div className="space-y-3">
+            <p className="text-sm text-slate-700">
+              Ingrese su codigo de usuario para confirmar el pago.
+            </p>
+            <PersonalCodeField
+              onInputRef={(node) => {
+                codeInputRef = node;
+              }}
+            />
+            <p className="text-xs text-slate-500">
+              Si el codigo no existe o esta inactivo, no se permitira confirmar.
+            </p>
+          </div>
+        ),
+        onConfirm: async () => {
+          const codigoUsuario = safeTrim(codeInputRef?.value ?? "");
+          if (!codigoUsuario) {
+            toast.error("Ingrese su codigo de usuario.");
+            return false;
+          }
+
+          const response = await apiRequest<PersonalByCodeResponse | null>({
+            url: buildApiUrl(
+              `/Personal/by-code/${encodeURIComponent(codigoUsuario)}`,
+            ),
+            method: "GET",
+            fallback: null,
+          });
+
+          const responseRecord = parseRecordLikeValue(response);
+          const nestedDataRecord = parseRecordLikeValue(responseRecord?.data);
+          const personalRecord = nestedDataRecord ?? responseRecord;
+          const httpStatus = resolveHttpStatus(response);
+          const hasHttpError =
+            typeof httpStatus === "number" && httpStatus >= 400;
+          const nombreApellido = safeTrim(
+            personalRecord?.nombreApellido ??
+              personalRecord?.NombreApellido ??
+              personalRecord?.nombreCompleto ??
+              personalRecord?.NombreCompleto,
+          );
+          const personalEstado = safeTrim(
+            personalRecord?.personalEstado ??
+              personalRecord?.PersonalEstado ??
+              personalRecord?.estado ??
+              personalRecord?.Estado,
+          ).toUpperCase();
+
+          if (httpStatus === 404) {
+            toast.error("CODIGO INCORRECTO");
+            return false;
+          }
+
+          if (hasHttpError || !nombreApellido) {
+            toast.error(
+              resolveApiMessage(response) ||
+                "Codigo de usuario no encontrado. Verifique y reintente.",
+            );
+            return false;
+          }
+
+          if (personalEstado && personalEstado !== "ACTIVO") {
+            toast.error(
+              "El usuario consultado no esta activo. Verifique y reintente.",
+            );
+            return false;
+          }
+
+          resolve(nombreApellido);
+          return true;
+        },
+        onCancel: () => {
+          resolve(null);
+        },
+      });
+    });
+
   const uniqueClients = useMemo(() => {
     const seen = new Set<string>();
     const result: typeof clients = [];
     clients.forEach((client, index) => {
-      const dniKey = client.dni ? safeTrim(client.dni) : "";
-      const rucKey = (client as any).ruc ? safeTrim((client as any).ruc) : "";
+      const dniKey = client.dni ? safeTrim(client.dni).replace(/\D/g, "") : "";
+      const rucKey = (client as any).ruc
+        ? safeTrim((client as any).ruc).replace(/\D/g, "")
+        : "";
       const idKey =
         client.id !== undefined && client.id !== null ? `id-${client.id}` : "";
-      const nameKey = client.nombreRazon ? `name-${client.nombreRazon}` : "";
+      const nameKey = client.nombreRazon
+        ? `name-${normalizeSearchText(client.nombreRazon)}`
+        : "";
       const key =
         (dniKey && `dni-${dniKey}`) ||
         (rucKey && `ruc-${rucKey}`) ||
@@ -2259,13 +2403,25 @@ const PaymentPage = () => {
 
   const clientOptions = useMemo(
     () =>
-      uniqueClients.map((client) => ({
-        value: client.nombreRazon ?? "",
-        label: client.nombreRazon ?? "",
-        dni: client.dni ?? "",
-        ruc: client.ruc ?? "",
-        id: client.id,
-      })),
+      uniqueClients
+        .map((client) => {
+          const label = safeTrim(client.nombreRazon ?? "");
+          const dni = safeTrim(client.dni ?? "");
+          const ruc = safeTrim(client.ruc ?? "");
+          return {
+            value: label,
+            label,
+            dni,
+            ruc,
+            id: client.id,
+            searchLabel: normalizeSearchText(label),
+            searchDocument: normalizeSearchText(`${dni} ${ruc}`),
+          };
+        })
+        .filter((option) => !!option.label)
+        .sort((a, b) =>
+          a.label.localeCompare(b.label, "es", { sensitivity: "base" }),
+        ),
     [uniqueClients],
   );
 
@@ -2336,11 +2492,11 @@ const PaymentPage = () => {
         return false;
       }
 
-      const typedNameNormalized = typedName.toLowerCase();
+      const typedNameNormalized = normalizeSearchText(typedName);
       const availableClients =
         docTypeCode === "01" ? facturaClientOptions : clientOptions;
       const matchedOption = availableClients.find(
-        (opt) => safeTrim(opt.label).toLowerCase() === typedNameNormalized,
+        (opt) => normalizeSearchText(opt.label) === typedNameNormalized,
       );
 
       if (!matchedOption) {
@@ -2378,6 +2534,7 @@ const PaymentPage = () => {
       setValue,
       setFocus,
       setClienteIdFromOption,
+      normalizeSearchText,
     ],
   );
 
@@ -2586,6 +2743,67 @@ const PaymentPage = () => {
     [docLabel],
   );
 
+  const clientFilterOptions = useCallback(
+    (
+      options: Array<(typeof clientOptions)[number]>,
+      state: { inputValue: string },
+    ) => {
+      const inputNormalized = normalizeSearchText(state.inputValue ?? "");
+      if (!inputNormalized) {
+        return options.slice(0, 100);
+      }
+
+      const tokens = tokenizeSearchText(inputNormalized);
+      const ranked: Array<{
+        option: (typeof clientOptions)[number];
+        score: number;
+      }> = [];
+
+      options.forEach((option) => {
+        const label = option.searchLabel ?? normalizeSearchText(option.label);
+        const document =
+          option.searchDocument ??
+          normalizeSearchText(`${option.dni ?? ""} ${option.ruc ?? ""}`);
+
+        const matchesAllTokens = tokens.every(
+          (token) => label.includes(token) || document.includes(token),
+        );
+
+        if (!matchesAllTokens) return;
+
+        let score = 4;
+        if (label === inputNormalized || document === inputNormalized) {
+          score = 0;
+        } else if (label.startsWith(inputNormalized)) {
+          score = 1;
+        } else if (
+          tokens.every((token) =>
+            label.split(" ").some((segment) => segment.startsWith(token)),
+          )
+        ) {
+          score = 2;
+        } else if (document.startsWith(inputNormalized)) {
+          score = 3;
+        }
+
+        ranked.push({ option, score });
+      });
+
+      return ranked
+        .sort((a, b) => {
+          if (a.score !== b.score) return a.score - b.score;
+          const byLength = a.option.label.length - b.option.label.length;
+          if (byLength !== 0) return byLength;
+          return a.option.label.localeCompare(b.option.label, "es", {
+            sensitivity: "base",
+          });
+        })
+        .map((item) => item.option)
+        .slice(0, 100);
+    },
+    [clientOptions, normalizeSearchText, tokenizeSearchText],
+  );
+
   const ticketPreviewProps = useMemo(() => {
     const safeItems = itemsToRender.length ? itemsToRender : purchasedItems;
     const safeTotals = itemsToRender.length ? totalsToRender : paidTotals;
@@ -2750,9 +2968,7 @@ const PaymentPage = () => {
         notaAcuenta: 0,
         notaSaldo: Number(totalAPagar.toFixed(2)),
         notaAdicional: Number(notaAdicional.toFixed(2)),
-        notaTarjeta: isCard
-          ? Number(totalAPagar.toFixed(2))
-          : 0,
+        notaTarjeta: isCard ? Number(totalAPagar.toFixed(2)) : 0,
         notaPagar: Number(totalAPagar.toFixed(2)),
         notaEstado: "PENDIENTE",
         companiaId: companyId,
@@ -2802,7 +3018,10 @@ const PaymentPage = () => {
           idProducto: item.productId,
           detalleCantidad,
           detalleUm: detalleUnidad,
-          detalleDescripcion: item.nombre,
+          detalleDescripcion: composeProductDisplayName(
+            item.nombre,
+            (item as any).productoMarca,
+          ),
           detalleCosto,
           detallePrecio,
           detalleImporte,
@@ -2886,6 +3105,12 @@ const PaymentPage = () => {
     setPaidTotals(sourceTotals);
 
     const isEditing = Boolean(notaId) && isEditingMode;
+    const isCreateFlow = !isEditing;
+    const authorizedPersonalName =
+      await requestPersonalAuthorizationForPayment();
+    if (!authorizedPersonalName) return;
+    const resolvedPaymentUsername =
+      safeTrim(authorizedPersonalName) || resolvedNotaUsuario;
     const baseNota = { ...notaPayload.nota, notaId: notaId ?? 0 };
     const editNota = isEditing
       ? {
@@ -3007,7 +3232,7 @@ const PaymentPage = () => {
           NotaDocu: editNota.notaDocu,
           ClienteId: clienteIdEdicion,
           NotaFecha: notaFechaEdicion,
-          Usuario: safeTrim(editNota.notaUsuario ?? resolvedNotaUsuario),
+          Usuario: resolvedPaymentUsername,
           FormaPago:
             safeTrim(editNota.notaFormaPago ?? paymentMethod) || "EFECTIVO",
           Condicion:
@@ -3023,7 +3248,7 @@ const PaymentPage = () => {
         clienteId:
           Number(editNota.clienteId ?? PROFORMA_DEFAULT_CONTACT_ID) ||
           PROFORMA_DEFAULT_CONTACT_ID,
-        notaUsuario: editNota.notaUsuario,
+        notaUsuario: resolvedPaymentUsername,
         notaFormaPago:
           safeTrim(editNota.notaFormaPago ?? paymentMethod) || "EFECTIVO",
         notaCondicion: "ALCONTADO",
@@ -3086,12 +3311,16 @@ const PaymentPage = () => {
       .normalize("NFD")
       .replace(/[\u0300-\u036f]/g, "");
     if (normalizedMessage.includes("aperturo caja")) {
-      toast.error(apiMessage || "No Aperturó Caja");
+      toast.error(
+        isCreateFlow ? "Fallo la creacion de pedido" : (apiMessage || "No Aperturó Caja"),
+      );
       return;
     }
 
     if (!result || (result as any) === false) {
-      toast.error("No se pudo registrar la nota.");
+      toast.error(
+        isCreateFlow ? "Fallo la creacion de pedido" : "No se pudo registrar la nota.",
+      );
       return;
     }
 
@@ -3118,7 +3347,9 @@ const PaymentPage = () => {
       Boolean((result as Record<string, unknown> | null)?.isAxiosError) ||
       httpStatusFromCreate >= 400
     ) {
-      if (httpStatusFromCreate >= 500) {
+      if (isCreateFlow) {
+        toast.error("Fallo la creacion de pedido");
+      } else if (httpStatusFromCreate >= 500) {
         toast.error(
           createDetail || "Error técnico backend al emitir documento.",
         );
@@ -3602,64 +3833,8 @@ const PaymentPage = () => {
     shouldCleanupOnExitAfterConfirmRef.current = !isEditing;
     if (isEditing) {
       toast.success("Orden actualizada");
-    } else if (!AUTO_SEND_TO_OSE_ON_CREATE) {
-      if (docTypeCode === "01") {
-        toast.success("Factura creada en BD.");
-      } else if (docTypeCode === "03") {
-        toast.success("Boleta creada en BD.");
-      } else {
-        toast.success("Pago registrado en BD.");
-      }
-    } else if (docTypeCode === "01") {
-      if (facturaAceptada) {
-        toast.success(
-          facturaMsjSunat || "Factura creada y aceptada por SUNAT.",
-        );
-      } else if (facturaCodSunat || facturaMsjSunat) {
-        const detail = [facturaCodSunat, facturaMsjSunat]
-          .filter(Boolean)
-          .join(" - ");
-        toast.warning(
-          detail ||
-            "Factura creada, pero quedó pendiente de envío o reintento en SUNAT.",
-        );
-      } else {
-        toast.warning(
-          "Factura creada. El envío a OCE/SUNAT quedó pendiente de confirmación.",
-        );
-      }
-    } else if (docTypeCode === "03") {
-      if (boletaPorLoteFromSession) {
-        if (boletaLoteStatus === "success") {
-          toast.success(
-            boletaLoteMessage ||
-              "Boleta creada, resumen enviado y aceptación SUNAT confirmada.",
-          );
-        } else if (boletaLoteStatus === "warning") {
-          toast.warning(
-            boletaLoteMessage ||
-              "Boleta creada, pero el envío por lote quedó pendiente de confirmación.",
-          );
-        } else {
-          toast.success("Boleta creada.");
-        }
-      } else if (facturaAceptada) {
-        toast.success(facturaMsjSunat || "Boleta creada y aceptada por SUNAT.");
-      } else if (facturaCodSunat || facturaMsjSunat) {
-        const detail = [facturaCodSunat, facturaMsjSunat]
-          .filter(Boolean)
-          .join(" - ");
-        toast.warning(
-          detail ||
-            "Boleta creada, pero quedó pendiente de envío o reintento en SUNAT.",
-        );
-      } else {
-        toast.warning(
-          "Boleta creada. El envío a OCE/SUNAT quedó pendiente de confirmación.",
-        );
-      }
     } else {
-      toast.success("Pago registrado");
+      toast.success("Pedido registrado");
     }
     const serieForImmediatePrint = safeTrim(parsedNotaSerie || notaSerie);
     const numeroForImmediatePrint = safeTrim(
@@ -3673,6 +3848,7 @@ const PaymentPage = () => {
     if (!isFactura) {
       void handlePrint({
         skipConfirmedCheck: true,
+        silent: true,
         previewPropsOverride: immediateDocumentNumber
           ? { documentNumber: immediateDocumentNumber }
           : undefined,
@@ -4103,7 +4279,10 @@ const PaymentPage = () => {
           codTipoOperacion: "10",
           codigo: safeTrim(item.codigo) || `P${index + 1}`,
           codigoSunat,
-          descripcion: safeTrim(item.nombre) || `Producto ${index + 1}`,
+          descripcion: composeProductDisplayName(
+            item.nombre,
+            (item as any).productoMarca,
+          ),
           descuento: 0,
           subTotal: safeSubtotalWithoutIgv,
         };
@@ -4400,7 +4579,10 @@ const PaymentPage = () => {
         codTipoOperacion: "10",
         codigo: "50161509",
         codigoSunat: "50161509",
-        descripcion: safeTrim(item.nombre) || "Producto",
+        descripcion: composeProductDisplayName(
+          item.nombre,
+          (item as any).productoMarca,
+        ),
         descuento: 0,
         subTotal: safeSubtotalWithoutIgv,
       };
@@ -4729,14 +4911,20 @@ const PaymentPage = () => {
   const handlePrint = async (options?: {
     skipConfirmedCheck?: boolean;
     previewPropsOverride?: Partial<typeof ticketPreviewProps>;
+    silent?: boolean;
   }) => {
     const skipConfirmedCheck = options?.skipConfirmedCheck === true;
+    const silent = options?.silent === true;
     if (isNotaAnulada) {
-      toast.error("Documento anulado. Impresión no permitida.");
+      if (!silent) {
+        toast.error("Documento anulado. Impresión no permitida.");
+      }
       return;
     }
     if (!skipConfirmedCheck && !isConfirmed) {
-      toast.error("Debe confirmar el documento antes de imprimir.");
+      if (!silent) {
+        toast.error("Debe confirmar el documento antes de imprimir.");
+      }
       return;
     }
 
@@ -4747,7 +4935,9 @@ const PaymentPage = () => {
       hasInvalidQuantityOrStockForPayment,
     );
     if (invalidItems.length) {
-      toast.error("No puede imprimir con productos en 0.");
+      if (!silent) {
+        toast.error("No puede imprimir con productos en 0.");
+      }
       return;
     }
 
@@ -4782,12 +4972,12 @@ const PaymentPage = () => {
             : "";
         throw new Error(printMessage || "No se pudo imprimir el comprobante.");
       }
-
-      toast.success("PDF enviado a imprimir");
     } catch (error) {
       const message =
         error instanceof Error ? error.message : "No se pudo imprimir";
-      toast.error(message);
+      if (!silent) {
+        toast.error(message);
+      }
     } finally {
       setIsPrinting(false);
     }
@@ -4847,7 +5037,10 @@ const PaymentPage = () => {
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
                   <p className="break-words text-sm font-semibold leading-snug text-slate-900">
-                    {item.nombre}
+                    {composeProductDisplayName(
+                      item.nombre,
+                      (item as any).productoMarca,
+                    )}
                   </p>
                   <p className="mt-1 text-xs text-slate-500">
                     {item.unidadMedida || "UND"}
@@ -5025,7 +5218,10 @@ const PaymentPage = () => {
 
                   <div className="min-w-0 pr-3">
                     <p className="break-words text-base leading-snug text-slate-900">
-                      {item.nombre}
+                      {composeProductDisplayName(
+                        item.nombre,
+                        (item as any).productoMarca,
+                      )}
                     </p>
                     <p className="mt-1 text-xs text-slate-500">
                       {item.unidadMedida || "UND"}
@@ -5307,6 +5503,7 @@ const PaymentPage = () => {
           label="Nombre del cliente"
           placeholder="Seleccionar cliente"
           options={docTypeCode === "01" ? facturaClientOptions : clientOptions}
+          filterOptions={clientFilterOptions as any}
           rules={{
             validate: (value: any) => {
               const normalized = safeTrim(value);
@@ -5316,7 +5513,10 @@ const PaymentPage = () => {
               if (docTypeCode === "01" && !normalized) {
                 return "Nombre de cliente obligatorio para Factura";
               }
-              if (docTypeCode === "01" && normalized.toUpperCase() === "VARIOS") {
+              if (
+                docTypeCode === "01" &&
+                normalized.toUpperCase() === "VARIOS"
+              ) {
                 return "Para Factura el cliente no puede ser VARIOS";
               }
               return true;
@@ -5431,54 +5631,54 @@ const PaymentPage = () => {
         {shouldShowBankTransferFields &&
           paymentMethod !== "EFECTIVO" &&
           paymentMethod !== "SELECCIONE" && (
-          <HookFormSelect
-            name="bankEntity"
-            label="Entidad bancaria"
-            disabled={formLocked || paymentMethod === "TARJETA"}
-            rules={{
-              validate: (value: any) => {
-                if (
-                  paymentMethod !== "YAPE" &&
-                  paymentMethod !== "TRANSFERENCIA"
-                ) {
-                  return true;
-                }
-                const normalized = safeTrim(value);
-                return normalized && normalized !== "-"
-                  ? true
-                  : "Entidad bancaria obligatoria";
-              },
-            }}
-            options={[
-              { value: "-", label: "-" },
-              { value: "BCP", label: "BCP" },
-              { value: "INTERBANK", label: "INTERBANK" },
-              { value: "CONTINENTAL", label: "CONTINENTAL" },
-            ]}
-          />
-        )}
+            <HookFormSelect
+              name="bankEntity"
+              label="Entidad bancaria"
+              disabled={formLocked || paymentMethod === "TARJETA"}
+              rules={{
+                validate: (value: any) => {
+                  if (
+                    paymentMethod !== "YAPE" &&
+                    paymentMethod !== "TRANSFERENCIA"
+                  ) {
+                    return true;
+                  }
+                  const normalized = safeTrim(value);
+                  return normalized && normalized !== "-"
+                    ? true
+                    : "Entidad bancaria obligatoria";
+                },
+              }}
+              options={[
+                { value: "-", label: "-" },
+                { value: "BCP", label: "BCP" },
+                { value: "INTERBANK", label: "INTERBANK" },
+                { value: "CONTINENTAL", label: "CONTINENTAL" },
+              ]}
+            />
+          )}
         {shouldShowBankTransferFields &&
           paymentMethod !== "EFECTIVO" &&
           paymentMethod !== "SELECCIONE" && (
-          <HookFormInput
-            name="nroOperacion"
-            label="N° Operación"
-            disabled={formLocked}
-            placeholder="Número de operación"
-            rules={{
-              validate: (value: any) => {
-                if (
-                  paymentMethod !== "TARJETA" &&
-                  paymentMethod !== "YAPE" &&
-                  paymentMethod !== "TRANSFERENCIA"
-                ) {
-                  return true;
-                }
-                return safeTrim(value) ? true : "N° de operación obligatorio";
-              },
-            }}
-          />
-        )}
+            <HookFormInput
+              name="nroOperacion"
+              label="N° Operación"
+              disabled={formLocked}
+              placeholder="Número de operación"
+              rules={{
+                validate: (value: any) => {
+                  if (
+                    paymentMethod !== "TARJETA" &&
+                    paymentMethod !== "YAPE" &&
+                    paymentMethod !== "TRANSFERENCIA"
+                  ) {
+                    return true;
+                  }
+                  return safeTrim(value) ? true : "N° de operación obligatorio";
+                },
+              }}
+            />
+          )}
         <div className="flex flex-wrap items-center justify-between gap-2 text-sm text-gray-700">
           <span className="font-medium">Aplica descuento</span>
           <input
@@ -5512,10 +5712,10 @@ const PaymentPage = () => {
           </div>
           {paymentMethod === "TARJETA" && (
             <div className="flex justify-between text-sm text-gray-700">
-              <span>
-                Adicional {cardPercentageFromSession.toFixed(2)}%
+              <span>Adicional {cardPercentageFromSession.toFixed(2)}%</span>
+              <span className="font-semibold">
+                S/ {notaAdicional.toFixed(2)}
               </span>
-              <span className="font-semibold">S/ {notaAdicional.toFixed(2)}</span>
             </div>
           )}
 

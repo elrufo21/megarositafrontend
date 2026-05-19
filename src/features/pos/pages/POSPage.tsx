@@ -1,4 +1,10 @@
-import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type FormEvent,
+} from "react";
 import { useLocation, useNavigate } from "react-router";
 import { createColumnHelper } from "@tanstack/react-table";
 import {
@@ -38,6 +44,11 @@ const TABLE_PAGE_SIZE_OPTIONS = [20, 50, 100];
 
 const priceLabel = (product: Product) =>
   Number(product.preVenta ?? product.preVentaB ?? 0).toFixed(2);
+const composeProductDisplayName = (name: unknown, brand?: unknown): string =>
+  [name, brand]
+    .map((value) => String(value ?? "").trim())
+    .filter(Boolean)
+    .join(" ");
 const sortCatalogProductsByCode = (products: PosCatalogProduct[]) =>
   [...products].sort((a, b) =>
     String(a.codigo ?? "").localeCompare(String(b.codigo ?? ""), undefined, {
@@ -357,13 +368,17 @@ const POSPage = () => {
   };
 
   const handleAddProduct = (product: PosCatalogProduct) => {
+    const productDisplayName = composeProductDisplayName(
+      product.nombre,
+      product.productoMarca,
+    );
     const available = Number(product.cantidad ?? 0);
     if (!Number.isFinite(available) || available <= 0) {
       openDialog({
         title: "Sin stock",
         content: (
           <p className="text-sm text-slate-700">
-            {product.nombre} no tiene stock disponible. ¿Deseas agregarlo de
+            {productDisplayName} no tiene stock disponible. ¿Deseas agregarlo de
             todos modos?
           </p>
         ),
@@ -371,9 +386,7 @@ const POSPage = () => {
         cancelText: "Cancelar",
         onConfirm: () => {
           addProduct(product, 1);
-          toast.success(`${product.nombre} agregado al carrito`, {
-            duration: 1200,
-          });
+
           focusSearchInput();
         },
       });
@@ -381,9 +394,7 @@ const POSPage = () => {
     }
 
     addProduct(product, 1);
-    toast.success(`${product.nombre} agregado al carrito`, {
-      duration: 1200,
-    });
+
     focusSearchInput();
   };
 
@@ -580,7 +591,14 @@ const POSPage = () => {
     }),
     columnHelper.accessor("nombre", {
       header: "Nombre",
-      cell: (info) => info.getValue(),
+      cell: ({ row }) => (
+        <span className="font-semibold text-right block">
+          {composeProductDisplayName(
+            row.original.nombre,
+            row.original.productoMarca,
+          )}
+        </span>
+      ),
     }),
     columnHelper.display({
       id: "unidad",
@@ -592,13 +610,17 @@ const POSPage = () => {
     }),
     columnHelper.display({
       id: "precio",
-      header: "P. Venta",
+      header: () => <span className="whitespace-nowrap">P. Venta S/</span>,
       cell: ({ row }) => (
         <span className="font-semibold text-right block">
-          S/ {priceLabel(row.original)}
+          {priceLabel(row.original)}
         </span>
       ),
-      meta: { tdClassName: "text-right" },
+      meta: {
+        align: "right",
+        thClassName: "whitespace-nowrap min-w-[110px]",
+        tdClassName: "text-right",
+      },
     }),
     columnHelper.display({
       id: "stock",
@@ -686,7 +708,7 @@ const POSPage = () => {
               <div className="flex justify-between gap-3">
                 <div>
                   <p className="text-sm font-semibold text-slate-800">
-                    {item.nombre}
+                    {composeProductDisplayName(item.nombre, item.productoMarca)}
                   </p>
                   <p className="text-xs text-gray-500">
                     {item.unidadMedida ?? "UND"}
@@ -899,7 +921,10 @@ const POSPage = () => {
                             {image ? (
                               <img
                                 src={image}
-                                alt={product.nombre}
+                                alt={composeProductDisplayName(
+                                  product.nombre,
+                                  product.productoMarca,
+                                )}
                                 className="w-full h-full object-contain"
                               />
                             ) : (
@@ -914,7 +939,10 @@ const POSPage = () => {
                               {product.codigo}
                             </p>
                             <h3 className="text-sm font-semibold text-slate-800 line-clamp-2">
-                              {product.nombre}
+                              {composeProductDisplayName(
+                                product.nombre,
+                                product.productoMarca,
+                              )}
                             </h3>
                             {product.isVariation ? (
                               <p className="text-xs font-medium text-blue-700">
@@ -957,7 +985,13 @@ const POSPage = () => {
                   <DataTable
                     data={sortedCatalogProducts}
                     columns={productColumns}
-                    filterKeys={["codigo", "nombre", "unidadMedida"]}
+                    filterKeys={[
+                      "codigo",
+                      "nombre",
+                      "productoMarca",
+                      "descripcion",
+                      "unidadMedida",
+                    ]}
                     onRowClick={handleAddProduct}
                     searchPlaceholder="Buscar por código o nombre"
                     globalFilterValue={searchTerm}

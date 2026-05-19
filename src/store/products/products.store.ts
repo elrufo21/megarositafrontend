@@ -7,8 +7,12 @@ import type { ProductUnitOption } from "@/types/product";
 interface ApiProduct {
   idProducto?: number;
   idSubLinea?: number | null;
+  nombreLinea?: string | null;
+  nombreSublinea?: string | null;
   productoCodigo?: string | null;
   productoNombre?: string | null;
+  productoMarca?: string | null;
+  descripcion?: string | null;
   productoTipoCambio?: number | null;
   productoCostoDolar?: number | null;
   productoUM?: string | null;
@@ -287,22 +291,38 @@ const parsePaginatedProductsResponse = (
   };
 };
 
-const mapApiToProduct = (item: ApiProduct): Product => ({
-  id: item.idProducto ?? 0,
-  codigo: item.productoCodigo ?? "",
-  nombre: item.productoNombre ?? "",
-  unidadMedida: item.productoUM ?? "",
-  valorCritico: toNumberValue(item.valorCritico, 0),
-  preCosto: toNumberValue(item.productoCosto ?? item.precioCosto, 0),
-  preVenta: toNumberValue(item.productoVenta, 0),
-  aplicaINV: String(item.aplicaINV ?? "").toUpperCase() === "N" ? "N" : "S",
-  cantidad: toNumberValue(item.productoCantidad, 0),
-  usuario: item.productoUsuario ?? "",
-  estado: normalizeEstado(item.productoEstado),
-  images: item.productoImagen ? [item.productoImagen] : [],
-  idSubLinea: item.idSubLinea,
-  preVentaB: toNumberValue(item.productoVentaB, 0),
-});
+const mapApiToProduct = (item: ApiProduct): Product => {
+  // Soporta variantes de payload sin romper el catalogo.
+  // Algunos backends envian "marca" en lugar de "productoMarca".
+  const raw = item as Record<string, unknown>;
+  const marca = String(
+    item.productoMarca ?? raw.marca ?? raw.Marca ?? "",
+  ).trim();
+  const descripcion = String(
+    item.descripcion ?? raw.productoDescripcion ?? "",
+  ).trim();
+
+  return {
+    id: item.idProducto ?? 0,
+    nombreLinea: item.nombreLinea ?? "",
+    nombreSublinea: item.nombreSublinea ?? "",
+    codigo: item.productoCodigo ?? "",
+    nombre: item.productoNombre ?? "",
+    productoMarca: marca,
+    descripcion,
+    unidadMedida: item.productoUM ?? "",
+    valorCritico: toNumberValue(item.valorCritico, 0),
+    preCosto: toNumberValue(item.productoCosto ?? item.precioCosto, 0),
+    preVenta: toNumberValue(item.productoVenta, 0),
+    aplicaINV: String(item.aplicaINV ?? "").toUpperCase() === "N" ? "N" : "S",
+    cantidad: toNumberValue(item.productoCantidad, 0),
+    usuario: item.productoUsuario ?? "",
+    estado: normalizeEstado(item.productoEstado),
+    images: item.productoImagen ? [item.productoImagen] : [],
+    idSubLinea: item.idSubLinea,
+    preVentaB: toNumberValue(item.productoVentaB, 0),
+  };
+};
 
 const mapApiToUnitOption = (item: ApiProduct): ProductUnitOption => {
   const rawItem = item as Record<string, unknown>;
@@ -653,24 +673,39 @@ export const useProductsStore = create<ProductsState>((set, get) => ({
   fetchProducts: async (estado = "ACTIVO") => {
     set({ loading: true });
     try {
-      const query =
-        estado && estado.trim() !== ""
-          ? `?estado=${encodeURIComponent(estado)}`
-          : "";
-      const response = await apiRequest<unknown>({
-        url: `${baseUrl}/list${query}`,
-        method: "GET",
-        fallback: [],
+      void estado;
+      const pagina = 1;
+      const tamanoPagina = CATALOG_DEFAULT_PAGE_SIZE;
+      const params = new URLSearchParams({
+        pagina: String(pagina),
+        tamanoPagina: String(tamanoPagina),
       });
-      const data = parseProductsResponse(response);
-      const grouped = groupProductsByHeader(data);
+
+      const response = await apiRequest<unknown>({
+        url: `${baseUrl}/listar-productos?${params.toString()}`,
+        method: "GET",
+        fallback: {
+          pagina,
+          tamanoPagina,
+          totalRegistros: 0,
+          items: [],
+        },
+      });
+      const parsed = parsePaginatedProductsResponse(
+        response,
+        pagina,
+        tamanoPagina,
+      );
+      const grouped = groupProductsByHeader(parsed.items);
+      const totalRegistros = Math.max(parsed.totalRegistros, grouped.length);
+      const hasMore = grouped.length > 0 && grouped.length < totalRegistros;
       set({
         products: grouped,
         catalogPagination: {
-          pagina: 1,
-          tamanoPagina: grouped.length || CATALOG_DEFAULT_PAGE_SIZE,
-          totalRegistros: grouped.length,
-          hasMore: false,
+          pagina: parsed.pagina,
+          tamanoPagina: parsed.tamanoPagina,
+          totalRegistros,
+          hasMore,
         },
         loading: false,
       });

@@ -325,16 +325,25 @@ const styles = StyleSheet.create({
     fontWeight: "bold",
   },
   tableItemRow: {
-    flexDirection: "row",
     marginTop: 2,
     marginBottom: 0,
     fontSize: 9,
     fontWeight: "bold",
   },
+  tableItemDescription: {
+    fontSize: 9,
+    fontWeight: "bold",
+  },
+  tableItemMetaRow: {
+    flexDirection: "row",
+    marginTop: 3,
+    fontSize: 9,
+    fontWeight: "bold",
+  },
   tableItemSeparator: {
     borderBottomWidth: 1,
-    borderBottomColor: "#bdbdbd",
-    marginTop: 10,
+    borderBottomColor: "#201e1e",
+    marginTop: 6,
     marginBottom: 6,
   },
   additionalDetailSeparator: {
@@ -372,9 +381,8 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     marginTop: 6,
     paddingTop: 6,
-    borderTopWidth: 1,
-    borderTopColor: "#000",
     alignItems: "center",
+    marginRight: 10,
   },
   totalLabel: {
     width: "52%",
@@ -487,6 +495,15 @@ const TicketDocument = ({
       clientId?.trim() || (docLabel === "RUC" ? "00000000000" : "00000000");
     const now = new Date();
     const emissionDate = now.toLocaleDateString("es-PE");
+    const emissionDateTime = now.toLocaleString("es-PE", {
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+      hour12: false,
+    });
     const emissionDateISO = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
     const amountInWords = numberToWords(safeTotal, "SOLES");
     const normalizedNoteId = String(noteId ?? "").trim();
@@ -532,6 +549,7 @@ const TicketDocument = ({
             : "BOLETA DE VENTA ELECTRONICA",
       documentNumber: documentNumber || "",
       emissionDate,
+      emissionDateTime,
       currency: "SOLES",
       paymentMethod: paymentMethod ?? "AL CONTADO",
       clientName: clientName || "Ultimo cliente",
@@ -634,13 +652,16 @@ const TicketDocument = ({
       (clientNameLines * 8 + 4) + // fila cliente con wrap
       DIVIDER;
 
-    const TABLE_HEADER = 8 + 4 + 6 + 8; // paddingBottom + marginBottom + marginTop + border
+    const TABLE_HEADER = 8 + 4 + 6 + 8 + 1; // row + margins + padding + separator
 
     const rowsHeight = ticketData.items.reduce((acc, item) => {
       const descLength =
         `${formatUnitPrefix(item.unitMeasure)}${item.description}`.length;
-      const lines = Math.ceil(descLength / 22);
-      return acc + Math.max(8 + 18, lines * 9 + 18); // fila + separador con margen
+      const lines = Math.max(1, Math.ceil(descLength / 34));
+      const descriptionHeight = lines * 9;
+      const metaRowHeight = 9 + 3;
+      const separatorHeight = 1 + 6 + 6;
+      return acc + descriptionHeight + metaRowHeight + separatorHeight;
     }, 0);
     const cardAdditionalDetailRowHeight = ticketData.showCardAdditional
       ? 8 + 6
@@ -706,8 +727,10 @@ const TicketDocument = ({
           <Text style={styles.ticketNumber}>{ticketData.documentNumber}</Text>
           <View style={styles.divider} />
           <View style={styles.infoRow}>
-            <Text style={styles.infoLabel}>Fecha Emision</Text>
-            <Text style={styles.infoValue}>: {ticketData.emissionDate}</Text>
+            <Text style={styles.infoLabel}>Fecha y hora</Text>
+            <Text style={styles.infoValue}>
+              : {ticketData.emissionDateTime}
+            </Text>
           </View>
           <View style={styles.infoRow}>
             <Text style={styles.infoLabel}>Tipo Moneda</Text>
@@ -745,12 +768,17 @@ const TicketDocument = ({
           {ticketData.items.map((item, index) => (
             <View key={index}>
               <View style={styles.tableItemRow}>
-                <Text style={styles.colCant}>{item.quantity.toFixed(2)}</Text>
-                <Text style={styles.colDesc}>
+                <Text style={styles.tableItemDescription}>
                   {`${formatUnitPrefix(item.unitMeasure)}${item.description}`}
                 </Text>
-                <Text style={styles.colPUni}>{item.unitPrice.toFixed(2)}</Text>
-                <Text style={styles.colImporte}>{item.total.toFixed(2)}</Text>
+                <View style={styles.tableItemMetaRow}>
+                  <Text style={styles.colCant}>{item.quantity.toFixed(2)}</Text>
+                  <Text style={styles.colDesc}></Text>
+                  <Text style={styles.colPUni}>
+                    {item.unitPrice.toFixed(2)}
+                  </Text>
+                  <Text style={styles.colImporte}>{item.total.toFixed(2)}</Text>
+                </View>
               </View>
               <View style={styles.tableItemSeparator} />
             </View>
@@ -758,12 +786,15 @@ const TicketDocument = ({
           {ticketData.showCardAdditional && (
             <View>
               <View style={styles.tableItemRow}>
-                <Text style={styles.colCant}></Text>
-                <Text style={styles.colDesc}>MV/CT/DS</Text>
-                <Text style={styles.colPUni}></Text>
-                <Text style={styles.colImporte}>
-                  {ticketData.cardAdditional.toFixed(2)}
-                </Text>
+                <Text style={styles.tableItemDescription}>MV/CT/DS</Text>
+                <View style={styles.tableItemMetaRow}>
+                  <Text style={styles.colCant}></Text>
+                  <Text style={styles.colDesc}></Text>
+                  <Text style={styles.colPUni}></Text>
+                  <Text style={styles.colImporte}>
+                    {ticketData.cardAdditional.toFixed(2)}
+                  </Text>
+                </View>
               </View>
               <View style={styles.tableItemSeparator} />
             </View>

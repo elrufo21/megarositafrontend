@@ -13,6 +13,8 @@ const normalizeText = (value: unknown): string =>
   String(value ?? "").trim().toLowerCase();
 const normalizeOptionalText = (value: unknown): string =>
   String(value ?? "").trim();
+const resolveProductBrand = (product: Product): string =>
+  normalizeOptionalText((product as any).productoMarca ?? "");
 const getItemKey = (item: Pick<PosCartItem, "productId" | "detalleId">): number =>
   toNumber(item.detalleId, 0) || toNumber(item.productId, 0);
 
@@ -145,6 +147,7 @@ export const usePosStore = create<PosState>()(
           const productCodigoSunat = normalizeOptionalText(
             (product as any).codigoSunat,
           );
+          const productMarca = resolveProductBrand(product);
           const normalizedDetailId =
             Number.isFinite(productDetailId) && productDetailId !== 0
               ? productDetailId
@@ -182,6 +185,7 @@ export const usePosStore = create<PosState>()(
                 normalizeText(item.unidadMedida) === productUnit
                   ? {
                       ...item,
+                      productoMarca: item.productoMarca || productMarca || undefined,
                       cantidad: nextQty,
                       precio: nextPrice,
                       costo: baseCost,
@@ -198,6 +202,7 @@ export const usePosStore = create<PosState>()(
                   codigo: product.codigo,
                   codigoSunat: productCodigoSunat || undefined,
                   nombre: product.nombre,
+                  productoMarca: productMarca || undefined,
                   unidadMedida: product.unidadMedida,
                   detalleId: normalizedDetailId,
                   costo: baseCost,
