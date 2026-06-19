@@ -18,6 +18,14 @@
   }
 }
 
+@media (max-width: 1400px) and (min-width: 1025px) {
+  :root {
+    --app-shell-main-px: 0.875rem;
+    --app-shell-main-py: 0.875rem;
+    --app-shell-content-max: 100%;
+  }
+}
+
 /* Prioridad 1366x768 */
 @media (max-width: 1366px) and (min-width: 1024px) {
   :root {

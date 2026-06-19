@@ -20,6 +20,7 @@ export interface AuthUser {
   companyCommercialName: string;
   companySunatAddress: string;
   companyPhone: string;
+  companyLogo: string;
   usuarioSol: string;
   claveSol: string;
   certificadoBase64: string;
@@ -72,6 +73,8 @@ interface LoginResponse {
   CompaniaComercial?: string | null;
   CompaniaDirecSunat?: string | null;
   CompaniaTelefono?: string | null;
+  LogoCompania?: string | null;
+  logoCompania?: string | null;
   UsuarioSol?: string | null;
   ClaveSol?: string | null;
   CertificadoBase64?: string | null;
@@ -263,6 +266,9 @@ const normalizeAuthUser = (user: AuthUser): AuthUser => ({
   ),
   companyPhone: normalizeText(
     (user as AuthUser & { companyPhone?: unknown }).companyPhone,
+  ),
+  companyLogo: normalizeText(
+    (user as AuthUser & { companyLogo?: unknown }).companyLogo,
   ),
   usuarioSol: normalizeText(
     (user as AuthUser & { usuarioSol?: unknown }).usuarioSol,
@@ -466,6 +472,9 @@ export const useAuthStore = create<AuthState>((set, get) => {
           companyPhone: normalizeText(
             readLoginValue(parsed, "CompaniaTelefono", "companiaTelefono"),
           ),
+          companyLogo: normalizeText(
+            readLoginValue(parsed, "LogoCompania", "logoCompania"),
+          ),
           usuarioSol: normalizeText(readLoginValue(parsed, "UsuarioSol", "usuarioSol")),
           claveSol: normalizeText(readLoginValue(parsed, "ClaveSol", "claveSol")),
           certificadoBase64: normalizeText(
@@ -495,6 +504,9 @@ export const useAuthStore = create<AuthState>((set, get) => {
           ),
           CompaniaTelefono: normalizeText(
             readLoginValue(parsed, "CompaniaTelefono", "companiaTelefono"),
+          ),
+          LogoCompania: normalizeText(
+            readLoginValue(parsed, "LogoCompania", "logoCompania"),
           ),
           UsuarioSol: normalizeText(readLoginValue(parsed, "UsuarioSol", "usuarioSol")),
           ClaveSol: normalizeText(readLoginValue(parsed, "ClaveSol", "claveSol")),
@@ -529,6 +541,9 @@ export const useAuthStore = create<AuthState>((set, get) => {
           ),
           companiaTelefono: normalizeText(
             readLoginValue(parsed, "CompaniaTelefono", "companiaTelefono"),
+          ),
+          logoCompania: normalizeText(
+            readLoginValue(parsed, "LogoCompania", "logoCompania"),
           ),
           usuarioSol: normalizeText(readLoginValue(parsed, "UsuarioSol", "usuarioSol")),
           claveSol: normalizeText(readLoginValue(parsed, "ClaveSol", "claveSol")),

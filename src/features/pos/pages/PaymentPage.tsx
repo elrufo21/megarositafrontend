@@ -12,6 +12,8 @@ import {
   Loader2,
   Eye,
   EyeOff,
+  Lock,
+  LockOpen,
 } from "lucide-react";
 import { pdf, PDFViewer } from "@react-pdf/renderer";
 import { useForm, useWatch } from "react-hook-form";
@@ -38,7 +40,6 @@ import {
   IGV_FACTOR,
   buildSaleMonetarySummary,
   normalizeSunatUnitCode,
-  roundCurrency,
 } from "@/shared/helpers/saleMonetary";
 
 type NotaDetallePayload = {
@@ -60,17 +61,52 @@ type LoadedNotaMonetaryTotals = {
   totalToPay: number;
 };
 
+type CompanyDataPayload = {
+  companiaId?: number;
+  CompaniaId?: number;
+  companyId?: number;
+  CompanyId?: number;
+  companiaRazonSocial?: string;
+  CompaniaRazonSocial?: string;
+  companiaComercial?: string;
+  CompaniaComercial?: string;
+  companiaRUC?: string;
+  companiaRuc?: string;
+  CompaniaRUC?: string;
+  CompaniaRuc?: string;
+  companiaDireccion?: string;
+  CompaniaDireccion?: string;
+  companiaDirecSunat?: string;
+  CompaniaDirecSunat?: string;
+  companiaNomUBG?: string;
+  companiaNomUbg?: string;
+  CompaniaNomUBG?: string;
+  CompaniaNomUbg?: string;
+  companiaDistrito?: string;
+  CompaniaDistrito?: string;
+  logoCompania?: string;
+  LogoCompania?: string;
+};
+
 type PersonalByCodeResponse = {
   personalId?: number;
   personalEstado?: string;
   nombreApellido?: string;
 };
 
-type PersonalCodeFieldProps = {
-  onInputRef: (node: HTMLInputElement | null) => void;
+type NotaEstadoResponse = {
+  notaId?: number;
+  estado?: string;
+  estadoSunat?: string;
+  mensaje?: string;
 };
 
-const PersonalCodeField = ({ onInputRef }: PersonalCodeFieldProps) => {
+type PersonalCodeFieldProps = {
+  onInputRef: (node: HTMLInputElement | null) => void;
+  onEnter?: () => void;
+};
+
+const PersonalCodeField = ({ onInputRef, onEnter }: PersonalCodeFieldProps) => {
   const [isCodeVisible, setIsCodeVisible] = useState(false);
 
   return (
@@ -81,6 +117,11 @@ const PersonalCodeField = ({ onInputRef }: PersonalCodeFieldProps) => {
         autoFocus
         placeholder="Codigo de usuario"
         className="h-10 w-full rounded-lg border border-slate-300 px-3 pr-10 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+        onKeyDown={(event) => {
+          if (event.key !== "Enter") return;
+          event.preventDefault();
+          onEnter?.();
+        }}
       />
       <button
         type="button"
@@ -96,10 +137,18 @@ const PersonalCodeField = ({ onInputRef }: PersonalCodeFieldProps) => {
 };
 
 const AUTO_SEND_TO_OSE_ON_CREATE = false;
-const PROFORMA_DEFAULT_CONTACT_ID = 3364;
+const PROFORMA_DEFAULT_CONTACT_ID = 47;
+const CARD_PAYMENT_ALLOWED_COMPANY = "INVERSIONES MEGAROSITA S.A.C.";
+const POS_ROUTE = "/sales/pos";
 
 const getCartItemKey = (item: Pick<PosCartItem, "productId" | "detalleId">) =>
   Number(item.detalleId ?? 0) || Number(item.productId ?? 0);
+const roundCurrency = (value: number) => {
+  const numeric = Number(value ?? 0);
+  if (!Number.isFinite(numeric)) return 0;
+  return Math.ceil((numeric - Number.EPSILON) * 100) / 100;
+};
+const formatCurrency = (value: unknown) => roundCurrency(Number(value ?? 0)).toFixed(2);
 const hasInvalidQuantityOrStockForPayment = (item: PosCartItem) => {
   const quantity = Number(item.cantidad ?? 0);
   if (!Number.isFinite(quantity) || quantity <= 0) return true;
@@ -268,6 +317,8 @@ const PaymentPage = () => {
   const clearEditingNota = usePosStore((s) => s.clearEditingNota);
   const clearCart = usePosStore((s) => s.clearCart);
   const openDialog = useDialogStore((s) => s.openDialog);
+  const closeDialog = useDialogStore((s) => s.closeDialog);
+  const setDialogLoading = useDialogStore((s) => s.setLoading);
   const { clients, fetchClients, addClient } = useClientsStore();
   const { fetchProducts: refetchProducts } = useProductsStore();
   const fetchBoletaSummaryDocuments = useBoletasSummaryStore(
@@ -458,11 +509,11 @@ const PaymentPage = () => {
       .join(" - ");
   const isCancelledStatusValue = (value: unknown) => {
     const normalized = safeTrim(value).toUpperCase();
-    return (
-      normalized.includes("ANUL") ||
-      normalized.includes("BAJA") ||
-      normalized.includes("CANCEL")
-    );
+    return normalized.includes("ANUL") || normalized.includes("BAJA");
+  };
+  const isPaidStatusValue = (value: unknown) => {
+    const normalized = safeTrim(value).toUpperCase();
+    return normalized.includes("CANCEL");
   };
   const isEmittedStatusValue = (value: unknown) => {
     const normalized = safeTrim(value).toUpperCase();
@@ -471,6 +522,10 @@ const PaymentPage = () => {
   const isRejectedStatusValue = (value: unknown) => {
     const normalized = safeTrim(value).toUpperCase();
     return normalized.includes("RECHAZ");
+  };
+  const isPendingStatusValue = (value: unknown) => {
+    const normalized = safeTrim(value).toUpperCase();
+    return normalized.startsWith("PENDIENTE");
   };
   const resolveDocTypeCodeFromSerie = (serie: unknown) => {
     const normalized = safeTrim(serie).toUpperCase();
@@ -495,6 +550,23 @@ const PaymentPage = () => {
     if (reference.startsWith("BA")) return "03";
     if (reference.startsWith("NV")) return "12";
     return "";
+  };
+  const resolveCompanyIdFromNota = (
+    notaData: Record<string, unknown> | null,
+  ) => {
+    if (!notaData) return 0;
+    const rawCompanyId =
+      (notaData as any)?.companiaId ??
+      (notaData as any)?.CompaniaId ??
+      (notaData as any)?.companyId ??
+      (notaData as any)?.CompanyId ??
+      (notaData as any)?.notaCompaniaId ??
+      (notaData as any)?.NotaCompaniaId ??
+      0;
+    const parsedCompanyId = Number(rawCompanyId);
+    return Number.isFinite(parsedCompanyId) && parsedCompanyId > 0
+      ? parsedCompanyId
+      : 0;
   };
   const resolveUiNotaStatus = (notaEstado: unknown, estadoSunat: unknown) => {
     const nota = safeTrim(notaEstado);
@@ -552,6 +624,12 @@ const PaymentPage = () => {
     if (raw === "view" || raw === "edit") return raw;
     return null;
   }, [searchParams]);
+  const shouldAutoPrintOnLoad = useMemo(() => {
+    const raw = String(searchParams.get("autoprint") ?? "")
+      .trim()
+      .toLowerCase();
+    return raw === "1" || raw === "true" || raw === "yes" || raw === "si";
+  }, [searchParams]);
   const pathMode = useMemo(() => {
     const normalizedPath = pathname.toLowerCase();
     if (!normalizedPath.includes("/sales/order_notes/")) return null;
@@ -560,6 +638,8 @@ const PaymentPage = () => {
     return null;
   }, [pathname]);
   const forcedMode = pathMode ?? queryMode;
+  const isNonEditingPurchaseMode =
+    !isEditingMode && forcedMode !== "edit";
   const isOrderNotesFlow = useMemo(
     () =>
       pathname.toLowerCase().includes("/sales/order_notes/") ||
@@ -575,8 +655,7 @@ const PaymentPage = () => {
   const shouldBackToOrderNotesList = isOrderNotesFlow;
   const backRoute = shouldBackToOrderNotesList
     ? "/sales/order_notes"
-    : "/sales/pos";
-  const backLabel = shouldBackToOrderNotesList ? "Volver" : "Volver al POS";
+    : POS_ROUTE;
   const initialItems =
     serverItemsFromStore.length > 0 ? serverItemsFromStore : items;
   const [purchasedItems, setPurchasedItems] = useState(initialItems);
@@ -594,10 +673,14 @@ const PaymentPage = () => {
   const [isVoidingTicket, setIsVoidingTicket] = useState(false);
   const [isSendingCreditNote, setIsSendingCreditNote] = useState(false);
   const [isResendingDocument, setIsResendingDocument] = useState(false);
+  const [isCheckingEditEligibility, setIsCheckingEditEligibility] =
+    useState(false);
   const [notaCabeceraActual, setNotaCabeceraActual] = useState<Record<
     string,
     unknown
   > | null>(null);
+  const [notaCompaniaActual, setNotaCompaniaActual] =
+    useState<CompanyDataPayload | null>(null);
   const [notaEstadoActual, setNotaEstadoActual] = useState("");
   const [docuIdActual, setDocuIdActual] = useState<number | null>(null);
   const [loadedNotaMonetaryTotals, setLoadedNotaMonetaryTotals] =
@@ -605,12 +688,21 @@ const PaymentPage = () => {
   const [loadedNotePricesIncludeIgv, setLoadedNotePricesIncludeIgv] =
     useState(true);
   const [isConfirmed, setIsConfirmed] = useState(false);
+  const canShowOutputDocumentActions =
+    isNonEditingPurchaseMode && isConfirmed;
   const [confirmedFlowType, setConfirmedFlowType] = useState<
     "create" | "edit" | null
   >(null);
   const [notaId, setNotaId] = useState<number | null>(
     routeNotaId ?? editingNotaIdFromStore ?? null,
   );
+  const shouldReturnToPosFromEdit = isEditingMode && Boolean(notaId);
+  const backToPosRoute = shouldReturnToPosFromEdit ? POS_ROUTE : backRoute;
+  const backLabel = shouldReturnToPosFromEdit
+    ? "Volver al POS"
+    : shouldBackToOrderNotesList
+      ? "Volver"
+      : "Volver al POS";
   const [notaNumero, setNotaNumero] = useState<string>("");
   const [notaSerieOverride, setNotaSerieOverride] = useState<string | null>(
     null,
@@ -622,6 +714,10 @@ const PaymentPage = () => {
     return window.matchMedia("(max-width: 767px)").matches;
   });
   const [priceDrafts, setPriceDrafts] = useState<Record<number, string>>({});
+  const [quantityDrafts, setQuantityDrafts] = useState<Record<number, string>>(
+    {},
+  );
+  const autoPrintTriggeredRef = useRef(false);
   const prevApplyDiscountRef = useRef(false);
   const hasMountedApplyDiscountRef = useRef(false);
   const hasInvalidCustomerSelectionRef = useRef(false);
@@ -637,12 +733,13 @@ const PaymentPage = () => {
   const editRestrictionNotifiedRef = useRef(false);
 
   const docTypeConfig: Record<
-    "03" | "01" | "101",
+    "03" | "01" | "101" | "001",
     { docu: string; serie: string; label: string }
   > = {
     "03": { docu: "BOLETA", serie: "BA01", label: "Boleta" },
     "01": { docu: "FACTURA", serie: "FA01", label: "Factura" },
     "101": { docu: "PROFORMA V", serie: "0001", label: "Proforma V" },
+    "001": { docu: "PROFORMA", serie: "0001", label: "Proforma" },
   };
 
   const isPdfEnabled = !isMobileViewport;
@@ -1114,20 +1211,60 @@ const PaymentPage = () => {
     });
   };
 
-  const handleQuantityChange = (item: PosCartItem, delta: number) => {
-    if (!canEditItems) return;
+  const applyQuantityToItem = (item: PosCartItem, quantity: number) => {
     const itemKey = getCartItemKey(item);
-    const desired = Math.max(0, (item.cantidad ?? 0) + delta);
+    const safeQuantity = Math.max(0, quantity);
     if (hasLiveItems) {
-      updateQuantity(itemKey, desired);
+      updateQuantity(itemKey, safeQuantity);
       return;
     }
     adjustLocalItems((prev) =>
       prev.map((it) =>
-        getCartItemKey(it) === itemKey ? { ...it, cantidad: desired } : it,
+        getCartItemKey(it) === itemKey ? { ...it, cantidad: safeQuantity } : it,
       ),
     );
   };
+
+  const handleManualQuantity = (item: PosCartItem, value: string) => {
+    if (!canEditItems) return;
+    if (!/^\d*\.?\d*$/.test(value)) return;
+
+    const itemKey = getCartItemKey(item);
+    setQuantityDrafts((prev) => ({ ...prev, [itemKey]: value }));
+
+    if (value === "") {
+      applyQuantityToItem(item, 0);
+      return;
+    }
+
+    const parsed = Number(value);
+    if (Number.isNaN(parsed)) return;
+    applyQuantityToItem(item, Math.max(0, parsed));
+  };
+
+  const handleQuantityBlur = (item: PosCartItem, value: string) => {
+    if (!canEditItems) return;
+
+    const itemKey = getCartItemKey(item);
+    const normalized = value.trim();
+    const parsed = Number(normalized);
+    if (normalized === "" || Number.isNaN(parsed)) {
+      applyQuantityToItem(item, 0);
+    } else {
+      applyQuantityToItem(item, Math.max(0, parsed));
+    }
+
+    setQuantityDrafts((prev) => {
+      if (!(itemKey in prev)) return prev;
+      const next = { ...prev };
+      delete next[itemKey];
+      return next;
+    });
+  };
+
+  const getQuantityInputValue = (item: PosCartItem) =>
+    quantityDrafts[getCartItemKey(item)] ??
+    (item.cantidad === 0 ? "" : item.cantidad);
 
   const handleRemoveItem = (itemKey: number) => {
     if (!canEditItems) return;
@@ -1162,14 +1299,21 @@ const PaymentPage = () => {
 
     const parsed = Number(value);
     if (!Number.isNaN(parsed)) {
-      applyPriceToItem(item, parsed);
+      const minPrice = Math.max(0, Number(item.precioMinimo ?? 0) || 0);
+      const safePrice = roundCurrency(Math.max(parsed, minPrice));
+      applyPriceToItem(item, safePrice);
     }
   };
 
   const handlePriceBlur = (item: PosCartItem, value: string) => {
     if (!canEditItems) return;
+    const itemKey = getCartItemKey(item);
 
     if (value.trim() === "") {
+      setPriceDrafts((prev) => ({
+        ...prev,
+        [itemKey]: formatCurrency(item.precio),
+      }));
       return;
     }
 
@@ -1177,27 +1321,30 @@ const PaymentPage = () => {
     if (Number.isNaN(parsed)) {
       setPriceDrafts((prev) => ({
         ...prev,
-        [getCartItemKey(item)]: String(item.precio ?? 0),
+        [itemKey]: formatCurrency(item.precio),
       }));
       return;
     }
+    const minPrice = Math.max(0, Number(item.precioMinimo ?? 0) || 0);
+    const safePrice = roundCurrency(Math.max(parsed, minPrice));
 
     setPriceDrafts((prev) => ({
       ...prev,
-      [getCartItemKey(item)]: String(parsed),
+      [itemKey]: formatCurrency(safePrice),
     }));
-    applyPriceToItem(item, parsed);
+    applyPriceToItem(item, safePrice);
   };
 
   const formMethods = useForm({
     defaultValues: {
-      docTypeCode: "SELECCIONAR" as "03" | "01" | "101" | "SELECCIONAR",
-      paymentMethod: "SELECCIONE" as
+      docTypeCode: "101" as "03" | "01" | "101" | "001" | "SELECCIONAR",
+      paymentMethod: "EFECTIVO" as
         | "SELECCIONE"
         | "EFECTIVO"
         | "TARJETA"
-        | "TRANSFERENCIA"
-        | "YAPE",
+        | "DEPO. BCP"
+        | "DEPO. SCOTIABANK"
+        | "DEPO. CONTINENTAL",
       clienteId: null as number | null,
       customerName: "",
       customerId: "",
@@ -1247,14 +1394,53 @@ const PaymentPage = () => {
     return `${serie}-${paddedNotaNumero}`;
   }, [notaSerie, paddedNotaNumero]);
   const docTypeName = docConfig?.docu ?? "BOLETA";
-  const docTypeForTicket: "boleta" | "factura" | "proforma" =
-    docTypeCode === "01"
-      ? "factura"
-      : docTypeCode === "101"
-        ? "proforma"
-        : "boleta";
   const isFactura = docTypeCode === "01";
-  const isProforma = docTypeCode === "101";
+  const isProforma = docTypeCode === "101" || docTypeCode === "001";
+  const loadedNoteDocTypeCodeForEdit = (() => {
+    const fromHeader = safeTrim(
+      notaCabeceraActual?.codTipoDocumento ??
+        notaCabeceraActual?.CodTipoDocumento ??
+        notaCabeceraActual?.COD_TIPO_DOCUMENTO ??
+        notaCabeceraActual?.tipoDocumento ??
+        notaCabeceraActual?.TipoDocumento ??
+        "",
+    );
+    if (
+      fromHeader === "101" ||
+      fromHeader === "001" ||
+      fromHeader === "01" ||
+      fromHeader === "03" ||
+      fromHeader === "07"
+    ) {
+      return fromHeader;
+    }
+
+    const docName = safeTrim(
+      notaCabeceraActual?.notaDocu ??
+        notaCabeceraActual?.docu ??
+        notaCabeceraActual?.notaTipo ??
+        "",
+    ).toUpperCase();
+    if (docName.includes("PROFORMA V")) return "101";
+    if (docName.includes("PROFORMA")) return "001";
+
+    const fromName = resolveDocTypeCodeFromName(docName);
+    if (fromName === "01" || fromName === "03" || fromName === "07") {
+      return fromName;
+    }
+
+    const fromSerie = resolveDocTypeCodeFromSerie(notaSerie);
+    if (fromSerie === "01" || fromSerie === "03" || fromSerie === "07") {
+      return fromSerie;
+    }
+
+    return "";
+  })();
+  const docTypeForTicket: "boleta" | "factura" | "proforma" = isFactura
+    ? "factura"
+    : isProforma
+      ? "proforma"
+      : "boleta";
   const normalizedNotaEstado = safeTrim(notaEstadoActual).toUpperCase();
   const resolvedDocTypeCodeForResend = (() => {
     const fromHeader = safeTrim(
@@ -1284,13 +1470,27 @@ const PaymentPage = () => {
     return "";
   })();
   const isNotaAnulada = isCancelledStatusValue(normalizedNotaEstado);
+  const isNotaCancelada = isPaidStatusValue(normalizedNotaEstado);
   const isNotaEmitida = isEmittedStatusValue(normalizedNotaEstado);
   const isNotaRechazada = isRejectedStatusValue(normalizedNotaEstado);
+  const loadedNoteIsEditableDocType =
+    loadedNoteDocTypeCodeForEdit === "101" ||
+    loadedNoteDocTypeCodeForEdit === "001" ||
+    loadedNoteDocTypeCodeForEdit === "01";
+  const isEditableDocumentType =
+    Boolean(notaId) && hasLoadedNotaMeta
+      ? loadedNoteDocTypeCodeForEdit
+        ? loadedNoteIsEditableDocType
+        : isProforma || isFactura
+      : isProforma || isFactura;
   const isEditRestrictedByDocumentRules =
     Boolean(notaId) &&
     hasLoadedNotaMeta &&
     isEditingMode &&
-    (!isProforma || isNotaAnulada || isNotaEmitida);
+    (!isEditableDocumentType ||
+      isNotaAnulada ||
+      isNotaCancelada ||
+      isNotaEmitida);
   const formLocked =
     isConfirmed || isReadOnlyNoteView || isEditRestrictedByDocumentRules;
   const isPersistingToDb =
@@ -1341,9 +1541,11 @@ const PaymentPage = () => {
       toast.info(
         isNotaAnulada
           ? "Si está anulado no se puede editar."
-          : isNotaEmitida
-            ? "Si está emitido no se puede editar."
-            : "Si es boleta o factura no se puede editar.",
+          : isNotaCancelada
+            ? "Si está cancelado no se puede editar."
+            : isNotaEmitida
+              ? "Si está emitido no se puede editar."
+              : "Si es boleta no se puede editar.",
       );
       editRestrictionNotifiedRef.current = true;
     }
@@ -1356,6 +1558,7 @@ const PaymentPage = () => {
     hasLoadedNotaMeta,
     isEditRestrictedByDocumentRules,
     isNotaAnulada,
+    isNotaCancelada,
     isNotaEmitida,
     isOrderNotesFlow,
     notaId,
@@ -1485,6 +1688,8 @@ const PaymentPage = () => {
   const totalAPagar = viewTotalsOverride
     ? viewTotalsOverride.totalToPay
     : documentTotalWithIgv + notaAdicional;
+  const shouldRequireBoletaCustomerData =
+    docTypeCode === "03" && Number(totalAPagar ?? 0) >= 500;
   const getDisplayLineAmounts = (item: PosCartItem, rowIndex?: number) => {
     void rowIndex;
     const unitPrice = roundCurrency(Number(item.precio ?? 0));
@@ -1497,12 +1702,19 @@ const PaymentPage = () => {
   const isCash = paymentMethod === "EFECTIVO";
   const isCard = paymentMethod === "TARJETA";
   const requiresBankSelection =
-    paymentMethod === "TRANSFERENCIA" || paymentMethod === "YAPE";
+    paymentMethod === "DEPO. BCP" ||
+    paymentMethod === "DEPO. SCOTIABANK" ||
+    paymentMethod === "DEPO. CONTINENTAL";
 
   const resolvedNotaUsuario = useMemo(
     () => safeTrim(usernameFromSession) || "USUARIO",
     [usernameFromSession],
   );
+  const toFirstNameForNotaUsuario = useCallback((value: unknown) => {
+    const normalized = safeTrim(value).replace(/\s+/g, " ");
+    if (!normalized) return "";
+    return normalized.split(" ")[0] ?? "";
+  }, []);
 
   useEffect(() => {
     if (!hasMountedApplyDiscountRef.current) {
@@ -1624,13 +1836,15 @@ const PaymentPage = () => {
       unidadMedida:
         safeTrim(detalle?.detalleUm ?? detalle?.unidadMedida ?? "") || "UND",
       costo: Number.isFinite(costo) ? Math.max(costo, 0) : 0,
-      precio: Math.max(
-        Number.isFinite(precioFromImporte)
-          ? precioFromImporte
-          : Number.isFinite(precio)
-            ? precio
-            : 0,
-        Number.isFinite(precioMinimo) ? Math.max(precioMinimo, 0) : 0,
+      precio: roundCurrency(
+        Math.max(
+          Number.isFinite(precioFromImporte)
+            ? precioFromImporte
+            : Number.isFinite(precio)
+              ? precio
+              : 0,
+          Number.isFinite(precioMinimo) ? Math.max(precioMinimo, 0) : 0,
+        ),
       ),
       precioMinimo: Number.isFinite(precioMinimo)
         ? Math.max(precioMinimo, 0)
@@ -1763,6 +1977,7 @@ const PaymentPage = () => {
     setNotaEstadoActual("");
     setDocuIdActual(null);
     setNotaCabeceraActual(null);
+    setNotaCompaniaActual(null);
 
     try {
       const [notaResponse, detallesResponse] = await Promise.all([
@@ -1975,7 +2190,7 @@ const PaymentPage = () => {
       }
     } catch (error) {
       console.error("Error al cargar la nota por id", error);
-      toast.error("No se pudo sincronizar la nota creada.");
+      toast.error("No se pudo sincronizar la nota.");
       setLoadedNotaMonetaryTotals(null);
       setLoadedNotePricesIncludeIgv(true);
     }
@@ -2005,11 +2220,11 @@ const PaymentPage = () => {
 
   useEffect(() => {
     if (!clients.length) {
-      fetchClients();
+      fetchClients("");
     }
   }, [clients.length, fetchClients]);
 
-  // En nuevo registro, preselecciona cliente ID 3364 (sin afectar edicion)
+  // En nuevo registro, preselecciona cliente VARIOS (ID configurado) sin afectar edicion
   useEffect(() => {
     if (notaId || isEditingMode || hasLoadedNotaMeta) return;
     if (defaultCustomerAppliedRef.current) return;
@@ -2207,7 +2422,7 @@ const PaymentPage = () => {
           return false;
         }
 
-        await fetchClients();
+        await fetchClients("");
         const refreshedClients = useClientsStore.getState().clients;
         const normalizedName = safeTrim(payload.nombreRazon).toLowerCase();
         const normalizedRuc = safeTrim(payload.ruc);
@@ -2287,10 +2502,92 @@ const PaymentPage = () => {
       }),
     [openDialog],
   );
+  const showCardPaymentRestrictionDialog = useCallback(
+    () =>
+      new Promise<void>((resolve) => {
+        openDialog({
+          title: "AVISO",
+          content: (
+            <p className="text-sm text-slate-700 uppercase leading-relaxed">
+              La forma de pago en tarjeta no tiene relacion con Consorcio
+              Ferretero Rosita E.I.R.L. Imprimir o guardar como proforma y
+              emitir la boleta en la compania correspondiente.
+            </p>
+          ),
+          confirmText: "Aceptar",
+          hideCancelButton: true,
+          disableBackdropClose: true,
+          onConfirm: () => {
+            resolve();
+          },
+          onCancel: () => {
+            resolve();
+          },
+        });
+      }),
+    [openDialog],
+  );
 
   const requestPersonalAuthorizationForPayment = () =>
     new Promise<string | null>((resolve) => {
       let codeInputRef: HTMLInputElement | null = null;
+      const validatePersonalCode = async (): Promise<boolean> => {
+        const codigoUsuario = safeTrim(codeInputRef?.value ?? "");
+        if (!codigoUsuario) {
+          toast.error("Ingrese su codigo de usuario.");
+          return false;
+        }
+
+        const response = await apiRequest<PersonalByCodeResponse | null>({
+          url: buildApiUrl(
+            `/Personal/by-code/${encodeURIComponent(codigoUsuario)}`,
+          ),
+          method: "GET",
+          fallback: null,
+        });
+
+        const responseRecord = parseRecordLikeValue(response);
+        const nestedDataRecord = parseRecordLikeValue(responseRecord?.data);
+        const personalRecord = nestedDataRecord ?? responseRecord;
+        const httpStatus = resolveHttpStatus(response);
+        const hasHttpError =
+          typeof httpStatus === "number" && httpStatus >= 400;
+        const nombreApellido = safeTrim(
+          personalRecord?.nombreApellido ??
+            personalRecord?.NombreApellido ??
+            personalRecord?.nombreCompleto ??
+            personalRecord?.NombreCompleto,
+        );
+        const personalEstado = safeTrim(
+          personalRecord?.personalEstado ??
+            personalRecord?.PersonalEstado ??
+            personalRecord?.estado ??
+            personalRecord?.Estado,
+        ).toUpperCase();
+
+        if (httpStatus === 404) {
+          toast.error("CODIGO INCORRECTO");
+          return false;
+        }
+
+        if (hasHttpError || !nombreApellido) {
+          toast.error(
+            resolveApiMessage(response) ||
+              "Codigo de usuario no encontrado. Verifique y reintente.",
+          );
+          return false;
+        }
+
+        if (personalEstado && personalEstado !== "ACTIVO") {
+          toast.error(
+            "El usuario consultado no esta activo. Verifique y reintente.",
+          );
+          return false;
+        }
+
+        resolve(nombreApellido);
+        return true;
+      };
 
       openDialog({
         title: "Validar usuario",
@@ -2306,69 +2603,26 @@ const PaymentPage = () => {
               onInputRef={(node) => {
                 codeInputRef = node;
               }}
+              onEnter={() => {
+                void (async () => {
+                  setDialogLoading(true);
+                  try {
+                    const isValid = await validatePersonalCode();
+                    if (isValid) {
+                      closeDialog();
+                    }
+                  } finally {
+                    setDialogLoading(false);
+                  }
+                })();
+              }}
             />
             <p className="text-xs text-slate-500">
               Si el codigo no existe o esta inactivo, no se permitira confirmar.
             </p>
           </div>
         ),
-        onConfirm: async () => {
-          const codigoUsuario = safeTrim(codeInputRef?.value ?? "");
-          if (!codigoUsuario) {
-            toast.error("Ingrese su codigo de usuario.");
-            return false;
-          }
-
-          const response = await apiRequest<PersonalByCodeResponse | null>({
-            url: buildApiUrl(
-              `/Personal/by-code/${encodeURIComponent(codigoUsuario)}`,
-            ),
-            method: "GET",
-            fallback: null,
-          });
-
-          const responseRecord = parseRecordLikeValue(response);
-          const nestedDataRecord = parseRecordLikeValue(responseRecord?.data);
-          const personalRecord = nestedDataRecord ?? responseRecord;
-          const httpStatus = resolveHttpStatus(response);
-          const hasHttpError =
-            typeof httpStatus === "number" && httpStatus >= 400;
-          const nombreApellido = safeTrim(
-            personalRecord?.nombreApellido ??
-              personalRecord?.NombreApellido ??
-              personalRecord?.nombreCompleto ??
-              personalRecord?.NombreCompleto,
-          );
-          const personalEstado = safeTrim(
-            personalRecord?.personalEstado ??
-              personalRecord?.PersonalEstado ??
-              personalRecord?.estado ??
-              personalRecord?.Estado,
-          ).toUpperCase();
-
-          if (httpStatus === 404) {
-            toast.error("CODIGO INCORRECTO");
-            return false;
-          }
-
-          if (hasHttpError || !nombreApellido) {
-            toast.error(
-              resolveApiMessage(response) ||
-                "Codigo de usuario no encontrado. Verifique y reintente.",
-            );
-            return false;
-          }
-
-          if (personalEstado && personalEstado !== "ACTIVO") {
-            toast.error(
-              "El usuario consultado no esta activo. Verifique y reintente.",
-            );
-            return false;
-          }
-
-          resolve(nombreApellido);
-          return true;
-        },
+        onConfirm: validatePersonalCode,
         onCancel: () => {
           resolve(null);
         },
@@ -2409,11 +2663,16 @@ const PaymentPage = () => {
           const dni = safeTrim(client.dni ?? "");
           const ruc = safeTrim(client.ruc ?? "");
           return {
+            // Mantiene compatibilidad con el valor del campo (customerName).
             value: label,
             label,
             dni,
             ruc,
             id: client.id,
+            optionKey:
+              Number(client.id) > 0
+                ? `client-${client.id}`
+                : `${normalizeSearchText(label)}-${dni}-${ruc}`,
             searchLabel: normalizeSearchText(label),
             searchDocument: normalizeSearchText(`${dni} ${ruc}`),
           };
@@ -2554,12 +2813,25 @@ const PaymentPage = () => {
       docTypeCode === "01"
         ? safeTrim((clientById as any).ruc ?? "")
         : safeTrim((clientById as any).dni ?? "");
+    const normalizedCurrentName = safeTrim(customerName);
+    const normalizedCurrentDoc = safeTrim(customerId);
+    const isManualNameEdition =
+      Boolean(dirtyFields?.customerName) &&
+      normalizedCurrentName !== "" &&
+      normalizedCurrentName !== nameFromId;
+    const isManualDocEdition =
+      Boolean(dirtyFields?.customerId) &&
+      normalizedCurrentDoc !== "" &&
+      normalizedCurrentDoc !== docFromId;
 
-    if (nameFromId && safeTrim(customerName) !== nameFromId) {
+    // Si el usuario está escribiendo manualmente, no rehidratar desde clienteId.
+    if (isManualNameEdition || isManualDocEdition) return;
+
+    if (nameFromId && normalizedCurrentName !== nameFromId) {
       setValue("customerName", nameFromId, { shouldDirty: false });
     }
 
-    if (safeTrim(customerId) !== docFromId) {
+    if (normalizedCurrentDoc !== docFromId) {
       setValue("customerId", docFromId, { shouldDirty: false });
     }
   }, [
@@ -2568,8 +2840,28 @@ const PaymentPage = () => {
     uniqueClients,
     customerName,
     customerId,
+    dirtyFields?.customerName,
+    dirtyFields?.customerId,
     setValue,
   ]);
+
+  // Si el usuario empieza a editar manualmente el nombre,
+  // desacoplamos el cliente seleccionado para no "reponer" el texto.
+  useEffect(() => {
+    const clientIdNumeric = Number(clienteId);
+    if (!Number.isFinite(clientIdNumeric) || clientIdNumeric <= 0) return;
+
+    const clientById = uniqueClients.find(
+      (client) => Number(client.id) === clientIdNumeric,
+    );
+    if (!clientById) return;
+
+    const canonicalName = safeTrim(clientById.nombreRazon ?? "");
+    const typedName = safeTrim(customerName);
+    if (typedName === canonicalName) return;
+
+    setClienteIdFromOption(null, { shouldDirty: true });
+  }, [clienteId, uniqueClients, customerName, setClienteIdFromOption]);
 
   const resolveDocumentValue = useCallback(
     (value: any, type: "dni" | "ruc") => {
@@ -2603,10 +2895,14 @@ const PaymentPage = () => {
     (value: any) => {
       const doc = resolveDocumentValue(value, "dni");
       if (docTypeCode !== "03") return true;
-      if (!doc) return "El DNI es obligatorio para Boleta";
+      if (!doc) {
+        return shouldRequireBoletaCustomerData
+          ? "El DNI es obligatorio para Boleta"
+          : true;
+      }
       return /^\d{8}$/.test(doc) || "El DNI debe tener 8 digitos";
     },
-    [docTypeCode, resolveDocumentValue],
+    [docTypeCode, resolveDocumentValue, shouldRequireBoletaCustomerData],
   );
 
   const validateRucLength = useCallback(
@@ -2657,6 +2953,7 @@ const PaymentPage = () => {
 
   const ensureBoletaCustomerAndDni = useCallback(() => {
     if (docTypeCode !== "03") return true;
+    if (!shouldRequireBoletaCustomerData) return true;
 
     const selectedClientId = Number(getValues("clienteId") ?? 0);
     const selectedName = safeTrim(getValues("customerName"));
@@ -2688,7 +2985,13 @@ const PaymentPage = () => {
     }
 
     return true;
-  }, [docTypeCode, getValues, resolveDocumentValue, setFocus]);
+  }, [
+    docTypeCode,
+    getValues,
+    resolveDocumentValue,
+    setFocus,
+    shouldRequireBoletaCustomerData,
+  ]);
   const documentFilterOptions = useCallback(
     (
       options: Array<(typeof dniOptions)[number] | (typeof rucOptions)[number]>,
@@ -2804,6 +3107,64 @@ const PaymentPage = () => {
     [clientOptions, normalizeSearchText, tokenizeSearchText],
   );
 
+  const loadedNotaCompanyId = useMemo(
+    () => resolveCompanyIdFromNota(notaCabeceraActual),
+    [notaCabeceraActual],
+  );
+  const companyCommercialFromNota = safeTrim(
+    notaCompaniaActual?.companiaComercial ??
+      notaCompaniaActual?.CompaniaComercial ??
+      "",
+  );
+  const companyNameFromNota = safeTrim(
+    notaCompaniaActual?.companiaRazonSocial ??
+      notaCompaniaActual?.CompaniaRazonSocial ??
+      "",
+  );
+  const companyRucFromNota = safeTrim(
+    notaCompaniaActual?.companiaRUC ??
+      notaCompaniaActual?.companiaRuc ??
+      notaCompaniaActual?.CompaniaRUC ??
+      notaCompaniaActual?.CompaniaRuc ??
+      "",
+  );
+  const companyAddressFromNota = safeTrim(
+    notaCompaniaActual?.companiaDirecSunat ??
+      notaCompaniaActual?.CompaniaDirecSunat ??
+      notaCompaniaActual?.companiaDireccion ??
+      notaCompaniaActual?.CompaniaDireccion ??
+      "",
+  );
+  const companyDistrictFromNota = safeTrim(
+    notaCompaniaActual?.companiaDistrito ??
+      notaCompaniaActual?.CompaniaDistrito ??
+      notaCompaniaActual?.companiaNomUBG ??
+      notaCompaniaActual?.companiaNomUbg ??
+      notaCompaniaActual?.CompaniaNomUBG ??
+      notaCompaniaActual?.CompaniaNomUbg ??
+      "",
+  );
+  const companyLogoFromNota = safeTrim(
+    notaCompaniaActual?.logoCompania ?? notaCompaniaActual?.LogoCompania ?? "",
+  );
+  const effectiveCompanyNameForDocument =
+    companyCommercialFromNota ||
+    companyNameFromNota ||
+    companyCommercialFromSession ||
+    companyNameFromSession ||
+    "CONSORCIO FERRETERO ROSITA E.I.R.L.";
+  const effectiveCompanyRucForDocument =
+    companyRucFromNota || companyRucFromSession || "20601070155";
+  const effectiveCompanyAddressForDocument =
+    companyAddressFromNota ||
+    companyAddressSunatFromSession ||
+    "Calle 2 Mz B Lote 1";
+  const effectiveCompanyDistrictForDocument =
+    companyDistrictFromNota || companyUbigeoNameFromSession || "LIMA";
+  const effectiveCompanyLogoForDocument = notaId
+    ? companyLogoFromNota
+    : undefined;
+
   const ticketPreviewProps = useMemo(() => {
     const safeItems = itemsToRender.length ? itemsToRender : purchasedItems;
     const safeTotals = itemsToRender.length ? totalsToRender : paidTotals;
@@ -2823,39 +3184,45 @@ const PaymentPage = () => {
         safeTrim((selectedClient as any)?.direccionFiscal ?? "") ||
         safeTrim((selectedClient as any)?.direccionDespacho ?? "") ||
         "-",
+      notaUsuario:
+        safeTrim(
+          (notaCabeceraActual as any)?.notaUsuario ??
+            (notaCabeceraActual as any)?.NotaUsuario ??
+            "",
+        ) || resolvedNotaUsuario,
       docType: docTypeForTicket,
       paymentMethod,
       items: safeItems,
       totals: safeTotals,
       noteId: notaId,
       summary: {
-        operacionGravada: Number(gravada.toFixed(2)),
-        cardAdditional: Number(notaAdicional.toFixed(2)),
+        operacionGravada: roundCurrency(gravada),
+        cardAdditional: roundCurrency(notaAdicional),
         cardPercentage:
           paymentMethod === "TARJETA"
-            ? Number(cardPercentageFromSession.toFixed(2))
+            ? roundCurrency(cardPercentageFromSession)
             : 0,
         showCardAdditional: paymentMethod === "TARJETA" && notaAdicional > 0,
-        descuento: Number(descuento.toFixed(2)),
+        descuento: roundCurrency(descuento),
         showDiscount: applyDiscount,
-        subtotal: Number(gravada.toFixed(2)),
-        igv: Number(igvAmount.toFixed(2)),
-        total: Number(totalAPagar.toFixed(2)),
+        subtotal: roundCurrency(gravada),
+        igv: roundCurrency(igvAmount),
+        total: roundCurrency(totalAPagar),
       },
       documentNumber,
-      companyName:
-        companyCommercialFromSession ||
-        companyNameFromSession ||
-        "CONSORCIO FERRETERO ROSITA E.I.R.L.",
-      companyRuc: companyRucFromSession || "20601070155",
-      companyAddress: companyAddressSunatFromSession || "Calle 2 Mz B Lote 1",
-      companyDistrict: companyUbigeoNameFromSession || "LIMA",
+      companyName: effectiveCompanyNameForDocument,
+      companyRuc: effectiveCompanyRucForDocument,
+      companyAddress: effectiveCompanyAddressForDocument,
+      companyDistrict: effectiveCompanyDistrictForDocument,
+      companyLogo: effectiveCompanyLogoForDocument,
     };
   }, [
     selectedDocument,
     uniqueClients,
     clienteId,
     customerName,
+    notaCabeceraActual,
+    resolvedNotaUsuario,
     docTypeForTicket,
     documentNumber,
     notaId,
@@ -2872,25 +3239,27 @@ const PaymentPage = () => {
     totalAPagar,
     notaAdicional,
     cardPercentageFromSession,
-    companyCommercialFromSession,
-    companyNameFromSession,
-    companyRucFromSession,
-    companyAddressSunatFromSession,
-    companyUbigeoNameFromSession,
+    effectiveCompanyNameForDocument,
+    effectiveCompanyRucForDocument,
+    effectiveCompanyAddressForDocument,
+    effectiveCompanyDistrictForDocument,
+    effectiveCompanyLogoForDocument,
   ]);
   const previewKey = useMemo(
     () =>
       [
         docTypeCode,
         paymentMethod,
+        applyDiscount ? "discount-on" : "discount-off",
         ticketPreviewProps.clientName,
         ticketPreviewProps.clientId,
         ticketPreviewProps.documentNumber,
-        totalAPagar.toFixed(2),
-        descuento.toFixed(2),
+        formatCurrency(totalAPagar),
+        formatCurrency(descuento),
         itemsToRender.length,
       ].join("|"),
     [
+      applyDiscount,
       docTypeCode,
       itemsToRender.length,
       paymentMethod,
@@ -2907,7 +3276,10 @@ const PaymentPage = () => {
     const today = getLocalDateISO(now);
     const safeItems = safeItemsForFiscal;
     const base = gravada;
-    const isProformaDoc = safeTrim(docTypeName).toUpperCase() === "PROFORMA V";
+    const normalizedDocTypeName = safeTrim(docTypeName).toUpperCase();
+    const isProformaDoc =
+      normalizedDocTypeName === "PROFORMA V" ||
+      normalizedDocTypeName === "PROFORMA";
     const hasUserSelectedContact = Boolean(
       dirtyFields?.clienteId ||
       dirtyFields?.customerName ||
@@ -2961,15 +3333,15 @@ const PaymentPage = () => {
         notaFechaPago: now.toISOString(),
         notaDireccion: null,
         notaTelefono: null,
-        notaSubtotal: Number(base.toFixed(2)),
+        notaSubtotal: roundCurrency(base),
         notaMovilidad: 0,
-        notaDescuento: Number(descuento.toFixed(2)),
-        notaTotal: Number(documentTotalWithIgv.toFixed(2)),
+        notaDescuento: roundCurrency(descuento),
+        notaTotal: roundCurrency(documentTotalWithIgv),
         notaAcuenta: 0,
-        notaSaldo: Number(totalAPagar.toFixed(2)),
-        notaAdicional: Number(notaAdicional.toFixed(2)),
-        notaTarjeta: isCard ? Number(totalAPagar.toFixed(2)) : 0,
-        notaPagar: Number(totalAPagar.toFixed(2)),
+        notaSaldo: roundCurrency(totalAPagar),
+        notaAdicional: roundCurrency(notaAdicional),
+        notaTarjeta: isCard ? roundCurrency(totalAPagar) : 0,
+        notaPagar: roundCurrency(totalAPagar),
         notaEstado: "PENDIENTE",
         companiaId: companyId,
         notaEntrega: "INMEDIATA",
@@ -2978,12 +3350,12 @@ const PaymentPage = () => {
         notaConcepto: "MERCADERIA",
         notaSerie,
         notaNumero: paddedNotaNumero || "00000000",
-        notaGanancia: Number(notaGananciaCalculada.toFixed(2)),
+        notaGanancia: roundCurrency(notaGananciaCalculada),
         icbper: 0,
         entidadBancaria: "",
         nroOperacion: "",
-        efectivo: isCash ? Number(totalAPagar.toFixed(2)) : 0,
-        deposito: isCash ? 0 : Number(totalAPagar.toFixed(2)),
+        efectivo: isCash ? roundCurrency(totalAPagar) : 0,
+        deposito: isCash ? 0 : roundCurrency(totalAPagar),
       },
       detalles: safeItems.map((item) => {
         const detalleCantidad = Number(item.cantidad ?? 0);
@@ -3067,9 +3439,85 @@ const PaymentPage = () => {
     fetchNotaFromServer(notaId).finally(() => setHasLoadedNotaMeta(true));
   }, [notaId, hasLoadedNotaMeta]);
 
+  useEffect(() => {
+    if (!notaId) {
+      setNotaCompaniaActual(null);
+      return;
+    }
+    if (!hasLoadedNotaMeta) return;
+    if (!loadedNotaCompanyId) {
+      setNotaCompaniaActual(null);
+      return;
+    }
+
+    let isCancelled = false;
+    void (async () => {
+      try {
+        const response = await apiRequest<CompanyDataPayload | null>({
+          url: buildApiUrl(`/Compania/${loadedNotaCompanyId}`),
+          method: "GET",
+          config: { headers: { Accept: "text/plain" } },
+          fallback: null,
+        });
+        if (isCancelled) return;
+
+        const responseRecord = parseRecordLikeValue(response);
+        const nestedDataRecord = parseRecordLikeValue(responseRecord?.data);
+        const companyData = (nestedDataRecord ??
+          responseRecord) as CompanyDataPayload | null;
+        const companyIdFromResponse = Number(
+          companyData?.companiaId ??
+            companyData?.CompaniaId ??
+            companyData?.companyId ??
+            companyData?.CompanyId ??
+            0,
+        );
+        if (
+          !companyData ||
+          !Number.isFinite(companyIdFromResponse) ||
+          companyIdFromResponse <= 0
+        ) {
+          setNotaCompaniaActual(null);
+          return;
+        }
+
+        setNotaCompaniaActual(companyData);
+      } catch (error) {
+        console.error("Error al cargar la compania de la nota", error);
+        if (!isCancelled) {
+          setNotaCompaniaActual(null);
+        }
+      }
+    })();
+
+    return () => {
+      isCancelled = true;
+    };
+  }, [notaId, hasLoadedNotaMeta, loadedNotaCompanyId]);
+
   const confirmPayment = async () => {
     if (isReadOnlyNoteView) return;
-    if (!ensureExistingCustomerByName(getValues("customerName"))) return;
+    const normalizedCompanyName = safeTrim(companyNameFromSession)
+      .replace(/\s+/g, " ")
+      .toUpperCase();
+    const normalizedAllowedCompanyName =
+      CARD_PAYMENT_ALLOWED_COMPANY.toUpperCase();
+    if (
+      paymentMethod === "TARJETA" &&
+      !isProforma &&
+      normalizedCompanyName !== normalizedAllowedCompanyName
+    ) {
+      await showCardPaymentRestrictionDialog();
+      return;
+    }
+    const shouldSkipCustomerValidation =
+      docTypeCode === "03" && !shouldRequireBoletaCustomerData;
+    if (
+      !shouldSkipCustomerValidation &&
+      !ensureExistingCustomerByName(getValues("customerName"))
+    ) {
+      return;
+    }
     if (!ensureBoletaCustomerAndDni()) return;
     if (!ensureFacturaCustomerAndRuc()) return;
 
@@ -3110,7 +3558,9 @@ const PaymentPage = () => {
       await requestPersonalAuthorizationForPayment();
     if (!authorizedPersonalName) return;
     const resolvedPaymentUsername =
-      safeTrim(authorizedPersonalName) || resolvedNotaUsuario;
+      toFirstNameForNotaUsuario(authorizedPersonalName) ||
+      toFirstNameForNotaUsuario(resolvedNotaUsuario) ||
+      "USUARIO";
     const baseNota = { ...notaPayload.nota, notaId: notaId ?? 0 };
     const editNota = isEditing
       ? {
@@ -3138,12 +3588,18 @@ const PaymentPage = () => {
           nroOperacion: baseNota.nroOperacion ?? "",
         }
       : baseNota;
+    const detalleEstadoForSave = safeTrim(editNota.notaDocu)
+      .toUpperCase()
+      .includes("BOLETA")
+      ? "EMITIDO"
+      : "PENDIENTE";
 
     const detallesPayload: NotaDetallePayload[] = notaPayload.detalles.map(
       (detalle) => {
         const baseDetalle = {
           ...detalle,
           detalleId: (detalle as any).detalleId ?? 0,
+          detalleEstado: detalleEstadoForSave,
         };
         if (!isEditing) return baseDetalle;
         return {
@@ -3155,7 +3611,7 @@ const PaymentPage = () => {
           detalleCosto: baseDetalle.detalleCosto,
           detallePrecio: baseDetalle.detallePrecio,
           detalleImporte: baseDetalle.detalleImporte,
-          detalleEstado: baseDetalle.detalleEstado,
+          detalleEstado: detalleEstadoForSave,
           valorUM: baseDetalle.valorUM,
         };
       },
@@ -3258,7 +3714,7 @@ const PaymentPage = () => {
         notaMovilidad: Number(editNota.notaMovilidad ?? 0),
         notaDescuento: Number(editNota.notaDescuento ?? 0),
         notaTotal: Number(editNota.notaTotal ?? 0),
-        notaAcuenta: Number(editNota.notaTotal ?? 0),
+        notaAcuenta: 0,
         notaSaldo: Number(editNota.notaPagar ?? editNota.notaTotal ?? 0),
         notaAdicional: Number(editNota.notaAdicional ?? 0),
         notaTarjeta: Number(editNota.notaTarjeta ?? 0),
@@ -3312,14 +3768,18 @@ const PaymentPage = () => {
       .replace(/[\u0300-\u036f]/g, "");
     if (normalizedMessage.includes("aperturo caja")) {
       toast.error(
-        isCreateFlow ? "Fallo la creacion de pedido" : (apiMessage || "No Aperturó Caja"),
+        isCreateFlow
+          ? "Fallo la creacion de pedido"
+          : apiMessage || "No Aperturó Caja",
       );
       return;
     }
 
     if (!result || (result as any) === false) {
       toast.error(
-        isCreateFlow ? "Fallo la creacion de pedido" : "No se pudo registrar la nota.",
+        isCreateFlow
+          ? "Fallo la creacion de pedido"
+          : "No se pudo registrar la nota.",
       );
       return;
     }
@@ -3540,9 +4000,14 @@ const PaymentPage = () => {
         replace: true,
       });
     }
-
     if (isEditingMode) {
       setEditingModeInStore(false);
+    }
+    if (isEditing && parsedNotaId) {
+      const numericNotaId = Number(parsedNotaId);
+      if (Number.isFinite(numericNotaId) && numericNotaId > 0) {
+        await fetchNotaFromServer(numericNotaId);
+      }
     }
 
     setIsConfirmed(true);
@@ -3669,11 +4134,11 @@ const PaymentPage = () => {
               nroComprobanteRef: "",
               statu: "1",
               codMoneda: "PEN",
-              total: Number(parseAmountLike(row.total).toFixed(2)),
-              icbper: Number(parseAmountLike(row.icbper).toFixed(2)),
-              gravada: Number(parseAmountLike(row.subTotal).toFixed(2)),
+              total: roundCurrency(parseAmountLike(row.total)),
+              icbper: roundCurrency(parseAmountLike(row.icbper)),
+              gravada: roundCurrency(parseAmountLike(row.subTotal)),
               isc: 0,
-              igv: Number(parseAmountLike(row.igv).toFixed(2)),
+              igv: roundCurrency(parseAmountLike(row.igv)),
               otros: 0,
               cargoXAsignacion: 1,
               montoCargoXAsig: 0,
@@ -3725,10 +4190,10 @@ const PaymentPage = () => {
               COMPANIA_ID: companyId,
               detalle: detailRows,
               RANGO_NUMEROS: rangoNumeros,
-              SUBTOTAL: Number(summarySubTotal.toFixed(2)),
-              IGV: Number(summaryIgv.toFixed(2)),
-              ICBPER: Number(summaryIcbper.toFixed(2)),
-              TOTAL: Number(summaryTotal.toFixed(2)),
+              SUBTOTAL: roundCurrency(summarySubTotal),
+              IGV: roundCurrency(summaryIgv),
+              ICBPER: roundCurrency(summaryIcbper),
+              TOTAL: roundCurrency(summaryTotal),
             });
             const summaryOk =
               summaryResponse.ok || safeTrim(summaryResponse.flg_rta) === "1";
@@ -3813,7 +4278,7 @@ const PaymentPage = () => {
             safeTrim(parsedNotaCorrelative) || safeTrim(documentNumber),
           paymentMethod,
           customerName: safeTrim(customerName),
-          total: Number(totalAPagar.toFixed(2)),
+          total: roundCurrency(totalAPagar),
         });
       } catch (error) {
         console.error("No se pudo marcar el carrito como confirmado", error);
@@ -3844,16 +4309,23 @@ const PaymentPage = () => {
       serieForImmediatePrint && numeroForImmediatePrint
         ? `${serieForImmediatePrint}-${numeroForImmediatePrint}`
         : safeTrim(documentNumber);
+    const shouldPrintFacturaAsProformaOnCreate = isCreateFlow && isFactura;
 
-    if (!isFactura) {
-      void handlePrint({
-        skipConfirmedCheck: true,
-        silent: true,
-        previewPropsOverride: immediateDocumentNumber
-          ? { documentNumber: immediateDocumentNumber }
+    void handlePrint({
+      skipConfirmedCheck: true,
+      silent: true,
+      previewPropsOverride:
+        immediateDocumentNumber || shouldPrintFacturaAsProformaOnCreate
+          ? {
+              ...(immediateDocumentNumber
+                ? { documentNumber: immediateDocumentNumber }
+                : {}),
+              ...(shouldPrintFacturaAsProformaOnCreate
+                ? { docType: "proforma" as const }
+                : {}),
+            }
           : undefined,
-      });
-    }
+    });
   };
 
   const handleMobileTopConfirm = () => {
@@ -3905,6 +4377,26 @@ const PaymentPage = () => {
 
   const handleBackToPos = (ev?: MouseEvent) => {
     ev?.preventDefault();
+    if (isEditingMode && notaId) {
+      const itemsForReturn =
+        items.length > 0
+          ? items
+          : purchasedItems.length > 0
+            ? purchasedItems
+            : serverItems.length > 0
+              ? serverItems
+              : items;
+
+      if (itemsForReturn.length) {
+        setStoreItems(itemsForReturn);
+        setPaidTotals(computeTotalsFromItems(itemsForReturn));
+        setEditingNotaInStore(notaId);
+        setServerItemsInStore(serverItems.length ? serverItems : itemsForReturn);
+      }
+      navigate(POS_ROUTE, { state: { preserveCart: true } });
+      return;
+    }
+
     if (shouldBackToOrderNotesList || cameFromOrderNotesViewButton) {
       clearEditingNota();
       navigate("/sales/order_notes");
@@ -3962,33 +4454,122 @@ const PaymentPage = () => {
     }
     navigate(backRoute, { state: { preserveCart: true } });
   };
-
-  const handleEnableEditing = () => {
-    if (isNotaAnulada || isNotaEmitida) {
-      toast.info("Si está anulado o emitido no se puede editar.");
+  const handleNewSaleShortcut = useCallback(() => {
+    if (isPersistingToDb) return;
+    if (isEditingMode) {
+      runConfirmedSaleCleanup();
+      clearCart();
+      clearEditingNota();
+      navigate(POS_ROUTE, { state: { resetCart: true } });
       return;
     }
-    if (!isProforma) {
-      toast.info("Si es boleta o factura no se puede editar.");
+
+    if (shouldBackToOrderNotesList || cameFromOrderNotesViewButton) {
+      clearEditingNota();
+      navigate("/sales/order_notes");
+      return;
+    }
+
+    if (isOrderNotesFlow) {
+      clearEditingNota();
+      navigate(backRoute);
+      return;
+    }
+
+    runConfirmedSaleCleanup();
+    clearCart();
+    clearEditingNota();
+    navigate(backRoute, { state: { resetCart: true } });
+  }, [
+    backRoute,
+    cameFromOrderNotesViewButton,
+    clearCart,
+    clearEditingNota,
+    isEditingMode,
+    isOrderNotesFlow,
+    isPersistingToDb,
+    navigate,
+    runConfirmedSaleCleanup,
+    shouldBackToOrderNotesList,
+  ]);
+
+  const handleEnableEditing = async () => {
+    if (isCheckingEditEligibility) return;
+    if (isNotaAnulada || isNotaCancelada || isNotaEmitida) {
+      toast.info("Si está anulado, cancelado o emitido no se puede editar.");
+      return;
+    }
+    if (!isEditableDocumentType) {
+      toast.info("Si es boleta no se puede editar.");
       return;
     }
     if (!notaId) return;
-    if (isReadOnlyNoteView) {
-      navigate(`/sales/order_notes/${notaId}/edit`);
-      return;
+    setIsCheckingEditEligibility(true);
+    try {
+      const response = await apiRequest<NotaEstadoResponse | null>({
+        url: buildApiUrl(`/Nota/${notaId}/estado`),
+        method: "GET",
+        fallback: null,
+      });
+      const responseRecord = parseRecordLikeValue(response);
+      const nestedDataRecord = parseRecordLikeValue(responseRecord?.data);
+      const estadoRecord = nestedDataRecord ?? responseRecord;
+      const httpStatus = resolveHttpStatus(response);
+
+      if (httpStatus === 404) {
+        toast.error(
+          resolveApiMessage(response) ||
+            `No se encontró la nota con NotaId=${notaId}.`,
+        );
+        return;
+      }
+
+      if (httpStatus >= 400) {
+        toast.error(
+          resolveApiMessage(response) ||
+            "No se pudo validar el estado de la nota para edición.",
+        );
+        return;
+      }
+      if (!estadoRecord) {
+        toast.error("No se pudo validar el estado de la nota para edición.");
+        return;
+      }
+
+      const estadoActual = safeTrim(
+        estadoRecord?.estado ?? estadoRecord?.notaEstado ?? "",
+      );
+      if (!isPendingStatusValue(estadoActual)) {
+        toast.info(
+          `No se puede editar. Estado actual del documento: ${estadoActual || "NO DISPONIBLE"}.`,
+        );
+        return;
+      }
+
+      if (isReadOnlyNoteView) {
+        navigate(`/sales/order_notes/${notaId}/edit`);
+        return;
+      }
+      shouldCleanupOnExitAfterConfirmRef.current = false;
+      setIsConfirmed(false);
+      setConfirmedFlowType(null);
+      setEditingNotaInStore(notaId);
+      setEditingModeInStore(true);
+      const itemsForEditing = serverItems.length ? serverItems : purchasedItems;
+      setServerItemsInStore(itemsForEditing);
+    } catch (error) {
+      console.error("Error validando estado para edición", error);
+      toast.error("No se pudo validar el estado de la nota para edición.");
+    } finally {
+      setIsCheckingEditEligibility(false);
     }
-    shouldCleanupOnExitAfterConfirmRef.current = false;
-    setIsConfirmed(false);
-    setConfirmedFlowType(null);
-    setEditingNotaInStore(notaId);
-    setEditingModeInStore(true);
-    const itemsForEditing = serverItems.length ? serverItems : purchasedItems;
-    setServerItemsInStore(itemsForEditing);
   };
 
   const handleVoidTicket = async () => {
-    if (isNotaAnulada) {
-      toast.info("Si notaEstado es CANCELADO no se puede anular ni editar.");
+    if (isNotaAnulada || isNotaCancelada) {
+      toast.info(
+        "Si notaEstado es ANULADO o CANCELADO no se puede anular ni editar.",
+      );
       return;
     }
     if (!hasTicketId) {
@@ -3997,7 +4578,11 @@ const PaymentPage = () => {
     }
 
     const defaultSerieForVoid =
-      docTypeCode === "01" ? "FA01" : docTypeCode === "101" ? "0001" : "BA01";
+      docTypeCode === "01"
+        ? "FA01"
+        : docTypeCode === "101" || docTypeCode === "001"
+          ? "0001"
+          : "BA01";
     const documento =
       safeTrim(documentNumber) ||
       `${safeTrim(notaSerie) || defaultSerieForVoid}-${safeTrim(paddedNotaNumero) || "00000000"}`;
@@ -4235,7 +4820,7 @@ const PaymentPage = () => {
             "",
         ) ||
         "EFECTIVO";
-      const totalDocumento = Number(documentTotalWithIgv.toFixed(2));
+      const totalDocumento = roundCurrency(documentTotalWithIgv);
       const detalle = detalleFuente.map((item, index) => {
         const line = monetarySummary.lines[index];
         const quantity = Number(item.cantidad ?? 0);
@@ -4328,14 +4913,14 @@ const PaymentPage = () => {
         CONTRA_FIRMA: safeTrim(claveCertificadoFromSession),
         TIPO_PROCESO: tipoProceso,
         RUTA_PFX: safeTrim(certificadoBase64FromSession),
-        SUB_TOTAL: Number(gravada.toFixed(2)),
-        TOTAL_IGV: Number(igvAmount.toFixed(2)),
+        SUB_TOTAL: roundCurrency(gravada),
+        TOTAL_IGV: roundCurrency(igvAmount),
         TOTAL: totalDocumento,
-        TOTAL_GRAVADAS: Number(gravada.toFixed(2)),
+        TOTAL_GRAVADAS: roundCurrency(gravada),
         TOTAL_EXONERADAS: 0,
         TOTAL_INAFECTA: 0,
         TOTAL_GRATUITAS: 0,
-        TOTAL_DESCUENTO: Number(descuento.toFixed(2)),
+        TOTAL_DESCUENTO: roundCurrency(descuento),
         TOTAL_ICBPER: 0,
         TOTAL_OTR_IMP: 0,
         POR_IGV: 18,
@@ -4632,14 +5217,14 @@ const PaymentPage = () => {
       CONTRA_FIRMA: safeTrim(claveCertificadoFromSession),
       TIPO_PROCESO: tipoProceso,
       RUTA_PFX: safeTrim(certificadoBase64FromSession),
-      SUB_TOTAL: Number(gravada.toFixed(2)),
-      TOTAL_IGV: Number(igvAmount.toFixed(2)),
-      TOTAL: Number(documentTotalWithIgv.toFixed(2)),
-      TOTAL_GRAVADAS: Number(gravada.toFixed(2)),
+      SUB_TOTAL: roundCurrency(gravada),
+      TOTAL_IGV: roundCurrency(igvAmount),
+      TOTAL: roundCurrency(documentTotalWithIgv),
+      TOTAL_GRAVADAS: roundCurrency(gravada),
       TOTAL_EXONERADAS: 0,
       TOTAL_INAFECTA: 0,
       TOTAL_GRATUITAS: 0,
-      TOTAL_DESCUENTO: Number(descuento.toFixed(2)),
+      TOTAL_DESCUENTO: roundCurrency(descuento),
       TOTAL_ICBPER: 0,
       TOTAL_OTR_IMP: 0,
       POR_IGV: 18,
@@ -4791,8 +5376,8 @@ const PaymentPage = () => {
           clean(effectiveTicketPreviewProps.companyRuc) || "20601070155",
           qrDocTypeCode,
           clean(effectiveTicketPreviewProps.documentNumber) || "-",
-          safeQrIgv.toFixed(2),
-          safeQrTotal.toFixed(2),
+          formatCurrency(safeQrIgv),
+          formatCurrency(safeQrTotal),
           emissionDateISO,
           qrClientDocTypeCode,
           qrClientDoc,
@@ -4832,7 +5417,7 @@ const PaymentPage = () => {
     const message = [
       `Comprobante: ${safeDocNumber}`,
       `Cliente: ${safeTrim(customerName) || "PUBLICO GENERAL"}`,
-      `Total: S/ ${totalAPagar.toFixed(2)}`,
+      `Total: S/ ${formatCurrency(totalAPagar)}`,
     ].join("\n");
 
     const blob = await createComprobanteBlob();
@@ -4878,10 +5463,6 @@ const PaymentPage = () => {
       toast.error("Documento anulado. Descarga no permitida.");
       return;
     }
-    if (!isConfirmed) {
-      toast.error("Debe confirmar el documento antes de descargar.");
-      return;
-    }
 
     try {
       setIsDownloadingComprobante(true);
@@ -4904,7 +5485,6 @@ const PaymentPage = () => {
   }, [
     createComprobanteBlob,
     getComprobanteFileName,
-    isConfirmed,
     isNotaAnulada,
   ]);
 
@@ -4912,20 +5492,13 @@ const PaymentPage = () => {
     skipConfirmedCheck?: boolean;
     previewPropsOverride?: Partial<typeof ticketPreviewProps>;
     silent?: boolean;
-  }) => {
-    const skipConfirmedCheck = options?.skipConfirmedCheck === true;
+  }): Promise<boolean> => {
     const silent = options?.silent === true;
     if (isNotaAnulada) {
       if (!silent) {
         toast.error("Documento anulado. Impresión no permitida.");
       }
-      return;
-    }
-    if (!skipConfirmedCheck && !isConfirmed) {
-      if (!silent) {
-        toast.error("Debe confirmar el documento antes de imprimir.");
-      }
-      return;
+      return false;
     }
 
     const printableItems = itemsToRender.length
@@ -4938,7 +5511,7 @@ const PaymentPage = () => {
       if (!silent) {
         toast.error("No puede imprimir con productos en 0.");
       }
-      return;
+      return false;
     }
 
     try {
@@ -4972,16 +5545,89 @@ const PaymentPage = () => {
             : "";
         throw new Error(printMessage || "No se pudo imprimir el comprobante.");
       }
+      return true;
     } catch (error) {
       const message =
         error instanceof Error ? error.message : "No se pudo imprimir";
       if (!silent) {
         toast.error(message);
       }
+      return false;
     } finally {
       setIsPrinting(false);
     }
   };
+
+  useEffect(() => {
+    if (!shouldAutoPrintOnLoad) return;
+    if (!routeNotaId) return;
+    if (autoPrintTriggeredRef.current) return;
+    if (!hasLoadedNotaMeta) return;
+
+    const printableItems = itemsToRender.length ? itemsToRender : purchasedItems;
+    if (!printableItems.length) return;
+
+    autoPrintTriggeredRef.current = true;
+    void (async () => {
+      await handlePrint({ skipConfirmedCheck: true, silent: true });
+    })();
+  }, [
+    hasLoadedNotaMeta,
+    handlePrint,
+    itemsToRender,
+    purchasedItems,
+    routeNotaId,
+    shouldAutoPrintOnLoad,
+  ]);
+
+  const handlePrintShortcut = useCallback(() => {
+    if (isPersistingToDb) return;
+
+    if (!isConfirmed) {
+      void formMethods.handleSubmit(confirmPayment)();
+      return;
+    }
+
+    void handlePrint();
+  }, [confirmPayment, formMethods, handlePrint, isConfirmed, isPersistingToDb]);
+
+  useEffect(() => {
+    if (typeof window === "undefined" || typeof document === "undefined")
+      return;
+
+    const onKeyDown = (event: globalThis.KeyboardEvent) => {
+      const hasControl = event.ctrlKey || event.metaKey;
+      if (!hasControl) return;
+      if (event.repeat) return;
+
+      const key = event.key.toLowerCase();
+      const isCtrlAltN = key === "n" && event.altKey;
+      const isCtrlP = key === "p" && !event.altKey;
+      const isCtrlG = key === "g" && !event.altKey;
+
+      if (isCtrlAltN) {
+        if (event.cancelable) event.preventDefault();
+        handleNewSaleShortcut();
+        return;
+      }
+
+      if (isCtrlP) {
+        if (event.cancelable) event.preventDefault();
+        handlePrintShortcut();
+        return;
+      }
+
+      if (isCtrlG) {
+        if (event.cancelable) event.preventDefault();
+        handleMobileTopConfirm();
+      }
+    };
+
+    document.addEventListener("keydown", onKeyDown, { capture: true });
+    return () =>
+      document.removeEventListener("keydown", onKeyDown, { capture: true });
+  }, [handleMobileTopConfirm, handleNewSaleShortcut, handlePrintShortcut]);
+
   if (!itemsToRender.length) {
     return (
       <div className="space-y-4">
@@ -4999,7 +5645,7 @@ const PaymentPage = () => {
         <div className="flex items-center gap-2 text-sm text-slate-700">
           <ArrowLeft className="w-4 h-4" />
           <Link
-            to={backRoute}
+            to={backToPosRoute}
             className="text-blue-600 hover:underline"
             onClick={(e) => handleBackToPos(e)}
           >
@@ -5067,24 +5713,14 @@ const PaymentPage = () => {
                     <input
                       type="number"
                       min={0}
-                      step="1"
-                      inputMode="numeric"
+                      step="any"
+                      inputMode="decimal"
                       className="mt-1 h-9 w-full rounded-md border border-slate-300 bg-white px-2 text-center text-sm outline-none appearance-none [appearance:textfield] focus:border-blue-500 focus:ring-2 focus:ring-blue-100 disabled:bg-slate-100 disabled:text-slate-500 [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
-                      value={item.cantidad === 0 ? "" : item.cantidad}
-                      onChange={(e) => {
-                        const value = e.target.value;
-                        if (value === "") {
-                          handleQuantityChange(item, -item.cantidad);
-                          return;
-                        }
-                        const parsed = Number(value);
-                        if (Number.isNaN(parsed)) return;
-                        const desired = Math.max(0, parsed);
-                        handleQuantityChange(
-                          item,
-                          desired - (item.cantidad ?? 0),
-                        );
-                      }}
+                      value={getQuantityInputValue(item)}
+                      onChange={(e) => handleManualQuantity(item, e.target.value)}
+                      onBlur={(e) =>
+                        handleQuantityBlur(item, e.currentTarget.value)
+                      }
                       onFocus={(e) => e.target.select()}
                       disabled={!canEditItems}
                       style={{ MozAppearance: "textfield" }}
@@ -5109,7 +5745,10 @@ const PaymentPage = () => {
                         step="0.01"
                         inputMode="decimal"
                         className="w-full border-0 bg-transparent text-right text-sm outline-none appearance-none [appearance:textfield] disabled:text-slate-500 [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
-                        value={priceDrafts[getCartItemKey(item)] ?? item.precio}
+                        value={
+                          priceDrafts[getCartItemKey(item)] ??
+                          formatCurrency(item.precio)
+                        }
                         onChange={(e) => {
                           handlePriceChange(item, e.target.value);
                         }}
@@ -5123,7 +5762,7 @@ const PaymentPage = () => {
                     </div>
                   ) : (
                     <p className="mt-1 text-base font-semibold text-slate-800">
-                      S/ {displayLine.unitPriceWithIgv.toFixed(2)}
+                      S/ {formatCurrency(displayLine.unitPriceWithIgv)}
                     </p>
                   )}
                 </div>
@@ -5138,7 +5777,7 @@ const PaymentPage = () => {
                         isZeroOrNegative ? "text-red-600" : "text-slate-900"
                       }`}
                     >
-                      S/ {displayLine.totalWithIgv.toFixed(2)}
+                      S/ {formatCurrency(displayLine.totalWithIgv)}
                     </p>
                   </div>
                 </div>
@@ -5178,26 +5817,16 @@ const PaymentPage = () => {
                       <input
                         type="number"
                         min={0}
-                        step="1"
-                        inputMode="numeric"
+                        step="any"
+                        inputMode="decimal"
                         data-payment-column="quantity"
                         data-payment-row-index={rowIndex}
                         className="h-9 w-16 rounded-md border border-slate-300 py-1 text-center text-sm outline-none appearance-none [appearance:textfield] focus:border-blue-500 focus:ring-2 focus:ring-blue-100 disabled:bg-slate-100 disabled:text-slate-500 [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
-                        value={item.cantidad === 0 ? "" : item.cantidad}
-                        onChange={(e) => {
-                          const value = e.target.value;
-                          if (value === "") {
-                            handleQuantityChange(item, -item.cantidad);
-                            return;
-                          }
-                          const parsed = Number(value);
-                          if (Number.isNaN(parsed)) return;
-                          const desired = Math.max(0, parsed);
-                          handleQuantityChange(
-                            item,
-                            desired - (item.cantidad ?? 0),
-                          );
-                        }}
+                        value={getQuantityInputValue(item)}
+                        onChange={(e) => handleManualQuantity(item, e.target.value)}
+                        onBlur={(e) =>
+                          handleQuantityBlur(item, e.currentTarget.value)
+                        }
                         onKeyDown={(event) =>
                           handleColumnArrowNavigation(
                             event,
@@ -5244,7 +5873,8 @@ const PaymentPage = () => {
                           data-payment-row-index={rowIndex}
                           className="w-16 border-0 bg-transparent text-right text-sm outline-none appearance-none [appearance:textfield] disabled:text-slate-500 [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
                           value={
-                            priceDrafts[getCartItemKey(item)] ?? item.precio
+                            priceDrafts[getCartItemKey(item)] ??
+                            formatCurrency(item.precio)
                           }
                           onChange={(e) => {
                             handlePriceChange(item, e.target.value);
@@ -5266,7 +5896,7 @@ const PaymentPage = () => {
                       </div>
                     ) : (
                       <span className="inline-block pt-1 text-xl leading-none text-slate-900">
-                        {displayLine.unitPriceWithIgv.toFixed(2)}
+                        {formatCurrency(displayLine.unitPriceWithIgv)}
                       </span>
                     )}
                   </div>
@@ -5278,7 +5908,7 @@ const PaymentPage = () => {
                           isZeroOrNegative ? "text-red-600" : "text-slate-900"
                         }`}
                       >
-                        {displayLine.totalWithIgv.toFixed(2)}
+                        {formatCurrency(displayLine.totalWithIgv)}
                       </p>
                       <button
                         type="button"
@@ -5350,7 +5980,7 @@ const PaymentPage = () => {
           Total
         </p>
         <p className="text-sm font-semibold text-slate-800">
-          S/ {totalAPagar.toFixed(2)}
+          S/ {formatCurrency(totalAPagar)}
         </p>
       </div>
     </div>
@@ -5361,7 +5991,7 @@ const PaymentPage = () => {
       <div className="overflow-hidden rounded-xl border border-slate-200 bg-white/95 p-2 shadow-lg backdrop-blur">
         <div className="flex gap-2 overflow-x-auto pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
           <Link
-            to={backRoute}
+            to={backToPosRoute}
             className="inline-flex items-center justify-center gap-2 py-2 text-sm text-slate-700 transition-colors hover:bg-slate-50 hover:text-slate-900 md:hidden"
             onClick={(e) => handleBackToPos(e)}
           >
@@ -5393,15 +6023,38 @@ const PaymentPage = () => {
               {orderNotesDocumentActionLabel}
             </button>
           )}
-          {isConfirmed && isProforma && !isNotaAnulada && (
-            <button
-              type="button"
-              className="inline-flex shrink-0 items-center justify-center gap-1.5 rounded-lg border border-orange-300 bg-white px-3 py-2 text-xs font-medium text-orange-800 transition-colors hover:bg-orange-50"
-              onClick={handleEnableEditing}
-            >
-              {isReadOnlyNoteView ? "Ir a edición" : "Editar"}
-            </button>
-          )}
+          {isConfirmed &&
+            (isProforma || isFactura) &&
+            !isNotaAnulada &&
+            !isNotaCancelada &&
+            !isNotaEmitida && (
+              <button
+                type="button"
+                className={`inline-flex shrink-0 items-center justify-center rounded-lg border px-3 py-2 text-xs font-medium transition-colors ${
+                  isReadOnlyNoteView
+                    ? "border-amber-300 bg-amber-50 text-amber-800 hover:bg-amber-100"
+                    : "border-emerald-300 bg-emerald-50 text-emerald-800 hover:bg-emerald-100"
+                } disabled:cursor-not-allowed disabled:opacity-60`}
+                onClick={handleEnableEditing}
+                disabled={isCheckingEditEligibility}
+                title={
+                  isReadOnlyNoteView
+                    ? "Candado activado"
+                    : "Candado desactivado"
+                }
+                aria-label={
+                  isReadOnlyNoteView
+                    ? "Candado activado"
+                    : "Candado desactivado"
+                }
+              >
+                {isReadOnlyNoteView ? (
+                  <Lock className="h-4 w-4" />
+                ) : (
+                  <LockOpen className="h-4 w-4" />
+                )}
+              </button>
+            )}
           {shouldShowShareAndDownloadActions && isConfirmed && (
             <button
               type="button"
@@ -5415,7 +6068,7 @@ const PaymentPage = () => {
               WhatsApp
             </button>
           )}
-          {shouldShowShareAndDownloadActions && isConfirmed && (
+          {canShowOutputDocumentActions && (
             <button
               type="button"
               className="inline-flex shrink-0 items-center justify-center gap-1.5 rounded-lg border border-blue-300 bg-blue-50 px-3 py-2 text-xs font-medium text-blue-800 transition-colors hover:bg-blue-100 disabled:opacity-50"
@@ -5432,12 +6085,12 @@ const PaymentPage = () => {
                   : "Descargar PDF"}
             </button>
           )}
-          {isPdfEnabled && !isFactura && (
+          {canShowOutputDocumentActions && isPdfEnabled && (
             <button
               type="button"
               className="inline-flex shrink-0 items-center justify-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-medium text-slate-800 transition-colors hover:bg-slate-50 disabled:opacity-50"
               onClick={() => handlePrint()}
-              disabled={isPrinting || !isConfirmed || isNotaAnulada}
+              disabled={isPrinting || isNotaAnulada}
             >
               <Printer className="h-4 w-4" />
               {isPrinting ? "Imprimiendo..." : "Imprimir"}
@@ -5471,6 +6124,7 @@ const PaymentPage = () => {
           options={[
             { value: "SELECCIONAR", label: "SELECCIONAR" },
             { value: "101", label: "Proforma V" },
+            { value: "001", label: "Proforma" },
             { value: "03", label: "Boleta" },
             { value: "01", label: "Factura" },
           ]}
@@ -5494,20 +6148,62 @@ const PaymentPage = () => {
             { value: "SELECCIONE", label: "SELECCIONE" },
             { value: "EFECTIVO", label: "Efectivo" },
             { value: "TARJETA", label: "Tarjeta" },
-            { value: "TRANSFERENCIA", label: "Transferencia" },
-            { value: "YAPE", label: "Yape" },
+            { value: "DEPO. BCP", label: "DEPO. BCP" },
+            { value: "DEPO. SCOTIABANK", label: "DEPO. SCOTIABANK" },
+            { value: "DEPO. CONTINENTAL", label: "DEPO. CONTINENTAL" },
           ]}
         />
         <HookFormAutocomplete
           name="customerName"
           label="Nombre del cliente"
           placeholder="Seleccionar cliente"
+          selectOnFocus={false}
           options={docTypeCode === "01" ? facturaClientOptions : clientOptions}
+          isOptionEqualToValue={(option: any, value: any) => {
+            const optionId = Number(
+              option?.id ?? option?.clienteId ?? option?.clientId ?? 0,
+            );
+            const valueId = Number(
+              (value as any)?.id ??
+                (value as any)?.clienteId ??
+                (value as any)?.clientId ??
+                clienteId ??
+                0,
+            );
+
+            if (
+              Number.isFinite(optionId) &&
+              optionId > 0 &&
+              Number.isFinite(valueId) &&
+              valueId > 0
+            ) {
+              return optionId === valueId;
+            }
+
+            const optionLabel = safeTrim(
+              option?.label ?? option?.nombreRazon ?? option?.value,
+            );
+            const valueLabel = safeTrim(
+              (value as any)?.label ?? (value as any)?.value ?? value,
+            );
+            return optionLabel === valueLabel;
+          }}
+          getOptionKey={(option: any) =>
+            String(
+              option?.optionKey ??
+                option?.id ??
+                `${option?.label ?? ""}-${option?.dni ?? ""}-${option?.ruc ?? ""}`,
+            )
+          }
           filterOptions={clientFilterOptions as any}
           rules={{
             validate: (value: any) => {
               const normalized = safeTrim(value);
-              if (docTypeCode === "03" && !normalized) {
+              if (
+                docTypeCode === "03" &&
+                shouldRequireBoletaCustomerData &&
+                !normalized
+              ) {
                 return "Nombre de cliente obligatorio para Boleta";
               }
               if (docTypeCode === "01" && !normalized) {
@@ -5526,6 +6222,9 @@ const PaymentPage = () => {
           disableClearable={formLocked}
           disabled={formLocked}
           onInputBlur={({ inputValue }) => {
+            if (docTypeCode === "03" && !shouldRequireBoletaCustomerData) {
+              return;
+            }
             ensureExistingCustomerByName(inputValue);
           }}
           onOptionSelected={(opt: any) => {
@@ -5538,7 +6237,17 @@ const PaymentPage = () => {
 
             const selectedName = safeTrim(opt.nombreRazon ?? opt.label ?? "");
             const docValue =
-              docTypeCode === "01" ? safeTrim(opt.ruc) : safeTrim(opt.dni);
+              docTypeCode === "01" ? safeTrim(opt?.ruc) : safeTrim(opt?.dni);
+            console.log("[POS] Cliente seleccionado", {
+              id:
+                Number(opt?.id ?? opt?.clienteId ?? opt?.clientId ?? 0) || null,
+              nombre: selectedName,
+              dni: safeTrim(opt?.dni),
+              ruc: safeTrim(opt?.ruc),
+              documentoAsignado: docValue || "",
+              docTypeCode,
+              option: opt,
+            });
 
             setValue("customerName", selectedName, { shouldDirty: true });
             setValue("customerId", docValue || "", { shouldDirty: true });
@@ -5638,8 +6347,9 @@ const PaymentPage = () => {
               rules={{
                 validate: (value: any) => {
                   if (
-                    paymentMethod !== "YAPE" &&
-                    paymentMethod !== "TRANSFERENCIA"
+                    paymentMethod !== "DEPO. BCP" &&
+                    paymentMethod !== "DEPO. SCOTIABANK" &&
+                    paymentMethod !== "DEPO. CONTINENTAL"
                   ) {
                     return true;
                   }
@@ -5669,8 +6379,9 @@ const PaymentPage = () => {
                 validate: (value: any) => {
                   if (
                     paymentMethod !== "TARJETA" &&
-                    paymentMethod !== "YAPE" &&
-                    paymentMethod !== "TRANSFERENCIA"
+                    paymentMethod !== "DEPO. BCP" &&
+                    paymentMethod !== "DEPO. SCOTIABANK" &&
+                    paymentMethod !== "DEPO. CONTINENTAL"
                   ) {
                     return true;
                   }
@@ -5708,13 +6419,13 @@ const PaymentPage = () => {
         <div className="space-y-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-3">
           <div className="flex justify-between text-sm text-gray-700">
             <span>Op. gravada</span>
-            <span className="font-semibold">S/ {gravada.toFixed(2)}</span>
+            <span className="font-semibold">S/ {formatCurrency(gravada)}</span>
           </div>
           {paymentMethod === "TARJETA" && (
             <div className="flex justify-between text-sm text-gray-700">
-              <span>Adicional {cardPercentageFromSession.toFixed(2)}%</span>
+              <span>Adicional {formatCurrency(cardPercentageFromSession)}%</span>
               <span className="font-semibold">
-                S/ {notaAdicional.toFixed(2)}
+                S/ {formatCurrency(notaAdicional)}
               </span>
             </div>
           )}
@@ -5729,7 +6440,7 @@ const PaymentPage = () => {
                   label=""
                   type="number"
                   min={0}
-                  max={Number(maxDiscount.toFixed(2))}
+                  max={roundCurrency(maxDiscount)}
                   step="0.01"
                   data-discount-input="true"
                   rules={{
@@ -5741,7 +6452,7 @@ const PaymentPage = () => {
                         return "El descuento no puede ser negativo";
                       return (
                         numeric <= maxDiscount ||
-                        `No puede superar S/ ${maxDiscount.toFixed(2)}`
+                        `No puede superar S/ ${formatCurrency(maxDiscount)}`
                       );
                     },
                   }}
@@ -5768,15 +6479,15 @@ const PaymentPage = () => {
           )}
           <div className="flex justify-between text-sm text-gray-700">
             <span>Sub total</span>
-            <span className="font-semibold">S/ {gravada.toFixed(2)}</span>
+            <span className="font-semibold">S/ {formatCurrency(gravada)}</span>
           </div>
           <div className="flex justify-between text-sm text-gray-700">
             <span>IGV (18%)</span>
-            <span className="font-semibold">S/ {igvAmount.toFixed(2)}</span>
+            <span className="font-semibold">S/ {formatCurrency(igvAmount)}</span>
           </div>
           <div className="flex justify-between text-base font-bold text-slate-800">
             <span>Total pago</span>
-            <span>S/ {totalAPagar.toFixed(2)}</span>
+            <span>S/ {formatCurrency(totalAPagar)}</span>
           </div>
         </div>
 
@@ -5808,7 +6519,7 @@ const PaymentPage = () => {
             Enviar por WhatsApp
           </button>
         )}
-        {shouldShowShareAndDownloadActions && isConfirmed && (
+        {canShowOutputDocumentActions && (
           <button
             className="inline-flex w-full items-center justify-center gap-2 rounded-lg border border-blue-300 bg-blue-50 py-2.5 text-blue-800 transition-colors hover:bg-blue-100 disabled:opacity-50"
             onClick={() => {
@@ -5824,11 +6535,11 @@ const PaymentPage = () => {
                 : "Descargar PDF"}
           </button>
         )}
-        {!isFactura && (
+        {canShowOutputDocumentActions && (
           <button
             className="inline-flex w-full items-center justify-center gap-2 rounded-lg border border-slate-200 bg-white py-2.5 text-slate-800 transition-colors hover:bg-slate-50 disabled:opacity-50"
             onClick={() => handlePrint()}
-            disabled={isPrinting || !isConfirmed || isNotaAnulada}
+            disabled={isPrinting || isNotaAnulada}
           >
             <Printer className="w-5 h-5" />
             {isPrinting ? "Imprimiendo..." : "Imprimir comprobante"}
@@ -5849,13 +6560,23 @@ const PaymentPage = () => {
         </div>
         <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-center">
           <Link
-            to={backRoute}
+            to={backToPosRoute}
             className="hidden w-fit items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 transition-colors hover:bg-slate-50 hover:text-slate-900 md:inline-flex"
             onClick={(e) => handleBackToPos(e)}
           >
             <ArrowLeft className="w-4 h-4" />
             {backLabel}
           </Link>
+          {isEditingMode && (
+            <button
+              type="button"
+              className="hidden w-fit items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 transition-colors hover:bg-slate-50 hover:text-slate-900 md:inline-flex"
+              onClick={handleNewSaleShortcut}
+              disabled={isPersistingToDb}
+            >
+              Nuevo registro
+            </button>
+          )}
           {shouldShowOrderNotesDocumentAction && (
             <button
               type="button"
@@ -5867,15 +6588,38 @@ const PaymentPage = () => {
               {orderNotesDocumentActionLabel}
             </button>
           )}
-          {isConfirmed && isProforma && !isNotaAnulada && (
-            <button
-              type="button"
-              className="hidden items-center justify-center gap-2 rounded-lg border border-orange-300 bg-white px-3 py-2 text-sm text-orange-800 transition-colors hover:bg-orange-50 md:inline-flex"
-              onClick={handleEnableEditing}
-            >
-              {isReadOnlyNoteView ? "Ir a edición" : "Editar"}
-            </button>
-          )}
+          {isConfirmed &&
+            (isProforma || isFactura) &&
+            !isNotaAnulada &&
+            !isNotaCancelada &&
+            !isNotaEmitida && (
+              <button
+                type="button"
+                className={`hidden items-center justify-center rounded-lg border px-3 py-2 text-sm transition-colors md:inline-flex ${
+                  isReadOnlyNoteView
+                    ? "border-amber-300 bg-amber-50 text-amber-800 hover:bg-amber-100"
+                    : "border-emerald-300 bg-emerald-50 text-emerald-800 hover:bg-emerald-100"
+                } disabled:cursor-not-allowed disabled:opacity-60`}
+                onClick={handleEnableEditing}
+                disabled={isCheckingEditEligibility}
+                title={
+                  isReadOnlyNoteView
+                    ? "Candado activado"
+                    : "Candado desactivado"
+                }
+                aria-label={
+                  isReadOnlyNoteView
+                    ? "Candado activado"
+                    : "Candado desactivado"
+                }
+              >
+                {isReadOnlyNoteView ? (
+                  <Lock className="h-4 w-4" />
+                ) : (
+                  <LockOpen className="h-4 w-4" />
+                )}
+              </button>
+            )}
         </div>
       </div>
       {isPersistingToDb && (

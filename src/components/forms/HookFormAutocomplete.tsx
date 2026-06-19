@@ -44,6 +44,7 @@ interface HookFormAutocompleteProps<
   rules?: RegisterOptions<T>;
   placeholder?: string;
   getOptionLabel?: (option: TOption) => string;
+  getOptionKey?: (option: TOption) => string | number;
   isOptionEqualToValue?: (option: TOption, value: TOption) => boolean;
   onOptionSelected?: (option: TOption | null) => void;
   onInputBlur?: (params: {
@@ -57,6 +58,7 @@ interface HookFormAutocompleteProps<
   control?: Control<T>;
   disabled?: boolean;
   syncInputToValue?: boolean;
+  selectOnFocus?: boolean;
 
   allowCreate?: boolean;
   showCreateOption?: boolean;
@@ -82,6 +84,7 @@ export function HookFormAutocomplete<
   rules,
   placeholder = "Seleccionar...",
   getOptionLabel,
+  getOptionKey,
   isOptionEqualToValue,
   onOptionSelected,
   onInputBlur,
@@ -90,6 +93,7 @@ export function HookFormAutocomplete<
   control,
   disabled = false,
   syncInputToValue = false,
+  selectOnFocus,
 
   allowCreate = false,
   showCreateOption = true,
@@ -135,6 +139,19 @@ export function HookFormAutocomplete<
       ((option: TOption, value: unknown) =>
         option?.value === resolveValue(value)),
     [isOptionEqualToValue],
+  );
+  const defaultGetOptionKey = useMemo(
+    () =>
+      getOptionKey ??
+      ((option: TOption) => {
+        const candidate =
+          option?.id ??
+          option?.clienteId ??
+          option?.clientId ??
+          `${String(option?.value ?? "")}-${String(option?.label ?? "")}`;
+        return String(candidate);
+      }),
+    [getOptionKey],
   );
 
   const resolvedAutoComplete = "one-time-code";
@@ -306,6 +323,7 @@ export function HookFormAutocomplete<
               inputValue={inputValue}
               freeSolo={allowCreate}
               disabled={disabled}
+              selectOnFocus={selectOnFocus}
               disableClearable={disableClearable}
               getOptionLabel={(option) => {
                 const optionWithInput = option as TOption & CreateOption;
@@ -315,6 +333,14 @@ export function HookFormAutocomplete<
                 return defaultGetOptionLabel(option as TOption);
               }}
               isOptionEqualToValue={defaultIsEqual}
+              renderOption={(props, option) => {
+                const optionKey = String(defaultGetOptionKey(option as TOption));
+                return (
+                  <li {...props} key={optionKey}>
+                    {defaultGetOptionLabel(option as TOption)}
+                  </li>
+                );
+              }}
               filterOptions={appliedFilterOptions}
               onBlur={() => {
                 field.onBlur();

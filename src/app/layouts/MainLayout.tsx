@@ -27,7 +27,7 @@ const PASSWORD_POLICY_MESSAGE =
 
 export default function MainLayout() {
   const navigate = useNavigate();
-  const [open, setOpen] = useState(true);
+  const [open, setOpen] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
   const userMenuContainerRef = useRef<HTMLDivElement | null>(null);
@@ -154,6 +154,26 @@ export default function MainLayout() {
     const role = String(record?.role ?? "").trim();
     return role || "Sesión activa";
   }, [user]);
+  const headerTitle = useMemo(() => {
+    const fromState = String(user?.companyName ?? "").trim();
+    if (fromState) return fromState;
+    if (typeof window === "undefined") return "Panel de Control";
+
+    try {
+      const raw = window.localStorage.getItem("sgo.auth.session");
+      if (!raw) return "Panel de Control";
+
+      const parsed = JSON.parse(raw) as
+        | { razonSocial?: unknown; user?: { companyName?: unknown } }
+        | null;
+      const fromStorage = String(
+        parsed?.user?.companyName ?? parsed?.razonSocial ?? "",
+      ).trim();
+      return fromStorage || "Panel de Control";
+    } catch {
+      return "Panel de Control";
+    }
+  }, [user?.companyName]);
 
   const passwordExpirationDateLabel = useMemo(() => {
     if (!passwordExpiresAt) return "fecha no disponible";
@@ -380,6 +400,7 @@ export default function MainLayout() {
   ]); */
 
   useEffect(() => {
+    setOpen(false);
     setMobileOpen(false);
     setUserMenuOpen(false);
   }, [pathname]);
@@ -568,18 +589,18 @@ export default function MainLayout() {
         </nav>
       </aside>
 
-      <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
         <header className="h-[var(--app-shell-header-h)] bg-[#96312a] px-2 text-white shadow sm:px-4 lg:px-5 xl:px-6">
-          <div className="mx-auto flex h-full w-full max-w-[var(--app-shell-content-max)] items-center justify-between gap-2">
-            <div className="flex items-center gap-3">
+          <div className="mx-auto flex h-full w-full max-w-[var(--app-shell-content-max)] min-w-0 items-center justify-between gap-2">
+            <div className="flex min-w-0 items-center gap-3">
               <button
                 className="rounded-md p-2 transition-colors hover:bg-slate-500 md:hidden"
                 onClick={() => setMobileOpen(true)}
               >
                 <Menu size={20} />
               </button>
-              <h2 className="line-clamp-1 text-base font-semibold sm:text-lg lg:text-xl">
-                Panel de Control
+              <h2 className="line-clamp-1 max-w-[60vw] text-base font-semibold sm:max-w-[58vw] sm:text-lg md:max-w-[52vw] lg:max-w-[48vw] lg:text-xl">
+                {headerTitle}
               </h2>
             </div>
 
@@ -622,8 +643,8 @@ export default function MainLayout() {
           </div>
         </header>
 
-        <main className="app-main-scroll flex-1 overflow-y-auto bg-slate-100 px-[var(--app-shell-main-px)] py-[var(--app-shell-main-py)] min-h-0">
-          <div className="mx-auto w-full max-w-[var(--app-shell-content-max)]">
+        <main className="app-main-scroll flex-1 overflow-y-auto overflow-x-auto bg-slate-100 px-[var(--app-shell-main-px)] py-[var(--app-shell-main-py)] min-h-0 min-w-0">
+          <div className="mx-auto w-full min-w-0 max-w-[var(--app-shell-content-max)]">
             <Outlet />
           </div>
         </main>

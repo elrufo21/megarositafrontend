@@ -19,6 +19,7 @@ type TicketDocumentProps = {
   clientName?: string;
   clientId?: string;
   clientAddress?: string;
+  notaUsuario?: string;
   docType?: "boleta" | "factura" | "proforma";
   paymentMethod?: string;
   items?: PosCartItem[];
@@ -29,6 +30,7 @@ type TicketDocumentProps = {
   companyRuc?: string;
   companyAddress?: string;
   companyDistrict?: string;
+  companyLogo?: string;
   summary?: {
     operacionGravada?: number;
     cardAdditional?: number;
@@ -44,6 +46,7 @@ type TicketDocumentProps = {
 };
 
 const AUTH_STORAGE_KEY = "sgo.auth.session";
+const FALLBACK_LOGO_SRC = "/LogoHuillca.PNG";
 
 const normalizePhoneLine = (value: unknown): string => {
   const raw = String(value ?? "").trim();
@@ -83,12 +86,183 @@ const readCompanyPhoneFromStorage = (): string => {
   }
 };
 
+const readCompanyLogoFromStorage = (): string => {
+  if (typeof window === "undefined") return "";
+
+  try {
+    const rawSession = window.localStorage.getItem(AUTH_STORAGE_KEY);
+    if (!rawSession) return "";
+
+    const parsed = JSON.parse(rawSession) as {
+      user?: { companyLogo?: unknown } | null;
+      loginPayload?: {
+        logoCompania?: unknown;
+        LogoCompania?: unknown;
+      } | null;
+    } | null;
+
+    const rawLogo =
+      parsed?.user?.companyLogo ??
+      parsed?.loginPayload?.logoCompania ??
+      parsed?.loginPayload?.LogoCompania;
+    return typeof rawLogo === "string" ? rawLogo.trim() : "";
+  } catch {
+    return "";
+  }
+};
+
+const toAbsoluteLogoUrl = (value: string): string => {
+  const raw = value.trim();
+  if (!raw) return "";
+
+  if (raw.startsWith("data:")) return raw;
+  if (/^https?:\/\//i.test(raw)) return raw;
+  if (typeof window === "undefined") return raw;
+
+  const normalizedPath = raw.startsWith("/") ? raw : `/${raw}`;
+  try {
+    return new URL(normalizedPath, window.location.origin).toString();
+  } catch {
+    return `${window.location.origin}${normalizedPath}`;
+  }
+};
+
+const mapLogoToDevProxyUrl = (source: string): string => {
+  const normalizedSource = source.trim();
+  if (!normalizedSource) return "";
+  if (!import.meta.env.DEV) return normalizedSource;
+  if (normalizedSource.startsWith("data:")) return normalizedSource;
+
+  try {
+    const parsed = new URL(normalizedSource);
+    const uploadPath = parsed.pathname.startsWith("/uploads/")
+      ? parsed.pathname
+      : "";
+    if (!uploadPath) return normalizedSource;
+    return `${uploadPath}${parsed.search}${parsed.hash}`;
+  } catch {
+    return normalizedSource;
+  }
+};
+
+const loadImageElement = (
+  source: string,
+  options?: { crossOrigin?: boolean },
+): Promise<HTMLImageElement | null> =>
+  new Promise((resolve) => {
+    if (typeof window === "undefined") {
+      resolve(null);
+      return;
+    }
+
+    const image = new window.Image();
+    if (options?.crossOrigin) {
+      image.crossOrigin = "anonymous";
+    }
+    image.onload = () => resolve(image);
+    image.onerror = () => resolve(null);
+    image.src = source;
+  });
+
+const imageToPngDataUrl = (image: HTMLImageElement): string => {
+  if (typeof document === "undefined") return "";
+
+  try {
+    const maxWidth = 540;
+    const maxHeight = 240;
+    const naturalWidth = Math.max(1, image.naturalWidth || image.width || 1);
+    const naturalHeight = Math.max(1, image.naturalHeight || image.height || 1);
+    const scale = Math.min(
+      maxWidth / naturalWidth,
+      maxHeight / naturalHeight,
+      1,
+    );
+    const width = Math.max(1, Math.round(naturalWidth * scale));
+    const height = Math.max(1, Math.round(naturalHeight * scale));
+
+    const canvas = document.createElement("canvas");
+    canvas.width = width;
+    canvas.height = height;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return "";
+
+    ctx.drawImage(image, 0, 0, width, height);
+    return canvas.toDataURL("image/png");
+  } catch {
+    return "";
+  }
+};
+
+const resolvePdfLogoSource = async (source: string): Promise<string> => {
+  const normalizedSource = source.trim();
+  if (!normalizedSource) return "";
+  if (normalizedSource.startsWith("data:")) return normalizedSource;
+
+  const imageWithCors = await loadImageElement(normalizedSource, {
+    crossOrigin: true,
+  });
+  if (imageWithCors) {
+    const dataUrl = imageToPngDataUrl(imageWithCors);
+    if (dataUrl) return dataUrl;
+    return normalizedSource;
+  }
+
+  const imageWithoutCors = await loadImageElement(normalizedSource);
+  if (imageWithoutCors) return normalizedSource;
+
+  return "";
+};
+
 const formatUnitPrefix = (value: unknown): string => {
   const raw = String(value ?? "").trim();
   if (!raw) return "";
 
   const abbreviated = raw.slice(0, 3).toUpperCase();
   return `${abbreviated}. `;
+};
+
+const composeProductDescription = (name: unknown, brand?: unknown): string => {
+  const normalizedName = String(name ?? "").trim();
+  const normalizedBrand = String(brand ?? "").trim();
+
+  if (!normalizedName) return normalizedBrand || "Producto";
+  if (!normalizedBrand) return normalizedName;
+
+  const lowerName = normalizedName.toLowerCase();
+  const lowerBrand = normalizedBrand.toLowerCase();
+  if (lowerName.includes(lowerBrand)) return normalizedName;
+
+  return `${normalizedName} ${normalizedBrand}`.trim();
+};
+
+const splitTicketDescriptionTwoLines = (
+  value: string,
+  topLineMaxChars = 36,
+): [string, string] => {
+  const normalized = String(value ?? "")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!normalized) return ["", ""];
+
+  if (normalized.length <= topLineMaxChars) return [normalized, ""];
+
+  const probe = normalized.slice(0, topLineMaxChars + 1);
+  const lastSpace = probe.lastIndexOf(" ");
+  const cutAt =
+    lastSpace >= Math.floor(topLineMaxChars * 0.5)
+      ? lastSpace
+      : topLineMaxChars;
+  const line1 = normalized.slice(0, cutAt).trim();
+  const remaining = normalized.slice(cutAt).trim();
+  return [line1, remaining];
+};
+
+const toFirstName = (value: unknown): string => {
+  const normalized = String(value ?? "")
+    .trim()
+    .replace(/\s+/g, " ");
+  if (!normalized) return "-";
+  return normalized.split(" ")[0] ?? "-";
 };
 
 const UNITS = [
@@ -330,9 +504,26 @@ const styles = StyleSheet.create({
     fontSize: 9,
     fontWeight: "bold",
   },
+  tableItemQuantity: {
+    fontSize: 9,
+    fontWeight: "bold",
+  },
   tableItemDescription: {
     fontSize: 9,
     fontWeight: "bold",
+    textAlign: "left",
+  },
+  tableItemDescriptionSecondRow: {
+    width: "52%",
+    fontSize: 9,
+    fontWeight: "bold",
+    textAlign: "left",
+  },
+  tableItemDescriptionFull: {
+    width: "88%",
+    fontSize: 9,
+    fontWeight: "bold",
+    textAlign: "left",
   },
   tableItemMetaRow: {
     flexDirection: "row",
@@ -382,7 +573,6 @@ const styles = StyleSheet.create({
     marginTop: 6,
     paddingTop: 6,
     alignItems: "center",
-    marginRight: 10,
   },
   totalLabel: {
     width: "52%",
@@ -431,6 +621,7 @@ const TicketDocument = ({
   clientName,
   clientId,
   clientAddress,
+  notaUsuario,
   docType = "boleta",
   paymentMethod,
   items,
@@ -441,14 +632,58 @@ const TicketDocument = ({
   companyRuc,
   companyAddress,
   companyDistrict,
+  companyLogo,
   summary,
   preGeneratedQrBase64,
 }: TicketDocumentProps) => {
   const [generatedQrBase64, setGeneratedQrBase64] = useState("");
+  const [resolvedCompanyLogoSrc, setResolvedCompanyLogoSrc] = useState(() =>
+    typeof window === "undefined"
+      ? FALLBACK_LOGO_SRC
+      : toAbsoluteLogoUrl(FALLBACK_LOGO_SRC),
+  );
   const companyPhoneFromStorage = useMemo(
     () => readCompanyPhoneFromStorage(),
     [],
   );
+  const companyLogoFromStorage = useMemo(
+    () => readCompanyLogoFromStorage(),
+    [],
+  );
+
+  useEffect(() => {
+    let active = true;
+    const resolveLogo = async () => {
+      const hasExplicitLogoProp = companyLogo !== undefined;
+      const logoFromProp =
+        typeof companyLogo === "string" ? companyLogo.trim() : "";
+      const rawLogo = hasExplicitLogoProp
+        ? logoFromProp
+        : companyLogoFromStorage.trim();
+      const fallbackAbsolute = toAbsoluteLogoUrl(FALLBACK_LOGO_SRC);
+      const normalizedLogo = toAbsoluteLogoUrl(rawLogo);
+      const proxiedLogo = mapLogoToDevProxyUrl(normalizedLogo);
+      const candidates = [proxiedLogo, normalizedLogo, fallbackAbsolute].filter(
+        Boolean,
+      );
+
+      for (const candidate of candidates) {
+        const resolvedCandidate = await resolvePdfLogoSource(candidate);
+        if (!resolvedCandidate) continue;
+        if (active) setResolvedCompanyLogoSrc(resolvedCandidate);
+        return;
+      }
+
+      if (active) {
+        setResolvedCompanyLogoSrc(fallbackAbsolute || FALLBACK_LOGO_SRC);
+      }
+    };
+    void resolveLogo();
+
+    return () => {
+      active = false;
+    };
+  }, [companyLogo, companyLogoFromStorage]);
 
   const ticketData = useMemo(() => {
     const hasItems = Boolean(items?.length);
@@ -532,7 +767,7 @@ const TicketDocument = ({
     return {
       isFactura: docType === "factura",
       isProforma: docType === "proforma",
-      logo: "/LogoHuillca.PNG",
+      logo: resolvedCompanyLogoSrc || FALLBACK_LOGO_SRC,
       qrData,
       companyName: companyName?.trim() || "CONSORCIO FERRETERO ROSITA E.I.R.L.",
       ruc: companyRuc?.trim() || "20601070155",
@@ -556,11 +791,14 @@ const TicketDocument = ({
       clientAddress: clientAddress?.trim() || "-",
       clientDNI: clientDoc,
       clientDocLabel: docLabel,
-      seller: "ANDRE",
+      seller: toFirstName(notaUsuario),
       items: hasItems
         ? (items ?? []).map((item) => ({
             quantity: Number(item.cantidad ?? 0),
-            description: item.nombre ?? "Producto",
+            description: composeProductDescription(
+              item.nombre,
+              item.productoMarca,
+            ),
             unitMeasure: item.unidadMedida ?? "",
             unitPrice: Number(item.precio ?? 0),
             total: Number(item.precio ?? 0) * Number(item.cantidad ?? 0),
@@ -594,6 +832,7 @@ const TicketDocument = ({
     clientId,
     clientAddress,
     clientName,
+    notaUsuario,
     docType,
     documentNumber,
     noteId,
@@ -605,6 +844,7 @@ const TicketDocument = ({
     companyAddress,
     companyDistrict,
     companyPhoneFromStorage,
+    resolvedCompanyLogoSrc,
     summary,
   ]);
 
@@ -642,7 +882,7 @@ const TicketDocument = ({
     const TICKET_NUMBER = 11 + 10; // fontSize + marginBottom
     const DIVIDER = 1 + 8 * 2; // border + marginVertical x2
 
-    const INFO_ROWS = ticketData.isFactura ? 6 : 5;
+    const INFO_ROWS = ticketData.isFactura ? 7 : 6;
     const INFO_ROW_H = 8 + 4; // fontSize + marginBottom
     const clientNameLines = Math.ceil(
       (ticketData.clientName?.length ?? 0) / 28,
@@ -655,13 +895,17 @@ const TicketDocument = ({
     const TABLE_HEADER = 8 + 4 + 6 + 8 + 1; // row + margins + padding + separator
 
     const rowsHeight = ticketData.items.reduce((acc, item) => {
-      const descLength =
-        `${formatUnitPrefix(item.unitMeasure)}${item.description}`.length;
-      const lines = Math.max(1, Math.ceil(descLength / 34));
-      const descriptionHeight = lines * 9;
-      const metaRowHeight = 9 + 3;
+      const fullDescription = `${formatUnitPrefix(item.unitMeasure)}${item.description}`;
+      const [, descriptionLine2] =
+        splitTicketDescriptionTwoLines(fullDescription);
+      const firstRowHeight = 9;
+      const secondRowLines = Math.max(
+        1,
+        Math.ceil((descriptionLine2.length || 1) / 34),
+      );
+      const secondRowHeight = secondRowLines * 9 + 3;
       const separatorHeight = 1 + 6 + 6;
-      return acc + descriptionHeight + metaRowHeight + separatorHeight;
+      return acc + firstRowHeight + secondRowHeight + separatorHeight;
     }, 0);
     const cardAdditionalDetailRowHeight = ticketData.showCardAdditional
       ? 8 + 6
@@ -748,6 +992,10 @@ const TicketDocument = ({
             <Text style={styles.infoLabel}>{ticketData.clientDocLabel}</Text>
             <Text style={styles.infoValue}>: {ticketData.clientDNI}</Text>
           </View>
+          <View style={styles.infoRow}>
+            <Text style={styles.infoLabel}>Vendedor</Text>
+            <Text style={styles.infoValue}>: {ticketData.seller}</Text>
+          </View>
           {ticketData.isFactura && (
             <View style={styles.infoRow}>
               <Text style={styles.infoLabel}>DIRECCION</Text>
@@ -767,19 +1015,34 @@ const TicketDocument = ({
           </View>
           {ticketData.items.map((item, index) => (
             <View key={index}>
-              <View style={styles.tableItemRow}>
-                <Text style={styles.tableItemDescription}>
-                  {`${formatUnitPrefix(item.unitMeasure)}${item.description}`}
-                </Text>
-                <View style={styles.tableItemMetaRow}>
-                  <Text style={styles.colCant}>{item.quantity.toFixed(2)}</Text>
-                  <Text style={styles.colDesc}></Text>
-                  <Text style={styles.colPUni}>
-                    {item.unitPrice.toFixed(2)}
-                  </Text>
-                  <Text style={styles.colImporte}>{item.total.toFixed(2)}</Text>
-                </View>
-              </View>
+              {(() => {
+                const fullDescription = `${formatUnitPrefix(item.unitMeasure)}${item.description}`;
+                const [descriptionLine1, descriptionLine2] =
+                  splitTicketDescriptionTwoLines(fullDescription);
+                return (
+                  <View style={styles.tableItemRow}>
+                    <View style={styles.tableItemMetaRow}>
+                      <Text style={styles.colCant}>
+                        {item.quantity.toFixed(2)}
+                      </Text>
+                      <Text style={styles.tableItemDescriptionFull}>
+                        {descriptionLine1}
+                      </Text>
+                    </View>
+                    <View style={styles.tableItemMetaRow}>
+                      <Text style={styles.tableItemDescriptionSecondRow}>
+                        {descriptionLine2}
+                      </Text>
+                      <Text style={styles.colPUni}>
+                        {item.unitPrice.toFixed(2)}
+                      </Text>
+                      <Text style={styles.colImporte}>
+                        {item.total.toFixed(2)}
+                      </Text>
+                    </View>
+                  </View>
+                );
+              })()}
               <View style={styles.tableItemSeparator} />
             </View>
           ))}

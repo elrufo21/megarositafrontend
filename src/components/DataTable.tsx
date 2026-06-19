@@ -47,6 +47,7 @@ interface DataTableProps<T extends RowData> {
   toolbarLeading?: ReactNode;
   renderFilters?: ReactNode;
   toolbarAction?: ReactNode;
+  toolbarActionAlign?: "inline" | "right";
   isLoading?: boolean;
   emptyMessage?: string;
   searchPlaceholder?: string;
@@ -147,6 +148,7 @@ export default function DataTable<T extends RowData>({
   toolbarLeading,
   renderFilters,
   toolbarAction,
+  toolbarActionAlign = "inline",
   isLoading = false,
   emptyMessage = "No hay datos para mostrar.",
   searchPlaceholder = "Buscar en la tabla...",
@@ -495,12 +497,12 @@ export default function DataTable<T extends RowData>({
     <section className="w-full rounded-2xl border border-slate-200 bg-white shadow-[0_12px_30px_-18px_rgba(15,23,42,0.45)]">
       <div className="border-b border-slate-200 px-4 py-4 sm:px-5">
         <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
-          <div className="flex min-w-0 flex-wrap items-center gap-2.5">
+          <div className="flex min-w-0 flex-wrap items-center gap-2.5 sm:flex-nowrap xl:flex-1">
             {toolbarLeading ? (
               <div className="shrink-0">{toolbarLeading}</div>
             ) : null}
             {showSearch ? (
-              <div className="relative w-full lg:w-[26rem] xl:w-[34rem]">
+              <div className="relative w-full min-w-0 flex-1 sm:max-w-[26rem] lg:max-w-[30rem] xl:max-w-[34rem]">
                 <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
                 <input
                   ref={searchRef}
@@ -525,11 +527,19 @@ export default function DataTable<T extends RowData>({
               </div>
             ) : null}
             {toolbarAction ? (
-              <div className="shrink-0">{toolbarAction}</div>
+              <div
+                className={
+                  toolbarActionAlign === "right"
+                    ? "ml-auto shrink-0"
+                    : "shrink-0"
+                }
+              >
+                {toolbarAction}
+              </div>
             ) : null}
           </div>
 
-          <div className="flex flex-wrap items-center justify-end gap-2 xl:justify-end">
+          <div className="flex w-full flex-wrap items-center justify-start gap-2 xl:w-auto xl:shrink-0 xl:justify-end">
             {renderFilters ? <div className="">{renderFilters}</div> : null}
           </div>
         </div>

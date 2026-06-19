@@ -17,6 +17,8 @@ interface OrderNoteState {
   loading: boolean;
   page: number;
   pageSize: number;
+  total: number;
+  totalPages: number;
   fetchNotes: (params?: FetchOrderNotesParams) => Promise<void>;
   fetchNoteDetail: (noteId: number | string) => Promise<SendNote | null>;
   updateNoteDetail: (
@@ -31,6 +33,11 @@ const toPositiveInt = (value: unknown, fallback: number): number => {
   return Number.isFinite(parsed) && parsed > 0
     ? Math.floor(parsed)
     : Math.floor(fallback);
+};
+
+const toBoundedPageSize = (value: unknown, fallback: number): number => {
+  const normalized = toPositiveInt(value, fallback);
+  return Math.min(100, Math.max(1, normalized));
 };
 
 const normalizeText = (value: unknown, fallback = "-") => {
@@ -283,38 +290,109 @@ const parseDelimitedOrderNotes = (rawValue: string): OrderNote[] => {
     });
 };
 
-const parseOrderNotesResponse = (payload: unknown): OrderNote[] => {
+type ParsedOrderNotesResponse = {
+  rows: OrderNote[];
+  page: number;
+  pageSize: number;
+  total: number;
+  totalPages: number;
+};
+
+const parseOrderNotesResponse = (
+  payload: unknown,
+  defaults: { page: number; pageSize: number },
+): ParsedOrderNotesResponse => {
+  const fallback = {
+    rows: [] as OrderNote[],
+    page: defaults.page,
+    pageSize: defaults.pageSize,
+    total: 0,
+    totalPages: 1,
+  };
+
   if (Array.isArray(payload)) {
-    return payload.map((item, index) =>
+    const rows = payload.map((item, index) =>
       mapApiToOrderNote(item as OrderNoteApiItem, index)
     );
+    return {
+      rows,
+      page: defaults.page,
+      pageSize: defaults.pageSize,
+      total: rows.length,
+      totalPages: Math.max(Math.ceil(rows.length / defaults.pageSize), 1),
+    };
   }
 
   if (typeof payload === "string") {
-    return parseDelimitedOrderNotes(payload);
+    const rows = parseDelimitedOrderNotes(payload);
+    return {
+      rows,
+      page: defaults.page,
+      pageSize: defaults.pageSize,
+      total: rows.length,
+      totalPages: Math.max(Math.ceil(rows.length / defaults.pageSize), 1),
+    };
   }
 
   if (payload && typeof payload === "object") {
     const record = payload as Record<string, unknown>;
+    const directItems =
+      (Array.isArray(record.items) && record.items) ||
+      (Array.isArray(record.Items) && record.Items);
+    if (Array.isArray(directItems)) {
+      const rows = directItems.map((item, index) =>
+        mapApiToOrderNote(item as OrderNoteApiItem, index),
+      );
+      const page = toPositiveInt(record.page ?? record.Page, defaults.page);
+      const pageSize = toBoundedPageSize(
+        record.pageSize ?? record.PageSize,
+        defaults.pageSize,
+      );
+      const total = Math.max(0, Math.floor(Number(record.total ?? record.Total ?? rows.length) || 0));
+      const totalPages = Math.max(
+        toPositiveInt(
+          record.totalPages ?? record.TotalPages,
+          Math.ceil(total / pageSize),
+        ),
+        1,
+      );
+      return { rows, page, pageSize, total, totalPages };
+    }
+
     const stringCandidate =
       (typeof record.resultado === "string" && record.resultado) ||
       (typeof record.Resultado === "string" && record.Resultado) ||
       Object.values(record).find((value) => typeof value === "string");
 
     if (typeof stringCandidate === "string") {
-      const parsedFromString = parseDelimitedOrderNotes(stringCandidate);
-      if (parsedFromString.length > 0) return parsedFromString;
+      const rows = parseDelimitedOrderNotes(stringCandidate);
+      if (rows.length > 0) {
+        return {
+          rows,
+          page: defaults.page,
+          pageSize: defaults.pageSize,
+          total: rows.length,
+          totalPages: Math.max(Math.ceil(rows.length / defaults.pageSize), 1),
+        };
+      }
     }
 
     const arrayCandidate = Object.values(record).find(Array.isArray);
     if (Array.isArray(arrayCandidate)) {
-      return arrayCandidate.map((item, index) =>
+      const rows = arrayCandidate.map((item, index) =>
         mapApiToOrderNote(item as OrderNoteApiItem, index)
       );
+      return {
+        rows,
+        page: defaults.page,
+        pageSize: defaults.pageSize,
+        total: rows.length,
+        totalPages: Math.max(Math.ceil(rows.length / defaults.pageSize), 1),
+      };
     }
   }
 
-  return [];
+  return fallback;
 };
 
 const parseResultStringToSendNote = (resultString: string): SendNote | null => {
@@ -391,13 +469,29 @@ export const useOrderNoteStore = create<OrderNoteState>((set, get) => ({
   loading: false,
   page: 1,
   pageSize: 50,
+  total: 0,
+  totalPages: 1,
   fetchNotes: async (params) => {
     const currentState = get();
-    const nextPage = toPositiveInt(params?.page, currentState.page);
-    const nextPageSize = toPositiveInt(params?.pageSize, currentState.pageSize);
-    const today = getLocalDateISO();
-    const fechaInicio = String(params?.fechaInicio ?? "").trim() || today;
-    const fechaFin = String(params?.fechaFin ?? "").trim() || today;
+    const nextPage = toPositiveInt(params?.page, currentState.page || 1);
+    const nextPageSize = toBoundedPageSize(
+      params?.pageSize,
+      currentState.pageSize || 50,
+    );
+    const fechaInicio = String(params?.fechaInicio ?? "").trim();
+    const fechaFin = String(params?.fechaFin ?? "").trim();
+
+    if (!fechaInicio || !fechaFin) {
+      console.error("fechaInicio y fechaFin son obligatorias para listar notas.");
+      set({ loading: false });
+      return;
+    }
+
+    if (fechaInicio > fechaFin) {
+      console.error("fechaInicio no puede ser mayor que fechaFin.");
+      set({ loading: false });
+      return;
+    }
 
     const query = new URLSearchParams();
     query.set("fechaInicio", fechaInicio);
@@ -410,16 +504,21 @@ export const useOrderNoteStore = create<OrderNoteState>((set, get) => ({
       const response = await apiRequest<unknown>({
         url: `${API_BASE_URL}/Nota/list?${query.toString()}`,
         method: "GET",
-        fallback: [],
+        fallback: null,
       });
 
-      const rows = parseOrderNotesResponse(response);
-
-      set({
-        notes: rows,
-        loading: false,
+      const parsed = parseOrderNotesResponse(response, {
         page: nextPage,
         pageSize: nextPageSize,
+      });
+
+      set({
+        notes: parsed.rows,
+        loading: false,
+        page: parsed.page,
+        pageSize: parsed.pageSize,
+        total: parsed.total,
+        totalPages: parsed.totalPages,
       });
     } catch (error) {
       console.error("Error al listar notas de pedido", error);

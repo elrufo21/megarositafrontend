@@ -8,6 +8,7 @@ import { HookFormSelect } from "@/components/forms/HookFormSelect";
 import { BackArrowButton } from "@/components/common/BackArrowButton";
 import { focusFirstInput } from "@/shared/helpers/focusFirstInput";
 import { apiRequest } from "@/shared/helpers/apiRequest";
+import { toast } from "@/shared/ui/toast";
 import { useDialogStore } from "@/store/app/dialog.store";
 import { useAuthStore } from "@/store/auth/auth.store";
 import type { Client } from "@/types/customer";
@@ -304,27 +305,59 @@ export default function CustomerFormBase({
     }
 
     const responseRecord = response as Record<string, unknown>;
-    const responseDataCandidate = responseRecord.response as
+    const responseContainer = responseRecord.response as
       | Record<string, unknown>
       | undefined;
-    const nestedData = responseDataCandidate?.data;
+    const rawResponseData = responseContainer?.data;
+    const parsedResponseData =
+      typeof rawResponseData === "string"
+        ? (() => {
+            try {
+              return JSON.parse(rawResponseData) as unknown;
+            } catch {
+              return rawResponseData;
+            }
+          })()
+        : rawResponseData;
     const data =
-      nestedData && typeof nestedData === "object"
-        ? (nestedData as Record<string, unknown>)
+      parsedResponseData && typeof parsedResponseData === "object"
+        ? (parsedResponseData as Record<string, unknown>)
         : responseRecord;
+    const rawErrorData = (responseRecord as { response?: { data?: unknown } })
+      .response?.data;
+    const errorDataRecord =
+      rawErrorData && typeof rawErrorData === "object"
+        ? (rawErrorData as Record<string, unknown>)
+        : null;
 
     const asText = (value: unknown) => String(value ?? "").trim();
     const pickFirst = (...values: unknown[]) =>
       values.map(asText).find((v) => v.length > 0) ?? "";
 
     const apiMessage = pickFirst(
+      errorDataRecord?.message,
+      errorDataRecord?.error,
       data.message,
       data.error,
       (data as { errors?: unknown }).errors,
+      (parsedResponseData as { message?: unknown })?.message,
+      (parsedResponseData as { error?: unknown })?.error,
+      rawResponseData,
     );
-    const successFlag = data.success;
+    const successFlag =
+      (data as { success?: unknown }).success ??
+      errorDataRecord?.success ??
+      (responseRecord as { success?: unknown }).success;
+    const hasExplicitFailure =
+      successFlag === false ||
+      String(successFlag ?? "")
+        .trim()
+        .toLowerCase() === "0" ||
+      String(successFlag ?? "")
+        .trim()
+        .toLowerCase() === "false";
 
-    if (successFlag === false) {
+    if (hasExplicitFailure) {
       toast.error(apiMessage || "No se encontraron datos del documento");
       return;
     }

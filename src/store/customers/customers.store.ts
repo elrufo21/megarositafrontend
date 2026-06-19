@@ -145,16 +145,10 @@ const parseClientRegisterResponse = (
   return fallback;
 };
 
-const parseExistsMessage = (payload: unknown): string | null => {
-  if (typeof payload !== "string") return null;
-  const lower = payload.toLowerCase();
-  if (lower.includes("dni")) return "Ese DNI ya existe.";
-  if (lower.includes("ruc")) return "Ese RUC ya existe.";
-  if (lower.includes("existe")) return "El cliente ya existe.";
-  return null;
-};
+const isAxiosGenericMessage = (message: string): boolean =>
+  /^Request failed with status code\s+\d+$/i.test(message.trim());
 
-const resolveDeleteClientErrorMessage = (payload: unknown): string => {
+const resolveClientErrorMessage = (payload: unknown): string => {
   if (!payload) return "";
 
   if (typeof payload === "string") {
@@ -162,19 +156,9 @@ const resolveDeleteClientErrorMessage = (payload: unknown): string => {
     if (!raw) return "";
     if (raw.startsWith("{") && raw.endsWith("}")) {
       try {
-        const parsed = JSON.parse(raw) as {
-          mensaje?: unknown;
-          Mensaje?: unknown;
-          message?: unknown;
-          Message?: unknown;
-        };
-        return String(
-          parsed.mensaje ??
-            parsed.Mensaje ??
-            parsed.message ??
-            parsed.Message ??
-            raw,
-        ).trim();
+        const parsed = JSON.parse(raw);
+        const fromParsed = resolveClientErrorMessage(parsed);
+        return fromParsed || raw;
       } catch {
         return raw;
       }
@@ -188,40 +172,121 @@ const resolveDeleteClientErrorMessage = (payload: unknown): string => {
       Mensaje?: unknown;
       message?: unknown;
       Message?: unknown;
-      data?: {
-        mensaje?: unknown;
-        Mensaje?: unknown;
-        message?: unknown;
-        Message?: unknown;
-      };
+      error?: unknown;
+      Error?: unknown;
+      data?: unknown;
       response?: {
-        data?: {
-          mensaje?: unknown;
-          Mensaje?: unknown;
-          message?: unknown;
-          Message?: unknown;
-        };
+        data?: unknown;
       };
     };
 
-    const fromResponseData = resolveDeleteClientErrorMessage(obj.response?.data);
+    const fromResponseData = resolveClientErrorMessage(obj.response?.data);
     if (fromResponseData) return fromResponseData;
 
-    const fromData = resolveDeleteClientErrorMessage(obj.data);
+    const fromData = resolveClientErrorMessage(obj.data);
     if (fromData) return fromData;
 
     const fromMensaje = String(obj.mensaje ?? obj.Mensaje ?? "").trim();
     if (fromMensaje) return fromMensaje;
 
     const fromMessage = String(obj.message ?? obj.Message ?? "").trim();
-    const isAxiosGenericMessage =
-      /^Request failed with status code\s+\d+$/i.test(fromMessage);
-    if (!isAxiosGenericMessage && fromMessage) return fromMessage;
+    if (fromMessage && !isAxiosGenericMessage(fromMessage)) return fromMessage;
 
-    return "";
+    const fromError = String(obj.error ?? obj.Error ?? "").trim();
+    if (fromError) return fromError;
   }
 
   return "";
+};
+
+const parseExistsMessage = (payload: unknown): string | null => {
+  const message = resolveClientErrorMessage(payload);
+  if (!message) return null;
+  const lower = message.toLowerCase();
+  if (lower.includes("existe")) return message;
+  return null;
+};
+
+const hasHttpErrorStatus = (payload: unknown): boolean => {
+  if (!payload || typeof payload !== "object") return false;
+  const obj = payload as {
+    status?: unknown;
+    response?: { status?: unknown };
+  };
+
+  const directStatus = Number(obj.status ?? 0);
+  if (Number.isFinite(directStatus) && directStatus >= 400) return true;
+
+  const responseStatus = Number(obj.response?.status ?? 0);
+  return Number.isFinite(responseStatus) && responseStatus >= 400;
+};
+
+const normalizeOkFlag = (value: unknown): boolean | null => {
+  if (typeof value === "boolean") return value;
+  if (typeof value === "number") {
+    if (value === 1) return true;
+    if (value === 0) return false;
+  }
+  if (typeof value === "string") {
+    const normalized = value.trim().toLowerCase();
+    if (normalized === "true" || normalized === "1") return true;
+    if (normalized === "false" || normalized === "0") return false;
+  }
+  return null;
+};
+
+const resolveMutationOkFlag = (payload: unknown): boolean | null => {
+  if (!payload || typeof payload !== "object") return null;
+  const obj = payload as {
+    ok?: unknown;
+    Ok?: unknown;
+    data?: {
+      ok?: unknown;
+      Ok?: unknown;
+    };
+    response?: {
+      data?: {
+        ok?: unknown;
+        Ok?: unknown;
+      };
+    };
+  };
+
+  const candidates = [
+    obj.ok,
+    obj.Ok,
+    obj.data?.ok,
+    obj.data?.Ok,
+    obj.response?.data?.ok,
+    obj.response?.data?.Ok,
+  ];
+
+  for (const candidate of candidates) {
+    const normalized = normalizeOkFlag(candidate);
+    if (normalized !== null) return normalized;
+  }
+
+  return null;
+};
+
+const resolveClientMutationError = (payload: unknown): string | null => {
+  const existsMessage = parseExistsMessage(payload);
+  if (existsMessage) return existsMessage;
+
+  const okFlag = resolveMutationOkFlag(payload);
+  const failedByStatus = hasHttpErrorStatus(payload);
+  const hasExplicitFailure = okFlag === false || failedByStatus;
+
+  if (!hasExplicitFailure) return null;
+
+  const resolvedMessage = resolveClientErrorMessage(payload);
+  if (resolvedMessage) return resolvedMessage;
+
+  return "No se pudo guardar el cliente.";
+};
+
+const resolveDeleteClientErrorMessage = (payload: unknown): string => {
+  return resolveClientErrorMessage(payload);
 };
 
 export const useClientsStore = create<ClientsState>((set) => ({
@@ -272,6 +337,11 @@ export const useClientsStore = create<ClientsState>((set) => ({
         return { ok: false, error: parseExistsMessage(created) ?? undefined };
       }
 
+      const mutationError = resolveClientMutationError(created);
+      if (mutationError) {
+        return { ok: false, error: mutationError };
+      }
+
       const parsedClient = parseClientRegisterResponse(created, payload);
       set((state) => ({
         clients: [...state.clients, mapApiToClient(parsedClient)],
@@ -307,6 +377,11 @@ export const useClientsStore = create<ClientsState>((set) => ({
         updated.toLowerCase().includes("existe")
       ) {
         return { ok: false, error: parseExistsMessage(updated) ?? undefined };
+      }
+
+      const mutationError = resolveClientMutationError(updated);
+      if (mutationError) {
+        return { ok: false, error: mutationError };
       }
 
       const parsedClient = parseClientRegisterResponse(updated, payload);

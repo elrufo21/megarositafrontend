@@ -18,6 +18,10 @@ import { useLocation, useNavigate } from "react-router";
 
 const columnHelper = createColumnHelper<OrderNote>();
 const ORDER_NOTES_RANGE_STORAGE_KEY = "sgo.orderNotes.range";
+const DEFAULT_ORDER_NOTES_PAGE = 1;
+const DEFAULT_ORDER_NOTES_PAGE_SIZE = 50;
+const MIN_ORDER_NOTES_PAGE_SIZE = 1;
+const MAX_ORDER_NOTES_PAGE_SIZE = 100;
 
 const parseAmount = (value: unknown): number => {
   const raw = String(value ?? "").trim();
@@ -120,7 +124,8 @@ const getSignedTotal = (
 const OrderNotesList = () => {
   const navigate = useNavigate();
   const { state } = useLocation();
-  const { notes, fetchNotes, loading } = useOrderNoteStore();
+  const { notes, fetchNotes, loading, page, pageSize, total } =
+    useOrderNoteStore();
   const initialDate = useMemo(() => getLocalDateISO(), []);
   const resetRangeFromMainLayout = useMemo(() => {
     if (!state || typeof state !== "object") return false;
@@ -157,9 +162,17 @@ const OrderNotesList = () => {
   const fechaInicioRef = useRef(fechaInicio);
   const fechaFinRef = useRef(fechaFin);
   const endDateAcceptedRef = useRef(false);
-  const lastFetchedRangeRef = useRef<{ from: string; to: string } | null>({
+  const hasBootstrappedFetchRef = useRef(false);
+  const lastFetchedRangeRef = useRef<{
+    from: string;
+    to: string;
+    page: number;
+    pageSize: number;
+  } | null>({
     from: initialRange.from,
     to: initialRange.to,
+    page: DEFAULT_ORDER_NOTES_PAGE,
+    pageSize: DEFAULT_ORDER_NOTES_PAGE_SIZE,
   });
 
   useEffect(() => {
@@ -170,10 +183,35 @@ const OrderNotesList = () => {
     fechaFinRef.current = fechaFin;
   }, [fechaFin]);
 
+  const sanitizePage = useCallback((value: unknown) => {
+    const numeric = Number(value);
+    if (!Number.isFinite(numeric) || numeric <= 0)
+      return DEFAULT_ORDER_NOTES_PAGE;
+    return Math.floor(numeric);
+  }, []);
+
+  const sanitizePageSize = useCallback((value: unknown) => {
+    const numeric = Number(value);
+    if (!Number.isFinite(numeric) || numeric <= 0) {
+      return DEFAULT_ORDER_NOTES_PAGE_SIZE;
+    }
+    const floored = Math.floor(numeric);
+    return Math.max(
+      MIN_ORDER_NOTES_PAGE_SIZE,
+      Math.min(MAX_ORDER_NOTES_PAGE_SIZE, floored),
+    );
+  }, []);
+
   const requestNotesByRange = useCallback(
-    (fromValue: string, toValue: string) => {
+    (
+      fromValue: string,
+      toValue: string,
+      options?: { page?: number; pageSize?: number },
+    ) => {
       const from = String(fromValue ?? "").trim();
       const to = String(toValue ?? "").trim();
+      const nextPage = sanitizePage(options?.page ?? page);
+      const nextPageSize = sanitizePageSize(options?.pageSize ?? pageSize);
 
       if (!from || !to) {
         toast.error("Debes seleccionar fecha inicio y fecha fin.");
@@ -185,11 +223,21 @@ const OrderNotesList = () => {
         return false;
       }
 
-      void fetchNotes({ fechaInicio: from, fechaFin: to });
-      lastFetchedRangeRef.current = { from, to };
+      void fetchNotes({
+        fechaInicio: from,
+        fechaFin: to,
+        page: nextPage,
+        pageSize: nextPageSize,
+      });
+      lastFetchedRangeRef.current = {
+        from,
+        to,
+        page: nextPage,
+        pageSize: nextPageSize,
+      };
       return true;
     },
-    [fetchNotes],
+    [fetchNotes, page, pageSize, sanitizePage, sanitizePageSize],
   );
 
   useEffect(() => {
@@ -198,8 +246,13 @@ const OrderNotesList = () => {
   }, [resetRangeFromMainLayout]);
 
   useEffect(() => {
-    requestNotesByRange(fechaInicioRef.current, fechaFinRef.current);
-  }, [requestNotesByRange]);
+    if (hasBootstrappedFetchRef.current) return;
+    hasBootstrappedFetchRef.current = true;
+    requestNotesByRange(fechaInicioRef.current, fechaFinRef.current, {
+      page: DEFAULT_ORDER_NOTES_PAGE,
+      pageSize: sanitizePageSize(pageSize),
+    });
+  }, [pageSize, requestNotesByRange, sanitizePageSize]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -213,8 +266,31 @@ const OrderNotesList = () => {
   }, [fechaFin, fechaInicio]);
 
   const handleSearch = useCallback(() => {
-    requestNotesByRange(fechaInicio, fechaFin);
-  }, [fechaFin, fechaInicio, requestNotesByRange]);
+    requestNotesByRange(fechaInicio, fechaFin, {
+      page: DEFAULT_ORDER_NOTES_PAGE,
+      pageSize: sanitizePageSize(pageSize),
+    });
+  }, [fechaFin, fechaInicio, pageSize, requestNotesByRange, sanitizePageSize]);
+
+  const handlePageChange = useCallback(
+    (nextPage: number) => {
+      requestNotesByRange(fechaInicioRef.current, fechaFinRef.current, {
+        page: nextPage,
+        pageSize: sanitizePageSize(pageSize),
+      });
+    },
+    [pageSize, requestNotesByRange, sanitizePageSize],
+  );
+
+  const handlePageSizeChange = useCallback(
+    (nextPageSize: number) => {
+      requestNotesByRange(fechaInicioRef.current, fechaFinRef.current, {
+        page: DEFAULT_ORDER_NOTES_PAGE,
+        pageSize: nextPageSize,
+      });
+    },
+    [requestNotesByRange],
+  );
 
   const parsePickerDate = useCallback((value: Dayjs | null) => {
     const formatted = value?.format("YYYY-MM-DD") ?? "";
@@ -575,8 +651,15 @@ const OrderNotesList = () => {
           "formaPago",
           "usuario",
         ]}
+        manualPagination
+        page={page}
+        pageSize={sanitizePageSize(pageSize)}
+        totalRows={Math.max(0, total)}
+        pageSizeOptions={[20, 50, 100]}
+        onPageChange={handlePageChange}
+        onPageSizeChange={handlePageSizeChange}
         toolbarLeading={
-          <BackArrowButton className="inline-flex h-11 w-11 items-center justify-center rounded-xl border border-slate-300 bg-white text-slate-700 hover:bg-slate-100 transition-colors" />
+          <BackArrowButton className="inline-flex  items-center justify-center  text-slate-700 hover:bg-slate-100 transition-colors" />
         }
         renderFilters={
           <LocalizationProvider
@@ -586,8 +669,8 @@ const OrderNotesList = () => {
               esES.components.MuiLocalizationProvider.defaultProps.localeText
             }
           >
-            <div className="flex w-full flex-wrap items-end gap-2 rounded-xl border border-slate-200 bg-slate-50 p-2 xl:w-auto">
-              <label className="flex min-w-[160px] flex-col gap-1 text-xs text-slate-600">
+            <div className="grid w-full grid-cols-1 items-end gap-2 rounded-xl border border-slate-200 bg-slate-50 p-2 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto]">
+              <label className="flex min-w-0 w-full flex-col gap-1 text-xs text-slate-600">
                 Fecha Inicio
                 <DatePicker
                   format="DD/MM/YY"
@@ -611,7 +694,7 @@ const OrderNotesList = () => {
                 />
               </label>
 
-              <label className="flex min-w-[160px] flex-col gap-1 text-xs text-slate-600">
+              <label className="flex min-w-0 w-full flex-col gap-1 text-xs text-slate-600">
                 Fecha Fin
                 <DatePicker
                   format="DD/MM/YY"
@@ -626,7 +709,10 @@ const OrderNotesList = () => {
                     const nextValue = parsePickerDate(value);
                     endDateAcceptedRef.current = true;
                     setFechaFin(nextValue);
-                    requestNotesByRange(fechaInicioRef.current, nextValue);
+                    requestNotesByRange(fechaInicioRef.current, nextValue, {
+                      page: DEFAULT_ORDER_NOTES_PAGE,
+                      pageSize: sanitizePageSize(pageSize),
+                    });
                   }}
                   onClose={() => {
                     if (endDateAcceptedRef.current) {
@@ -640,10 +726,15 @@ const OrderNotesList = () => {
                     const mustFetch =
                       !lastRange ||
                       lastRange.from !== currentStart ||
-                      lastRange.to !== currentEnd;
+                      lastRange.to !== currentEnd ||
+                      lastRange.page !== page ||
+                      lastRange.pageSize !== sanitizePageSize(pageSize);
 
                     if (mustFetch) {
-                      requestNotesByRange(currentStart, currentEnd);
+                      requestNotesByRange(currentStart, currentEnd, {
+                        page: DEFAULT_ORDER_NOTES_PAGE,
+                        pageSize: sanitizePageSize(pageSize),
+                      });
                     }
                   }}
                   slotProps={{
@@ -662,7 +753,7 @@ const OrderNotesList = () => {
                 />
               </label>
 
-              <div className="relative group">
+              <div className="relative group justify-self-start sm:justify-self-end">
                 <button
                   type="button"
                   onClick={handleSearch}

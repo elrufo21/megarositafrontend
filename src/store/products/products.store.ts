@@ -270,16 +270,34 @@ const parsePaginatedProductsResponse = (
     items: [] as ApiProduct[],
   };
 
-  if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
+  if (Array.isArray(payload)) {
+    const items = parseProductsResponse(payload);
+    const tamanoPagina =
+      items.length > 0
+        ? normalizeCatalogPageSize(items.length)
+        : defaults.tamanoPagina;
+    return {
+      pagina: 1,
+      tamanoPagina,
+      totalRegistros: items.length,
+      items,
+    };
+  }
+
+  if (!payload || typeof payload !== "object") {
     return defaults;
   }
 
   const record = payload as Record<string, unknown>;
   const items = Array.isArray(record.items)
     ? (record.items as ApiProduct[])
-    : [];
+    : parseProductsResponse(payload);
   const pagina = toPositiveInt(record.pagina, defaults.pagina);
-  const tamanoPagina = normalizeCatalogPageSize(record.tamanoPagina);
+  const tamanoPagina = Array.isArray(record.items)
+    ? normalizeCatalogPageSize(record.tamanoPagina)
+    : items.length > 0
+      ? normalizeCatalogPageSize(items.length)
+      : defaults.tamanoPagina;
   const totalRegistrosRaw = toNumberValue(record.totalRegistros, items.length);
   const totalRegistros = Math.max(0, Math.trunc(totalRegistrosRaw));
 
@@ -424,16 +442,6 @@ const groupProductsByHeader = (items: ApiProduct[]): Product[] => {
       return header;
     })
     .filter((item): item is Product => Boolean(item));
-};
-
-const mergeProductsById = (current: Product[], incoming: Product[]) => {
-  if (!current.length) return incoming;
-  if (!incoming.length) return current;
-
-  const map = new Map<number, Product>();
-  current.forEach((item) => map.set(item.id, item));
-  incoming.forEach((item) => map.set(item.id, item));
-  return Array.from(map.values());
 };
 
 const mapProductToApi = (
@@ -660,7 +668,7 @@ const toSavedApiProduct = (
   return { ...payload, idProducto: idFallback };
 };
 
-export const useProductsStore = create<ProductsState>((set, get) => ({
+export const useProductsStore = create<ProductsState>((set) => ({
   products: [],
   loading: false,
   catalogPagination: {
@@ -723,23 +731,25 @@ export const useProductsStore = create<ProductsState>((set, get) => ({
   } = {}) => {
     set({ loading: true });
     const normalizedBusqueda = String(busqueda ?? "").trim();
-    const normalizedPagina = toPositiveInt(pagina, 1);
-    const normalizedTamanoPagina = normalizeCatalogPageSize(tamanoPagina);
+    void pagina;
+    void tamanoPagina;
+    void append;
 
     try {
       const params = new URLSearchParams();
       if (normalizedBusqueda) {
         params.set("busqueda", normalizedBusqueda);
       }
-      params.set("pagina", String(normalizedPagina));
-      params.set("tamanoPagina", String(normalizedTamanoPagina));
+      const query = params.toString();
 
       const response = await apiRequest<unknown>({
-        url: `${baseUrl}/listar-productos?${params.toString()}`,
+        url: query
+          ? `${baseUrl}/listar-productos?${query}`
+          : `${baseUrl}/listar-productos`,
         method: "GET",
         fallback: {
-          pagina: normalizedPagina,
-          tamanoPagina: normalizedTamanoPagina,
+          pagina: 1,
+          tamanoPagina: CATALOG_DEFAULT_PAGE_SIZE,
           totalRegistros: 0,
           items: [],
         },
@@ -747,22 +757,19 @@ export const useProductsStore = create<ProductsState>((set, get) => ({
 
       const parsed = parsePaginatedProductsResponse(
         response,
-        normalizedPagina,
-        normalizedTamanoPagina,
+        1,
+        CATALOG_DEFAULT_PAGE_SIZE,
       );
       const mappedPage = groupProductsByHeader(parsed.items);
-      const current = append ? get().products : [];
-      const merged = append ? mergeProductsById(current, mappedPage) : mappedPage;
-      const totalRegistros = Math.max(parsed.totalRegistros, merged.length);
-      const hasMore = mappedPage.length > 0 && merged.length < totalRegistros;
+      const totalRegistros = Math.max(parsed.totalRegistros, mappedPage.length);
 
       set({
-        products: merged,
+        products: mappedPage,
         catalogPagination: {
-          pagina: parsed.pagina,
+          pagina: 1,
           tamanoPagina: parsed.tamanoPagina,
           totalRegistros,
-          hasMore,
+          hasMore: false,
         },
         loading: false,
       });

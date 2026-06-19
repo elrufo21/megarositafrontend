@@ -17,6 +17,8 @@ const resolveProductBrand = (product: Product): string =>
   normalizeOptionalText((product as any).productoMarca ?? "");
 const getItemKey = (item: Pick<PosCartItem, "productId" | "detalleId">): number =>
   toNumber(item.detalleId, 0) || toNumber(item.productId, 0);
+const resolveItemMinPrice = (item: Partial<PosCartItem> & Record<string, unknown>) =>
+  toNonNegative(item.precioCosto ?? item.costo ?? item.precioMinimo ?? 0);
 
 const EMPTY_TOTALS: PosTotals = { subTotal: 0, total: 0, itemCount: 0 };
 
@@ -69,10 +71,12 @@ export const usePosStore = create<PosState>()(
         set((state) => {
           let hasNormalizationChanges = false;
           const normalizedItems = items.map((item) => {
-            const rawMinPrice = toNumber(item.precioMinimo ?? 0);
-            const minPrice = toNonNegative(rawMinPrice);
+            const minPrice = resolveItemMinPrice(item as any);
             const safePrice = Math.max(toNonNegative(item.precio), minPrice);
-            if (safePrice === item.precio && rawMinPrice === minPrice) {
+            if (
+              safePrice === item.precio &&
+              toNonNegative(item.precioMinimo ?? 0) === minPrice
+            ) {
               return item;
             }
             hasNormalizationChanges = true;
@@ -135,10 +139,10 @@ export const usePosStore = create<PosState>()(
               (product as any).costo ??
               0
           );
-          const minPrice = Math.max(
-            toNonNegative((product as any).preVentaB ?? 0),
-            toNonNegative(basePrice)
-          );
+          const minPrice =
+            baseCost > 0
+              ? baseCost
+              : toNonNegative((product as any).preVentaB ?? 0);
           const reductionValue = (() => {
             const raw = toNumber((product as any).valorUM, 1);
             return Number.isFinite(raw) && raw > 0 ? raw : 1;
@@ -251,11 +255,11 @@ export const usePosStore = create<PosState>()(
               ? getItemKey(item) === productId
               : item.productId === productId;
             if (!matches) return item;
-            const minPrice = toNonNegative(item.precioMinimo ?? 0);
+            const minPrice = resolveItemMinPrice(item as any);
             const safePrice = Math.max(toNonNegative(price), minPrice);
             if (item.precio === safePrice) return item;
             changed = true;
-            return { ...item, precio: safePrice };
+            return { ...item, precio: safePrice, precioMinimo: minPrice };
           });
 
           if (!changed) return state;

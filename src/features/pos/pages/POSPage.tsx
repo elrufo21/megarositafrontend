@@ -1,14 +1,10 @@
-import {
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-  type FormEvent,
-} from "react";
+import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { useLocation, useNavigate } from "react-router";
 import { createColumnHelper } from "@tanstack/react-table";
 import {
   CheckCircle2,
+  Eye,
+  EyeOff,
   LayoutGrid,
   Loader2,
   Minus,
@@ -29,6 +25,8 @@ import type { Product } from "@/types/product";
 import type { ProductUnitOption } from "@/types/product";
 import type { PosCartItem } from "@/types/pos";
 import { toast } from "@/shared/ui/toast";
+import { apiRequest } from "@/shared/helpers/apiRequest";
+import { buildApiUrl } from "@/config";
 
 type PosCatalogProduct = Product & {
   catalogKey: string;
@@ -38,28 +36,86 @@ type PosCatalogProduct = Product & {
   valorUM?: number;
 };
 
+type PersonalByCodeResponse = {
+  personalEstado?: string;
+  nombreApellido?: string;
+};
+
+type AuthSessionPayload = {
+  user?: {
+    companyId?: unknown;
+    displayName?: unknown;
+    username?: unknown;
+  };
+};
+
+type PersonalCodeFieldProps = {
+  onInputRef: (node: HTMLInputElement | null) => void;
+  onEnter?: () => void;
+};
+
+const PersonalCodeField = ({ onInputRef, onEnter }: PersonalCodeFieldProps) => {
+  const [isCodeVisible, setIsCodeVisible] = useState(false);
+
+  return (
+    <div className="relative">
+      <input
+        ref={onInputRef}
+        type={isCodeVisible ? "text" : "password"}
+        autoFocus
+        placeholder="Codigo de usuario"
+        className="h-10 w-full rounded-lg border border-slate-300 px-3 pr-10 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+        onKeyDown={(event) => {
+          if (event.key !== "Enter") return;
+          event.preventDefault();
+          onEnter?.();
+        }}
+      />
+      <button
+        type="button"
+        onClick={() => setIsCodeVisible((prev) => !prev)}
+        className="absolute right-2 top-1/2 inline-flex -translate-y-1/2 items-center justify-center rounded-md p-1 text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-700"
+        aria-label={isCodeVisible ? "Ocultar codigo" : "Mostrar codigo"}
+        title={isCodeVisible ? "Ocultar codigo" : "Mostrar codigo"}
+      >
+        {isCodeVisible ? <EyeOff size={16} /> : <Eye size={16} />}
+      </button>
+    </div>
+  );
+};
+
 const columnHelper = createColumnHelper<PosCatalogProduct>();
 const CATALOG_PAGE_SIZE = 50;
 const TABLE_PAGE_SIZE_OPTIONS = [20, 50, 100];
+const PROFORMA_DEFAULT_CONTACT_ID = 47;
 
+const roundPrice = (value: number) =>
+  Math.ceil((value - Number.EPSILON) * 100) / 100;
+const formatPrice = (value: unknown) => {
+  const numeric = Number(value ?? 0);
+  if (!Number.isFinite(numeric)) return "0.00";
+  return roundPrice(numeric).toFixed(2);
+};
 const priceLabel = (product: Product) =>
-  Number(product.preVenta ?? product.preVentaB ?? 0).toFixed(2);
+  formatPrice(product.preVenta ?? product.preVentaB ?? 0);
 const composeProductDisplayName = (name: unknown, brand?: unknown): string =>
   [name, brand]
     .map((value) => String(value ?? "").trim())
     .filter(Boolean)
     .join(" ");
-const sortCatalogProductsByCode = (products: PosCatalogProduct[]) =>
-  [...products].sort((a, b) =>
-    String(a.codigo ?? "").localeCompare(String(b.codigo ?? ""), undefined, {
-      numeric: true,
-      sensitivity: "base",
-    }),
-  );
 const buildVariationDetailId = (baseId: number, index: number) =>
   -1 * (baseId * 1000 + (index + 1));
 const getCartItemKey = (item: Pick<PosCartItem, "productId" | "detalleId">) =>
   Number(item.detalleId ?? 0) || Number(item.productId ?? 0);
+const getMinAllowedPrice = (item: PosCartItem) => {
+  const itemWithPriceCost = item as PosCartItem & Record<string, unknown>;
+  return Math.max(
+    0,
+    Number(
+      itemWithPriceCost.precioCosto ?? item.costo ?? item.precioMinimo ?? 0,
+    ) || 0,
+  );
+};
 const hasInvalidQuantityForPayment = (item: PosCartItem) => {
   const quantity = Number(item.cantidad ?? 0);
   return !Number.isFinite(quantity) || quantity <= 0;
@@ -147,7 +203,7 @@ const deriveVariationStock = (
 };
 
 const POSPage = () => {
-  const [viewMode, setViewMode] = useState<"table" | "cards">("cards");
+  const [viewMode, setViewMode] = useState<"table" | "cards">("table");
   const [searchTerm, setSearchTerm] = useState("");
   const [catalogPage, setCatalogPage] = useState(1);
   const [tablePage, setTablePage] = useState(1);
@@ -156,8 +212,13 @@ const POSPage = () => {
   const [mobileCartOpen, setMobileCartOpen] = useState(false);
   const navigate = useNavigate();
   const location = useLocation();
-  const { products, fetchCatalogProducts, loading, catalogPagination } =
-    useProductsStore();
+  const {
+    products,
+    fetchCatalogProducts,
+    resetCatalogProducts,
+    loading,
+    catalogPagination,
+  } = useProductsStore();
   const items = usePosStore((state) => state.items);
   const totals = usePosStore(selectTotals);
   const addProduct = usePosStore((state) => state.addProduct);
@@ -169,6 +230,8 @@ const POSPage = () => {
   const editingNotaId = usePosStore((state) => state.editingNotaId);
   const isEditingMode = usePosStore((state) => state.isEditingMode);
   const openDialog = useDialogStore((state) => state.openDialog);
+  const closeDialog = useDialogStore((state) => state.closeDialog);
+  const setDialogLoading = useDialogStore((state) => state.setLoading);
   const { resetDraftForNewSale } = usePosCartDraftPersistence({
     enabled: true,
     autosave: true,
@@ -181,6 +244,152 @@ const POSPage = () => {
   const loadMoreArmedRef = useRef(true);
   const appendScrollTopRef = useRef<number | null>(null);
   const [priceDrafts, setPriceDrafts] = useState<Record<number, string>>({});
+  const [quantityDrafts, setQuantityDrafts] = useState<Record<number, string>>(
+    {},
+  );
+  const [isSubmittingQuickSale, setIsSubmittingQuickSale] = useState(false);
+
+  const safeTrim = (value: unknown) => String(value ?? "").trim();
+  const parseRecordLikeValue = (
+    value: unknown,
+  ): Record<string, unknown> | null => {
+    if (!value) return null;
+    if (typeof value === "object") return value as Record<string, unknown>;
+    if (typeof value === "string") {
+      const trimmed = value.trim();
+      if (!trimmed) return null;
+      try {
+        const parsed = JSON.parse(trimmed) as unknown;
+        return parsed && typeof parsed === "object"
+          ? (parsed as Record<string, unknown>)
+          : null;
+      } catch {
+        return null;
+      }
+    }
+    return null;
+  };
+  const resolveHttpStatus = (payload: unknown) => {
+    const payloadRecord = parseRecordLikeValue(payload);
+    const status = Number(
+      payloadRecord?.response &&
+        typeof payloadRecord.response === "object" &&
+        payloadRecord.response !== null
+        ? ((payloadRecord.response as Record<string, unknown>).status ??
+            payloadRecord.status)
+        : payloadRecord?.status,
+    );
+    return Number.isFinite(status) && status > 0 ? Math.floor(status) : 0;
+  };
+  const resolveApiMessage = (payload: unknown) => {
+    const payloadRecord = parseRecordLikeValue(payload);
+    const responseRecord = parseRecordLikeValue(payloadRecord?.response);
+    const responseDataRecord = parseRecordLikeValue(responseRecord?.data);
+    return safeTrim(
+      payloadRecord?.mensaje ??
+        payloadRecord?.message ??
+        payloadRecord?.Message ??
+        responseDataRecord?.mensaje ??
+        responseDataRecord?.message ??
+        responseDataRecord?.Message ??
+        "",
+    );
+  };
+  const parseNotaId = (value: unknown): number | null => {
+    if (value === null || value === undefined) return null;
+    if (typeof value === "number") {
+      return Number.isFinite(value) && value > 0 ? Math.floor(value) : null;
+    }
+    if (typeof value === "string") {
+      const match = value.match(/\d+/);
+      if (match?.[0]) {
+        const numeric = Number(match[0]);
+        return Number.isFinite(numeric) && numeric > 0
+          ? Math.floor(numeric)
+          : null;
+      }
+      return null;
+    }
+
+    const record = parseRecordLikeValue(value);
+    if (!record) return null;
+    const nested =
+      record.notaId ??
+      record.NotaId ??
+      parseRecordLikeValue(record.nota)?.notaId ??
+      parseRecordLikeValue(record.nota)?.NotaId ??
+      record.idNota ??
+      record.IdNota ??
+      record.id ??
+      record.ID ??
+      record.resultado ??
+      record.Resultado ??
+      record.result ??
+      record.Result ??
+      parseRecordLikeValue(record.data)?.notaId ??
+      parseRecordLikeValue(record.data)?.NotaId ??
+      parseRecordLikeValue(record.data)?.idNota ??
+      parseRecordLikeValue(record.data)?.IdNota ??
+      parseRecordLikeValue(record.data)?.id ??
+      parseRecordLikeValue(record.data)?.ID ??
+      parseRecordLikeValue(record.data)?.resultado ??
+      parseRecordLikeValue(record.data)?.Resultado ??
+      parseRecordLikeValue(parseRecordLikeValue(record.response)?.data)
+        ?.notaId ??
+      parseRecordLikeValue(parseRecordLikeValue(record.response)?.data)
+        ?.NotaId ??
+      parseRecordLikeValue(parseRecordLikeValue(record.response)?.data)
+        ?.idNota ??
+      parseRecordLikeValue(parseRecordLikeValue(record.response)?.data)
+        ?.IdNota ??
+      parseRecordLikeValue(parseRecordLikeValue(record.response)?.data)?.id ??
+      parseRecordLikeValue(parseRecordLikeValue(record.response)?.data)?.ID ??
+      parseRecordLikeValue(parseRecordLikeValue(record.response)?.data)
+        ?.resultado ??
+      parseRecordLikeValue(parseRecordLikeValue(record.response)?.data)
+        ?.Resultado ??
+      record.data;
+
+    return parseNotaId(nested);
+  };
+  const toFirstName = (value: unknown) => {
+    const normalized = safeTrim(value).replace(/\s+/g, " ");
+    if (!normalized) return "";
+    return normalized.split(" ")[0] ?? "";
+  };
+  const { companyId, usernameFromSession } = useMemo(() => {
+    if (typeof window === "undefined") {
+      return {
+        companyId: 1,
+        usernameFromSession: "USUARIO",
+      };
+    }
+
+    let parsedSession: AuthSessionPayload | null = null;
+    const sessionRaw = localStorage.getItem("sgo.auth.session");
+    if (sessionRaw) {
+      try {
+        parsedSession = JSON.parse(sessionRaw) as AuthSessionPayload;
+      } catch {
+        parsedSession = null;
+      }
+    }
+
+    const companyIdRaw =
+      parsedSession?.user?.companyId ?? localStorage.getItem("companiaId");
+    const companyIdNum = Number(companyIdRaw);
+    const safeCompanyId =
+      Number.isFinite(companyIdNum) && companyIdNum > 0 ? companyIdNum : 1;
+    const username =
+      safeTrim(parsedSession?.user?.displayName) ||
+      safeTrim(parsedSession?.user?.username) ||
+      "USUARIO";
+
+    return {
+      companyId: safeCompanyId,
+      usernameFromSession: username,
+    };
+  }, []);
 
   const focusSearchInput = () => {
     window.requestAnimationFrame(() => {
@@ -238,18 +447,20 @@ const POSPage = () => {
   }, [searchTerm]);
 
   useEffect(() => {
-    if (!isCardsView) return;
+    if (debouncedSearchTerm) return;
+    resetCatalogProducts();
+  }, [debouncedSearchTerm, resetCatalogProducts]);
+
+  useEffect(() => {
+    if (!isCardsView || !debouncedSearchTerm) return;
 
     fetchCatalogProducts({
       busqueda: debouncedSearchTerm,
-      pagina: 1,
-      tamanoPagina: CATALOG_PAGE_SIZE,
-      append: false,
     });
   }, [debouncedSearchTerm, fetchCatalogProducts, isCardsView]);
 
   useEffect(() => {
-    if (!isCardsView || catalogPage <= 1) return;
+    if (!isCardsView || !debouncedSearchTerm || catalogPage <= 1) return;
     const root = catalogScrollRef.current;
     if (root) {
       appendScrollTopRef.current = root.scrollTop;
@@ -257,20 +468,14 @@ const POSPage = () => {
 
     fetchCatalogProducts({
       busqueda: debouncedSearchTerm,
-      pagina: catalogPage,
-      tamanoPagina: CATALOG_PAGE_SIZE,
-      append: true,
     });
   }, [catalogPage, debouncedSearchTerm, fetchCatalogProducts, isCardsView]);
 
   useEffect(() => {
-    if (isCardsView) return;
+    if (isCardsView || !debouncedSearchTerm) return;
 
     fetchCatalogProducts({
       busqueda: debouncedSearchTerm,
-      pagina: tablePage,
-      tamanoPagina: tablePageSize,
-      append: false,
     });
   }, [
     debouncedSearchTerm,
@@ -311,7 +516,7 @@ const POSPage = () => {
   }, [clearCart, clearEditingNota, location.state, resetDraftForNewSale]);
 
   const hasInvalidPriceForPayment = (item: PosCartItem) => {
-    const minPrice = Math.max(0, Number(item.precioMinimo ?? 0) || 0);
+    const minPrice = getMinAllowedPrice(item);
     const draftValue = priceDrafts[getCartItemKey(item)];
     if (draftValue === undefined) {
       const storedPrice = Number(item.precio ?? 0);
@@ -324,7 +529,108 @@ const POSPage = () => {
     return !Number.isFinite(draftPrice) || draftPrice < minPrice;
   };
 
-  const goToPayment = () => {
+  const requestPersonalAuthorizationForPayment = () =>
+    new Promise<string | null>((resolve) => {
+      let codeInputRef: HTMLInputElement | null = null;
+      const validatePersonalCode = async (): Promise<boolean> => {
+        const codigoUsuario = safeTrim(codeInputRef?.value ?? "");
+        if (!codigoUsuario) {
+          toast.error("Ingrese su codigo de usuario.");
+          return false;
+        }
+
+        const response = await apiRequest<PersonalByCodeResponse | null>({
+          url: buildApiUrl(
+            `/Personal/by-code/${encodeURIComponent(codigoUsuario)}`,
+          ),
+          method: "GET",
+          fallback: null,
+        });
+        const responseRecord = parseRecordLikeValue(response);
+        const nestedDataRecord = parseRecordLikeValue(responseRecord?.data);
+        const personalRecord = nestedDataRecord ?? responseRecord;
+        const httpStatus = resolveHttpStatus(response);
+        const hasHttpError =
+          typeof httpStatus === "number" && httpStatus >= 400;
+        const nombreApellido = safeTrim(
+          personalRecord?.nombreApellido ??
+            personalRecord?.NombreApellido ??
+            personalRecord?.nombreCompleto ??
+            personalRecord?.NombreCompleto,
+        );
+        const personalEstado = safeTrim(
+          personalRecord?.personalEstado ??
+            personalRecord?.PersonalEstado ??
+            personalRecord?.estado ??
+            personalRecord?.Estado,
+        ).toUpperCase();
+
+        if (httpStatus === 404) {
+          toast.error("CODIGO INCORRECTO");
+          return false;
+        }
+
+        if (hasHttpError || !nombreApellido) {
+          toast.error(
+            resolveApiMessage(response) ||
+              "Codigo de usuario no encontrado. Verifique y reintente.",
+          );
+          return false;
+        }
+
+        if (personalEstado && personalEstado !== "ACTIVO") {
+          toast.error(
+            "El usuario consultado no esta activo. Verifique y reintente.",
+          );
+          return false;
+        }
+
+        resolve(nombreApellido);
+        return true;
+      };
+
+      openDialog({
+        title: "Validar usuario",
+        confirmText: "Validar",
+        cancelText: "Cancelar",
+        disableBackdropClose: true,
+        content: (
+          <div className="space-y-3">
+            <p className="text-sm text-slate-700">
+              Ingrese su codigo de usuario para confirmar el pago.
+            </p>
+            <PersonalCodeField
+              onInputRef={(node) => {
+                codeInputRef = node;
+              }}
+              onEnter={() => {
+                void (async () => {
+                  setDialogLoading(true);
+                  try {
+                    const isValid = await validatePersonalCode();
+                    if (isValid) {
+                      closeDialog();
+                    }
+                  } finally {
+                    setDialogLoading(false);
+                  }
+                })();
+              }}
+            />
+            <p className="text-xs text-slate-500">
+              Si el codigo no existe o esta inactivo, no se permitira confirmar.
+            </p>
+          </div>
+        ),
+        onConfirm: validatePersonalCode,
+        onCancel: () => {
+          resolve(null);
+        },
+      });
+    });
+
+  const confirmFromPos = async () => {
+    if (isSubmittingQuickSale) return;
     if (!items.length) {
       toast.error("Agrega productos antes de procesar");
       return;
@@ -338,9 +644,11 @@ const POSPage = () => {
       isEditingMode &&
       Number.isFinite(Number(editingNotaId)) &&
       Number(editingNotaId) > 0;
-    const paymentTarget = hasEditingNota
-      ? `${paymentBasePath}/${Number(editingNotaId)}?mode=edit`
-      : paymentBasePath;
+    if (hasEditingNota) {
+      const paymentTarget = `${paymentBasePath}/${Number(editingNotaId)}?mode=edit`;
+      navigate(paymentTarget);
+      return;
+    }
 
     if (items.some(hasInvalidQuantityForPayment)) {
       toast.error("La cantidad debe ser mayor a 0.");
@@ -348,11 +656,138 @@ const POSPage = () => {
     }
 
     if (items.some(hasInvalidPriceForPayment)) {
-      toast.error("El precio no debe ser menor al precio establecido.");
+      toast.error("El precio no debe ser menor al precio costo.");
       return;
     }
 
-    navigate(paymentTarget);
+    const authorizedPersonalName =
+      await requestPersonalAuthorizationForPayment();
+    if (!authorizedPersonalName) return;
+    const resolvedPaymentUsername =
+      toFirstName(authorizedPersonalName) ||
+      toFirstName(usernameFromSession) ||
+      "USUARIO";
+    const safeSubtotal = roundPrice(Math.max(0, Number(totals.subTotal ?? 0)));
+    const safeTotal = roundPrice(Math.max(0, Number(totals.total ?? 0)));
+    const safeItems = items.map((item) => ({
+      ...item,
+      cantidad: Math.max(0, Number(item.cantidad ?? 0)),
+      precio: Math.max(0, Number(item.precio ?? 0)),
+    }));
+    const notaGanancia = roundPrice(
+      safeItems.reduce((acc, item) => {
+        const costo = Math.max(0, Number(item.costo ?? 0));
+        return acc + (item.precio - costo) * item.cantidad;
+      }, 0),
+    );
+
+    const payload = {
+      nota: {
+        notaDocu: "PROFORMA V",
+        clienteId: PROFORMA_DEFAULT_CONTACT_ID,
+        notaUsuario: resolvedPaymentUsername,
+        notaFormaPago: "EFECTIVO",
+        notaCondicion: "ALCONTADO",
+        notaDireccion: "",
+        notaTelefono: "",
+        notaSubtotal: safeSubtotal,
+        notaMovilidad: 0,
+        notaDescuento: 0,
+        notaTotal: safeTotal,
+        notaAcuenta: 0,
+        notaSaldo: safeTotal,
+        notaAdicional: 0,
+        notaTarjeta: 0,
+        notaPagar: safeTotal,
+        notaEstado: "PENDIENTE",
+        companiaId: companyId,
+        notaEntrega: "INMEDIATA",
+        notaConcepto: "MERCADERIA",
+        notaSerie: "0001",
+        notaNumero: "",
+        notaGanancia,
+        icbper: 0,
+        entidadBancaria: "",
+        nroOperacion: "",
+        efectivo: safeTotal,
+        deposito: 0,
+      },
+      detalles: safeItems.map((item) => ({
+        idProducto: Number(item.productId ?? 0),
+        detalleCantidad: Number(item.cantidad ?? 0),
+        detalleUm: safeTrim(item.unidadMedida || "UND") || "UND",
+        detalleDescripcion: composeProductDisplayName(
+          item.nombre,
+          item.productoMarca,
+        ),
+        detalleCosto: Math.max(0, Number(item.costo ?? item.precio ?? 0)),
+        detallePrecio: Math.max(0, Number(item.precio ?? 0)),
+        detalleImporte: roundPrice(
+          Math.max(0, Number(item.precio ?? 0)) *
+            Math.max(0, Number(item.cantidad ?? 0)),
+        ),
+        detalleEstado: "PENDIENTE",
+        valorUM:
+          Number.isFinite(Number(item.valorUM ?? 1)) &&
+          Number(item.valorUM ?? 1) > 0
+            ? Number(item.valorUM ?? 1)
+            : 1,
+      })),
+    };
+
+    setIsSubmittingQuickSale(true);
+    try {
+      const result = await apiRequest({
+        url: buildApiUrl("/Nota/register-with-detail"),
+        method: "POST",
+        data: payload,
+        config: {
+          headers: {
+            Accept: "*/*",
+            "Content-Type": "application/json",
+          },
+        },
+        fallback: null,
+      });
+      const httpStatus = resolveHttpStatus(result);
+      const hasHttpError = typeof httpStatus === "number" && httpStatus >= 400;
+      if (
+        !result ||
+        result === false ||
+        hasHttpError ||
+        Boolean((result as Record<string, unknown>)?.isAxiosError)
+      ) {
+        toast.error(resolveApiMessage(result) || "Fallo la creacion de pedido");
+        return;
+      }
+
+      const createdNotaId = parseNotaId(result);
+      toast.success("Pedido registrado");
+      clearCart();
+      clearEditingNota();
+      setPriceDrafts({});
+      setQuantityDrafts({});
+      setMobileCartOpen(false);
+      await resetDraftForNewSale();
+      if (createdNotaId) {
+        navigate(`${paymentBasePath}/${createdNotaId}?mode=view&autoprint=1`);
+        return;
+      }
+      console.error("No se pudo resolver notaId desde response", result);
+      toast.error(
+        "Se registró, pero no se pudo abrir la nota automáticamente (sin notaId en respuesta).",
+      );
+      focusSearchInput();
+    } catch (error) {
+      console.error("Error al confirmar desde POS", error);
+      toast.error("No se pudo confirmar el pedido.");
+    } finally {
+      setIsSubmittingQuickSale(false);
+    }
+  };
+
+  const goToPayment = () => {
+    void confirmFromPos();
   };
 
   const handleCartShortcut = () => {
@@ -441,15 +876,7 @@ const POSPage = () => {
     return expanded;
   }, [products]);
 
-  const sortedCatalogProducts = useMemo(
-    () => sortCatalogProductsByCode(catalogProducts),
-    [catalogProducts],
-  );
-
-  const filteredProducts = useMemo(
-    () => sortedCatalogProducts,
-    [sortedCatalogProducts],
-  );
+  const filteredProducts = useMemo(() => catalogProducts, [catalogProducts]);
 
   const visibleProducts = useMemo(() => {
     if (viewMode !== "cards") return filteredProducts;
@@ -514,34 +941,74 @@ const POSPage = () => {
   }, [isCardsView]);
 
   const handleQuantityChange = (item: PosCartItem, delta: number) => {
-    const desired = Math.max(1, (item.cantidad ?? 0) + delta);
-    updateQuantity(getCartItemKey(item), desired);
+    const itemKey = getCartItemKey(item);
+    const desired = Math.max(0, (item.cantidad ?? 0) + delta);
+    setQuantityDrafts((prev) => {
+      if (!(itemKey in prev)) return prev;
+      const next = { ...prev };
+      delete next[itemKey];
+      return next;
+    });
+    updateQuantity(itemKey, desired);
   };
 
   const handleManualQuantity = (item: PosCartItem, value: string) => {
+    if (!/^\d*\.?\d*$/.test(value)) return;
+
+    const itemKey = getCartItemKey(item);
+    setQuantityDrafts((prev) => ({ ...prev, [itemKey]: value }));
+
     if (value === "") {
-      updateQuantity(getCartItemKey(item), 0);
+      updateQuantity(itemKey, 0);
       return;
     }
+
     const parsed = Number(value);
     if (Number.isNaN(parsed)) return;
-    const next = Math.max(1, parsed);
-    updateQuantity(getCartItemKey(item), next);
+    const next = Math.max(0, parsed);
+    updateQuantity(itemKey, next);
+  };
+
+  const handleQuantityBlur = (item: PosCartItem, value: string) => {
+    const itemKey = getCartItemKey(item);
+    const normalized = value.trim();
+    const parsed = Number(normalized);
+
+    if (normalized === "" || Number.isNaN(parsed)) {
+      updateQuantity(itemKey, 0);
+    } else {
+      updateQuantity(itemKey, Math.max(0, parsed));
+    }
+
+    setQuantityDrafts((prev) => {
+      if (!(itemKey in prev)) return prev;
+      const next = { ...prev };
+      delete next[itemKey];
+      return next;
+    });
   };
 
   const handlePriceChange = (item: PosCartItem, value: string) => {
     if (!/^\d*\.?\d*$/.test(value)) return;
 
-    setPriceDrafts((prev) => ({ ...prev, [getCartItemKey(item)]: value }));
+    const itemKey = getCartItemKey(item);
+    setPriceDrafts((prev) => ({ ...prev, [itemKey]: value }));
 
     const parsed = Number(value);
     if (!Number.isNaN(parsed)) {
-      updatePrice(getCartItemKey(item), parsed);
+      const minPrice = getMinAllowedPrice(item);
+      const safePrice = roundPrice(Math.max(parsed, minPrice));
+      updatePrice(itemKey, safePrice);
     }
   };
 
   const handlePriceBlur = (item: PosCartItem, value: string) => {
+    const itemKey = getCartItemKey(item);
     if (value.trim() === "") {
+      setPriceDrafts((prev) => ({
+        ...prev,
+        [itemKey]: formatPrice(item.precio),
+      }));
       return;
     }
 
@@ -549,16 +1016,18 @@ const POSPage = () => {
     if (Number.isNaN(parsed)) {
       setPriceDrafts((prev) => ({
         ...prev,
-        [getCartItemKey(item)]: String(item.precio ?? 0),
+        [itemKey]: formatPrice(item.precio),
       }));
       return;
     }
+    const minPrice = getMinAllowedPrice(item);
+    const safePrice = roundPrice(Math.max(parsed, minPrice));
 
     setPriceDrafts((prev) => ({
       ...prev,
-      [getCartItemKey(item)]: String(parsed),
+      [itemKey]: safePrice.toFixed(2),
     }));
-    updatePrice(getCartItemKey(item), parsed);
+    updatePrice(itemKey, safePrice);
   };
 
   useEffect(() => {
@@ -566,7 +1035,7 @@ const POSPage = () => {
       const next: Record<number, string> = {};
       items.forEach((item) => {
         const itemKey = getCartItemKey(item);
-        next[itemKey] = prev[itemKey] ?? item.precio?.toString() ?? "";
+        next[itemKey] = prev[itemKey] ?? formatPrice(item.precio);
       });
       return next;
     });
@@ -585,14 +1054,11 @@ const POSPage = () => {
     });
 
   const productColumns = [
-    columnHelper.accessor("codigo", {
-      header: "Código",
-      cell: (info) => info.getValue(),
-    }),
     columnHelper.accessor("nombre", {
-      header: "Nombre",
+      header: () => <span className="block text-left">Nombre</span>,
+
       cell: ({ row }) => (
-        <span className="font-semibold text-right block">
+        <span className="font-semibold text-left block ">
           {composeProductDisplayName(
             row.original.nombre,
             row.original.productoMarca,
@@ -694,7 +1160,7 @@ const POSPage = () => {
         {items.map((item) => {
           const isZeroOrNegative = (item.cantidad ?? 0) <= 0;
           const isStockNegative = Number(item.stock ?? 0) < 0;
-          const minPrice = Math.max(0, Number(item.precioMinimo ?? 0) || 0);
+          const minPrice = getMinAllowedPrice(item);
           const highlightClass =
             isZeroOrNegative || isStockNegative
               ? "border-red-200 bg-red-50"
@@ -737,7 +1203,10 @@ const POSPage = () => {
                     <NavigableNumberInput
                       min={minPrice}
                       step="0.01"
-                      value={priceDrafts[getCartItemKey(item)] ?? item.precio}
+                      value={
+                        priceDrafts[getCartItemKey(item)] ??
+                        formatPrice(item.precio)
+                      }
                       onChange={(value) => handlePriceChange(item, value)}
                       onBlur={(event) =>
                         handlePriceBlur(item, event.currentTarget.value)
@@ -758,8 +1227,16 @@ const POSPage = () => {
                     <Minus className="w-4 h-4" />
                   </button>
                   <NavigableNumberInput
-                    value={item.cantidad === 0 ? "" : item.cantidad}
+                    min="0"
+                    step="any"
+                    value={
+                      quantityDrafts[getCartItemKey(item)] ??
+                      (item.cantidad === 0 ? "" : item.cantidad)
+                    }
                     onChange={(value) => handleManualQuantity(item, value)}
+                    onBlur={(event) =>
+                      handleQuantityBlur(item, event.currentTarget.value)
+                    }
                     navGroup="pos-quantity-input"
                     className="w-16 text-center border rounded-md py-1"
                   />
@@ -807,11 +1284,15 @@ const POSPage = () => {
         </div>
         <button
           className="w-full mt-3 inline-flex justify-center items-center gap-2 py-2.5 rounded-lg bg-emerald-500 text-white hover:bg-emerald-600 transition-colors disabled:opacity-50"
-          disabled={!items.length}
+          disabled={!items.length || isSubmittingQuickSale}
           onClick={goToPayment}
         >
-          <CheckCircle2 className="w-5 h-5" />
-          Ir a pago
+          {isSubmittingQuickSale ? (
+            <Loader2 className="w-5 h-5 animate-spin" />
+          ) : (
+            <CheckCircle2 className="w-5 h-5" />
+          )}
+          {isSubmittingQuickSale ? "Confirmando..." : "Confirmar"}
         </button>
       </div>
     </div>
@@ -819,6 +1300,16 @@ const POSPage = () => {
 
   return (
     <div className="space-y-6">
+      {isSubmittingQuickSale && (
+        <div className="fixed inset-0 z-[120] flex items-center justify-center bg-black/25 backdrop-blur-[1px]">
+          <div className="flex items-center gap-3 rounded-xl bg-white px-5 py-4 shadow-xl border border-slate-200">
+            <Loader2 className="h-5 w-5 animate-spin text-emerald-600" />
+            <div className="text-sm font-medium text-slate-800">
+              Registrando pedido, por favor espera...
+            </div>
+          </div>
+        </div>
+      )}
       <header className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
         <div></div>
       </header>
@@ -983,7 +1474,7 @@ const POSPage = () => {
                   </div>
                 ) : (
                   <DataTable
-                    data={sortedCatalogProducts}
+                    data={filteredProducts}
                     columns={productColumns}
                     filterKeys={[
                       "codigo",
@@ -996,6 +1487,12 @@ const POSPage = () => {
                     searchPlaceholder="Buscar por código o nombre"
                     globalFilterValue={searchTerm}
                     onGlobalFilterValueChange={setSearchTerm}
+                    toolbarAction={
+                      <span className="text-xs text-gray-500 whitespace-nowrap">
+                        {filteredProducts.length} / {totalResults} resultados
+                      </span>
+                    }
+                    toolbarActionAlign="right"
                     isLoading={loading}
                     manualPagination
                     disableLocalFiltering
