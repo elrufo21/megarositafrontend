@@ -791,14 +791,6 @@ const POSPage = () => {
   };
 
   const handleCartShortcut = () => {
-    if (
-      typeof window !== "undefined" &&
-      window.matchMedia("(max-width: 767px)").matches
-    ) {
-      goToPayment();
-      return;
-    }
-
     setMobileCartOpen(true);
   };
 
