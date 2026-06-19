@@ -499,7 +499,7 @@ export default function MainLayout() {
   return (
     <div className="flex h-dvh min-h-0 overflow-hidden bg-slate-100">
       <aside
-        className={`hidden md:flex shrink-0 flex-col bg-[#1f2b30] shadow-xl transition-all duration-300 ${
+        className={`hidden lg:flex shrink-0 flex-col bg-[#1f2b30] shadow-xl transition-all duration-300 ${
           open
             ? "w-[var(--app-shell-sidebar-open)]"
             : "w-[var(--app-shell-sidebar-collapsed)]"
@@ -551,13 +551,13 @@ export default function MainLayout() {
 
       {mobileOpen && (
         <div
-          className="fixed inset-0 z-40 bg-[#222d32]/55 backdrop-blur-[1px] md:hidden"
+          className="fixed inset-0 z-40 bg-[#222d32]/55 backdrop-blur-[1px] lg:hidden"
           onClick={() => setMobileOpen(false)}
         />
       )}
 
       <aside
-        className={`fixed left-0 top-0 z-50 flex h-full w-[var(--app-shell-sidebar-open)] flex-col bg-[#1f2b30] text-white shadow-xl transition-transform duration-300 md:hidden ${
+        className={`fixed left-0 top-0 z-50 flex h-full w-[var(--app-shell-sidebar-open)] flex-col bg-[#1f2b30] text-white shadow-xl transition-transform duration-300 lg:hidden ${
           mobileOpen ? "translate-x-0" : "-translate-x-full"
         }`}
       >
@@ -594,7 +594,7 @@ export default function MainLayout() {
           <div className="mx-auto flex h-full w-full max-w-[var(--app-shell-content-max)] min-w-0 items-center justify-between gap-2">
             <div className="flex min-w-0 items-center gap-3">
               <button
-                className="rounded-md p-2 transition-colors hover:bg-slate-500 md:hidden"
+                className="rounded-md p-2 transition-colors hover:bg-slate-500 lg:hidden"
                 onClick={() => setMobileOpen(true)}
               >
                 <Menu size={20} />

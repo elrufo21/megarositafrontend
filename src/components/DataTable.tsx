@@ -540,7 +540,9 @@ export default function DataTable<T extends RowData>({
           </div>
 
           <div className="flex w-full flex-wrap items-center justify-start gap-2 xl:w-auto xl:shrink-0 xl:justify-end">
-            {renderFilters ? <div className="">{renderFilters}</div> : null}
+            {renderFilters ? (
+              <div className="w-full xl:w-auto">{renderFilters}</div>
+            ) : null}
           </div>
         </div>
       </div>
@@ -567,7 +569,7 @@ export default function DataTable<T extends RowData>({
               }}
               tabIndex={onRowClick ? 0 : -1}
             >
-              <div className="space-y-2.5">
+              <div className="grid grid-cols-1 gap-x-6 gap-y-3 sm:grid-cols-2">
                 {row.getVisibleCells().map((cell) => {
                   const metaClass = cell.column.columnDef.meta?.tdClassName;
                   const colClass =
@@ -587,13 +589,13 @@ export default function DataTable<T extends RowData>({
                   return (
                     <div
                       key={cell.id}
-                      className="grid grid-cols-[minmax(6.5rem,38%)_1fr] items-start gap-2"
+                      className="grid grid-cols-[minmax(7.5rem,42%)_1fr] items-start gap-3"
                     >
-                      <span className="pt-0.5 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                      <span className="pt-0.5 text-xs font-semibold uppercase tracking-wide text-slate-500">
                         {label}
                       </span>
                       <div
-                        className={`text-sm text-slate-700 ${resolveAlignmentClass(
+                        className={`text-base leading-6 text-slate-700 ${resolveAlignmentClass(
                           align,
                         )} ${colClass} ${extraClass}`}
                       >

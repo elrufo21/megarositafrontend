@@ -1380,7 +1380,7 @@ const POSPage = () => {
               </div>
             )}
 
-            {showInitialLoading ? (
+            {showInitialLoading && isCardsView ? (
               <div className="flex items-center justify-center py-12 gap-3 text-slate-600">
                 <Loader2 className="w-5 h-5 animate-spin" />
                 <span>Cargando productos...</span>
