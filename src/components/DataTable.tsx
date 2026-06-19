@@ -419,9 +419,10 @@ export default function DataTable<T extends RowData>({
         }),
   });
 
-  const totalCount = manualPagination
-    ? controlledTotalRows
-    : filteredData.length;
+  const totalCount =
+    manualPagination && (disableLocalFiltering || !globalFilter.trim())
+      ? controlledTotalRows
+      : filteredData.length;
   const visibleRows = manualPagination
     ? table.getCoreRowModel().rows
     : table.getRowModel().rows;

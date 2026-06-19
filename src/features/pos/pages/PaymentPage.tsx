@@ -711,7 +711,7 @@ const PaymentPage = () => {
   const [activeTab, setActiveTab] = useState<"items" | "note" | "pdf">("items");
   const [isMobileViewport, setIsMobileViewport] = useState(() => {
     if (typeof window === "undefined") return false;
-    return window.matchMedia("(max-width: 767px)").matches;
+    return window.matchMedia("(max-width: 1023px)").matches;
   });
   const [priceDrafts, setPriceDrafts] = useState<Record<number, string>>({});
   const [quantityDrafts, setQuantityDrafts] = useState<Record<number, string>>(
@@ -1005,7 +1005,7 @@ const PaymentPage = () => {
   useEffect(() => {
     if (typeof window === "undefined") return;
 
-    const media = window.matchMedia("(max-width: 767px)");
+    const media = window.matchMedia("(max-width: 1023px)");
     const updateViewport = (matches: boolean) => {
       setIsMobileViewport(matches);
     };

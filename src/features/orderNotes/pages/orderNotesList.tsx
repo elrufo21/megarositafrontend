@@ -12,7 +12,7 @@ import { createColumnHelper } from "@tanstack/react-table";
 import dayjs, { type Dayjs } from "dayjs";
 import "dayjs/locale/es";
 import { Workbook } from "exceljs";
-import { FileSpreadsheet, Search } from "lucide-react";
+import { Eye, FileSpreadsheet, Search } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router";
 
@@ -524,14 +524,17 @@ const OrderNotesList = () => {
           return (
             <button
               type="button"
-              className="text-sm font-medium text-blue-600 hover:underline"
+              className="inline-flex h-10 w-10 items-center justify-center rounded-lg text-blue-600 hover:bg-blue-50 lg:h-auto lg:w-auto lg:rounded-none lg:text-sm lg:font-medium lg:hover:bg-transparent lg:hover:underline"
+              aria-label="Ver venta"
+              title="Ver venta"
               onClick={() =>
                 navigate(`/sales/order_notes/${noteId}/view`, {
                   state: { fromOrderNotesViewButton: true },
                 })
               }
             >
-              Ver
+              <Eye className="h-5 w-5 lg:hidden" aria-hidden="true" />
+              <span className="hidden lg:inline">Ver</span>
             </button>
           );
         },
