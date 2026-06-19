@@ -15,6 +15,7 @@ import { Workbook } from "exceljs";
 import { Eye, FileSpreadsheet, Loader2, Search } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router";
+import { loadOrderNoteView } from "@/features/orderNotes/orderNoteViewLoader";
 
 const columnHelper = createColumnHelper<OrderNote>();
 const ORDER_NOTES_RANGE_STORAGE_KEY = "sgo.orderNotes.range";
@@ -530,6 +531,8 @@ const OrderNotesList = () => {
               aria-label={isOpening ? "Cargando venta" : "Ver venta"}
               title={isOpening ? "Cargando..." : "Ver venta"}
               disabled={openingNoteId !== null}
+              onPointerEnter={() => void loadOrderNoteView(Number(noteId))}
+              onFocus={() => void loadOrderNoteView(Number(noteId))}
               onClick={() => {
                 setOpeningNoteId(noteId);
                 window.requestAnimationFrame(() =>

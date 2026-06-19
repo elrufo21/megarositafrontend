@@ -41,6 +41,7 @@ import {
   buildSaleMonetarySummary,
   normalizeSunatUnitCode,
 } from "@/shared/helpers/saleMonetary";
+import { loadOrderNoteView } from "@/features/orderNotes/orderNoteViewLoader";
 
 type NotaDetallePayload = {
   detalleId?: number;
@@ -1980,20 +1981,8 @@ const PaymentPage = () => {
     setNotaCompaniaActual(null);
 
     try {
-      const [notaResponse, detallesResponse] = await Promise.all([
-        apiRequest({
-          url: buildApiUrl(`/Nota/${notaIdToLoad}`),
-          method: "GET",
-          config: { headers: { Accept: "text/plain" } },
-          fallback: null,
-        }),
-        apiRequest({
-          url: buildApiUrl(`/Nota/${notaIdToLoad}/detalles`),
-          method: "GET",
-          config: { headers: { Accept: "text/plain" } },
-          fallback: [],
-        }),
-      ]);
+      const { notaResponse, detallesResponse } =
+        await loadOrderNoteView(notaIdToLoad);
 
       if (!Array.isArray(detallesResponse)) {
         throw new Error("No se pudo obtener los detalles de la nota.");
@@ -2219,10 +2208,9 @@ const PaymentPage = () => {
   const defaultCustomerAppliedRef = useRef(false);
 
   useEffect(() => {
-    if (!clients.length) {
-      fetchClients("");
-    }
-  }, [clients.length, fetchClients]);
+    if (isReadOnlyNoteView || clients.length) return;
+    fetchClients("");
+  }, [clients.length, fetchClients, isReadOnlyNoteView]);
 
   // En nuevo registro, preselecciona cliente VARIOS (ID configurado) sin afectar edicion
   useEffect(() => {
@@ -3431,10 +3419,6 @@ const PaymentPage = () => {
   ]);
 
   useEffect(() => {
-    setCanPreviewPdf(true);
-  }, []);
-
-  useEffect(() => {
     if (!notaId || hasLoadedNotaMeta) return;
     fetchNotaFromServer(notaId).finally(() => setHasLoadedNotaMeta(true));
   }, [notaId, hasLoadedNotaMeta]);
@@ -3458,6 +3442,7 @@ const PaymentPage = () => {
           method: "GET",
           config: { headers: { Accept: "text/plain" } },
           fallback: null,
+          blockUi: false,
         });
         if (isCancelled) return;
 
@@ -5628,6 +5613,17 @@ const PaymentPage = () => {
       document.removeEventListener("keydown", onKeyDown, { capture: true });
   }, [handleMobileTopConfirm, handleNewSaleShortcut, handlePrintShortcut]);
 
+  if (routeNotaId && !hasLoadedNotaMeta) {
+    return (
+      <div className="flex min-h-[240px] items-center justify-center rounded-xl bg-white shadow">
+        <div className="flex items-center gap-3 text-slate-700" role="status">
+          <Loader2 className="h-5 w-5 animate-spin" aria-hidden="true" />
+          <span>Cargando nota...</span>
+        </div>
+      </div>
+    );
+  }
+
   if (!itemsToRender.length) {
     return (
       <div className="space-y-4">
@@ -5946,8 +5942,14 @@ const PaymentPage = () => {
             </div>
           </div>
         ) : (
-          <div className="p-4 text-xs text-gray-500">
-            Cargando vista previa del comprobante...
+          <div className="flex h-[180px] items-center justify-center p-4">
+            <button
+              type="button"
+              className="rounded-lg bg-slate-800 px-4 py-2 text-sm font-medium text-white hover:bg-slate-700"
+              onClick={() => setCanPreviewPdf(true)}
+            >
+              Ver comprobante
+            </button>
           </div>
         )
       ) : (
@@ -6694,7 +6696,10 @@ const PaymentPage = () => {
                           ? "text-white bg-gradient-to-r from-slate-700 to-slate-800 shadow-md"
                           : "text-slate-600 hover:text-slate-800 hover:bg-slate-100"
                       }`}
-                      onClick={() => setActiveTab("pdf")}
+                      onClick={() => {
+                        setCanPreviewPdf(true);
+                        setActiveTab("pdf");
+                      }}
                     >
                       Comprobante
                     </button>

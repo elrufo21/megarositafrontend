@@ -7,6 +7,7 @@ interface ApiRequestParams<TBody = unknown, TFallback = unknown> {
   data?: TBody | null;
   config?: AxiosRequestConfig;
   fallback?: TFallback;
+  blockUi?: boolean;
 }
 
 const AUTH_STORAGE_KEY = "sgo.auth.session";
@@ -109,8 +110,9 @@ export async function apiRequest<
   data = null,
   config = {},
   fallback,
+  blockUi = true,
 }: ApiRequestParams<TBody, TFallback>): Promise<TResponse | TFallback> {
-  const blocksUi = shouldBlockUi();
+  const blocksUi = blockUi && shouldBlockUi();
   if (blocksUi) updatePendingRequests(1);
   try {
     const headers = withAuthHeader(config.headers, url);
@@ -128,8 +130,6 @@ export async function apiRequest<
       console.warn("⚠️ El api no existe");
       return fallback as TFallback;
     }
-    console.log("response", result);
-
     return result;
   } catch (err) {
     console.error("⚠️ Error del api", err);
