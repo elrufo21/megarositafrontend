@@ -10,6 +10,30 @@ interface ApiRequestParams<TBody = unknown, TFallback = unknown> {
 }
 
 const AUTH_STORAGE_KEY = "sgo.auth.session";
+let pendingRequests = 0;
+const requestListeners = new Set<() => void>();
+
+export const subscribeToPendingRequests = (listener: () => void) => {
+  requestListeners.add(listener);
+  return () => {
+    requestListeners.delete(listener);
+  };
+};
+
+export const getPendingRequests = () => pendingRequests;
+
+const updatePendingRequests = (delta: number) => {
+  pendingRequests = Math.max(0, pendingRequests + delta);
+  requestListeners.forEach((listener) => listener());
+};
+
+const shouldBlockUi = () => {
+  if (typeof document === "undefined") return true;
+  // ponytail: el foco distingue búsquedas en vivo; añadir una opción explícita si un campo debe bloquear después.
+  return !document.activeElement?.matches(
+    'input, textarea, select, [contenteditable="true"]',
+  );
+};
 
 const resolveAuthToken = (): string | null => {
   if (typeof window === "undefined") return null;
@@ -86,6 +110,8 @@ export async function apiRequest<
   config = {},
   fallback,
 }: ApiRequestParams<TBody, TFallback>): Promise<TResponse | TFallback> {
+  const blocksUi = shouldBlockUi();
+  if (blocksUi) updatePendingRequests(1);
   try {
     const headers = withAuthHeader(config.headers, url);
 
@@ -108,5 +134,7 @@ export async function apiRequest<
   } catch (err) {
     console.error("⚠️ Error del api", err);
     return err as TResponse | TFallback;
+  } finally {
+    if (blocksUi) updatePendingRequests(-1);
   }
 }

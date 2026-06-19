@@ -12,7 +12,7 @@ import { createColumnHelper } from "@tanstack/react-table";
 import dayjs, { type Dayjs } from "dayjs";
 import "dayjs/locale/es";
 import { Workbook } from "exceljs";
-import { Eye, FileSpreadsheet, Search } from "lucide-react";
+import { Eye, FileSpreadsheet, Loader2, Search } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router";
 
@@ -126,6 +126,7 @@ const OrderNotesList = () => {
   const { state } = useLocation();
   const { notes, fetchNotes, loading, page, pageSize, total } =
     useOrderNoteStore();
+  const [openingNoteId, setOpeningNoteId] = useState<string | null>(null);
   const initialDate = useMemo(() => getLocalDateISO(), []);
   const resetRangeFromMainLayout = useMemo(() => {
     if (!state || typeof state !== "object") return false;
@@ -521,20 +522,31 @@ const OrderNotesList = () => {
         header: "Ver",
         cell: ({ row }) => {
           const noteId = row.original.notaId;
+          const isOpening = openingNoteId === noteId;
           return (
             <button
               type="button"
-              className="inline-flex h-10 w-10 items-center justify-center rounded-lg text-blue-600 hover:bg-blue-50 lg:h-auto lg:w-auto lg:rounded-none lg:text-sm lg:font-medium lg:hover:bg-transparent lg:hover:underline"
-              aria-label="Ver venta"
-              title="Ver venta"
-              onClick={() =>
-                navigate(`/sales/order_notes/${noteId}/view`, {
-                  state: { fromOrderNotesViewButton: true },
-                })
-              }
+              className="inline-flex h-10 w-10 items-center justify-center rounded-lg text-blue-600 hover:bg-blue-50 disabled:cursor-wait disabled:opacity-60 lg:h-auto lg:w-auto lg:rounded-none lg:text-sm lg:font-medium lg:hover:bg-transparent lg:hover:underline"
+              aria-label={isOpening ? "Cargando venta" : "Ver venta"}
+              title={isOpening ? "Cargando..." : "Ver venta"}
+              disabled={openingNoteId !== null}
+              onClick={() => {
+                setOpeningNoteId(noteId);
+                window.requestAnimationFrame(() =>
+                  navigate(`/sales/order_notes/${noteId}/view`, {
+                    state: { fromOrderNotesViewButton: true },
+                  }),
+                );
+              }}
             >
-              <Eye className="h-5 w-5 lg:hidden" aria-hidden="true" />
-              <span className="hidden lg:inline">Ver</span>
+              {isOpening ? (
+                <Loader2 className="h-5 w-5 animate-spin" aria-hidden="true" />
+              ) : (
+                <>
+                  <Eye className="h-5 w-5 lg:hidden" aria-hidden="true" />
+                  <span className="hidden lg:inline">Ver</span>
+                </>
+              )}
             </button>
           );
         },
@@ -631,7 +643,7 @@ const OrderNotesList = () => {
         },
       }),
     ],
-    [navigate],
+    [navigate, openingNoteId],
   );
 
   return (

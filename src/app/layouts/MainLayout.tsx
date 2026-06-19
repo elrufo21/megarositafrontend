@@ -11,8 +11,16 @@ import {
   ChevronDown,
   CopySlashIcon,
   Landmark,
+  Loader2,
 } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from "react";
 import { toast } from "@/shared/ui/toast";
 import UserFormBase from "@/components/UserFormBase";
 import { PASSWORD_EXPIRATION_LOCK_ENABLED } from "@/config";
@@ -20,6 +28,10 @@ import { useDialogStore } from "@/store/app/dialog.store";
 import { useAuthStore } from "@/store/auth/auth.store";
 import { useUsersStore } from "@/store/users/users.store";
 import type { User } from "@/store/users/users.store";
+import {
+  getPendingRequests,
+  subscribeToPendingRequests,
+} from "@/shared/helpers/apiRequest";
 
 const PASSWORD_POLICY_REGEX = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d).{6,}$/;
 const PASSWORD_POLICY_MESSAGE =
@@ -33,6 +45,15 @@ export default function MainLayout() {
   const userMenuContainerRef = useRef<HTMLDivElement | null>(null);
   const [search, setSearch] = useState(""); // 🔍 buscador
   const { pathname } = useLocation();
+  const pendingRequests = useSyncExternalStore(
+    subscribeToPendingRequests,
+    getPendingRequests,
+    () => 0,
+  );
+  const blockForRequest =
+    pendingRequests > 0 &&
+    (pathname.startsWith("/sales/order_notes") ||
+      pathname.startsWith("/customers"));
   const openDialog = useDialogStore((state) => state.openDialog);
 
   const user = useAuthStore((state) => state.user);
@@ -498,6 +519,19 @@ export default function MainLayout() {
 
   return (
     <div className="flex h-dvh min-h-0 overflow-hidden bg-slate-100">
+      {blockForRequest && (
+        <div
+          className="fixed inset-0 z-[200] flex items-center justify-center bg-slate-950/35 backdrop-blur-[1px]"
+          role="status"
+          aria-live="polite"
+          aria-label="Cargando"
+        >
+          <div className="flex items-center gap-3 rounded-xl bg-white px-5 py-4 text-slate-800 shadow-xl">
+            <Loader2 className="h-6 w-6 animate-spin" aria-hidden="true" />
+            <span className="font-medium">Cargando...</span>
+          </div>
+        </div>
+      )}
       <aside
         className={`hidden lg:flex shrink-0 flex-col bg-[#1f2b30] shadow-xl transition-all duration-300 ${
           open

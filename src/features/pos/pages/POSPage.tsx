@@ -1127,19 +1127,19 @@ const POSPage = () => {
 
   const renderCartPanel = ({ mobile = false }: { mobile?: boolean } = {}) => (
     <div
-      className={`bg-white rounded-xl shadow p-4 ${mobile ? "h-full flex flex-col" : ""}`}
+      className={`bg-white rounded-xl shadow p-4 md:p-6 xl:p-4 ${mobile ? "h-full flex flex-col" : ""}`}
     >
       <div className="flex items-center justify-between mb-3">
         <div>
-          <h3 className="text-lg font-semibold text-slate-800">Carrito</h3>
-          <p className="text-xs text-gray-500">Actualización en tiempo real</p>
+          <h3 className="text-lg font-semibold text-slate-800 md:text-2xl xl:text-lg">Carrito</h3>
+          <p className="text-xs text-gray-500 md:text-sm xl:text-xs">Actualización en tiempo real</p>
         </div>
         <button
-          className="flex items-center gap-2 text-sm text-slate-700 hover:text-slate-900"
+          className="flex items-center gap-2 text-sm text-slate-700 hover:text-slate-900 md:text-lg xl:text-sm"
           onClick={confirmClear}
           disabled={!items.length}
         >
-          <RotateCcw className="w-4 h-4" />
+          <RotateCcw className="h-4 w-4 md:h-5 md:w-5 xl:h-4 xl:w-4" />
           Vaciar
         </button>
       </div>
@@ -1169,18 +1169,18 @@ const POSPage = () => {
           return (
             <article
               key={getCartItemKey(item)}
-              className={`border rounded-lg p-3 hover:border-slate-300 transition-colors ${highlightClass}`}
+              className={`border rounded-lg p-3 hover:border-slate-300 transition-colors md:p-5 xl:p-3 ${highlightClass}`}
             >
               <div className="flex justify-between gap-3">
                 <div>
-                  <p className="text-sm font-semibold text-slate-800">
+                  <p className="text-sm font-semibold text-slate-800 md:text-lg xl:text-sm">
                     {composeProductDisplayName(item.nombre, item.productoMarca)}
                   </p>
-                  <p className="text-xs text-gray-500">
+                  <p className="text-xs text-gray-500 md:text-sm xl:text-xs">
                     {item.unidadMedida ?? "UND"}
                   </p>
                   {item.stock !== undefined && (
-                    <p className="text-xs text-gray-500">
+                    <p className="text-xs text-gray-500 md:text-sm xl:text-xs">
                       Stock:{" "}
                       <span
                         className={
@@ -1193,13 +1193,13 @@ const POSPage = () => {
                   )}
                 </div>
 
-                <div className="text-right w-32">
-                  <label className="text-xs text-gray-500 block text-left">
+                <div className="w-32 text-right md:w-40 xl:w-32">
+                  <label className="block text-left text-xs text-gray-500 md:text-sm xl:text-xs">
                     P. Unitario
                   </label>
 
                   <div className="mt-1 flex items-center gap-1">
-                    <span className="text-sm text-gray-500">S/</span>
+                    <span className="text-sm text-gray-500 md:text-base xl:text-sm">S/</span>
                     <NavigableNumberInput
                       min={minPrice}
                       step="0.01"
@@ -1212,7 +1212,7 @@ const POSPage = () => {
                         handlePriceBlur(item, event.currentTarget.value)
                       }
                       navGroup="pos-price-input"
-                      className="w-full text-right border rounded-md px-2 py-1 text-sm"
+                      className="w-full rounded-md border px-2 py-1 text-right text-sm md:py-2 md:text-lg xl:py-1 xl:text-sm"
                     />
                   </div>
                 </div>
@@ -1221,10 +1221,10 @@ const POSPage = () => {
               <div className="mt-3 flex items-center justify-between gap-3">
                 <div className="flex items-center gap-2">
                   <button
-                    className="p-1 rounded bg-white border hover:bg-slate-50"
+                    className="rounded border bg-white p-1 hover:bg-slate-50 md:p-2 xl:p-1"
                     onClick={() => handleQuantityChange(item, -1)}
                   >
-                    <Minus className="w-4 h-4" />
+                    <Minus className="h-4 w-4 md:h-5 md:w-5 xl:h-4 xl:w-4" />
                   </button>
                   <NavigableNumberInput
                     min="0"
@@ -1238,21 +1238,21 @@ const POSPage = () => {
                       handleQuantityBlur(item, event.currentTarget.value)
                     }
                     navGroup="pos-quantity-input"
-                    className="w-16 text-center border rounded-md py-1"
+                    className="w-16 rounded-md border py-1 text-center md:w-20 md:py-2 md:text-lg xl:w-16 xl:py-1 xl:text-base"
                   />
                   <button
-                    className="p-1 rounded bg-white border hover:bg-slate-50"
+                    className="rounded border bg-white p-1 hover:bg-slate-50 md:p-2 xl:p-1"
                     onClick={() => handleQuantityChange(item, 1)}
                   >
-                    <Plus className="w-4 h-4" />
+                    <Plus className="h-4 w-4 md:h-5 md:w-5 xl:h-4 xl:w-4" />
                   </button>
                 </div>
 
                 <div className="flex items-center gap-3">
                   <div className="text-right">
-                    <p className="text-xs text-gray-500">Subtotal</p>
+                    <p className="text-xs text-gray-500 md:text-sm xl:text-xs">Subtotal</p>
                     <p
-                      className={`text-base font-semibold ${
+                      className={`text-base font-semibold md:text-xl xl:text-base ${
                         isZeroOrNegative ? "text-red-600" : "text-slate-800"
                       }`}
                     >
@@ -1260,11 +1260,11 @@ const POSPage = () => {
                     </p>
                   </div>
                   <button
-                    className="p-2 rounded bg-red-50 text-red-600 hover:bg-red-100"
+                    className="rounded bg-red-50 p-2 text-red-600 hover:bg-red-100 md:p-3 xl:p-2"
                     onClick={() => removeItem(getCartItemKey(item))}
                     title="Quitar"
                   >
-                    <Trash2 className="w-4 h-4" />
+                    <Trash2 className="h-4 w-4 md:h-5 md:w-5 xl:h-4 xl:w-4" />
                   </button>
                 </div>
               </div>
@@ -1274,16 +1274,16 @@ const POSPage = () => {
       </div>
 
       <div className="mt-4 border-t pt-3 space-y-2">
-        <div className="flex justify-between text-sm text-gray-700">
+        <div className="flex justify-between text-sm text-gray-700 md:text-lg xl:text-sm">
           <span>Importe</span>
           <span className="font-semibold">S/ {totals.subTotal.toFixed(2)}</span>
         </div>
-        <div className="flex justify-between text-base text-slate-800 font-bold">
+        <div className="flex justify-between text-base font-bold text-slate-800 md:text-xl xl:text-base">
           <span>Total</span>
           <span>S/ {totals.total.toFixed(2)}</span>
         </div>
         <button
-          className="w-full mt-3 inline-flex justify-center items-center gap-2 py-2.5 rounded-lg bg-emerald-500 text-white hover:bg-emerald-600 transition-colors disabled:opacity-50"
+          className="mt-3 inline-flex w-full items-center justify-center gap-2 rounded-lg bg-emerald-500 py-2.5 text-white transition-colors hover:bg-emerald-600 disabled:opacity-50 md:py-3 md:text-lg xl:py-2.5 xl:text-base"
           disabled={!items.length || isSubmittingQuickSale}
           onClick={goToPayment}
         >
@@ -1535,16 +1535,16 @@ const POSPage = () => {
           <div className="absolute inset-x-0 bottom-0 h-[min(84vh,720px)] rounded-t-2xl bg-slate-100 p-3 shadow-2xl">
             <div className="mx-auto mb-2 h-1.5 w-12 rounded-full bg-slate-300" />
             <div className="mb-2 flex items-center justify-between px-1">
-              <p className="text-sm font-semibold text-slate-700">
+              <p className="text-sm font-semibold text-slate-700 md:text-lg">
                 Resumen de carrito
               </p>
               <button
                 type="button"
-                className="inline-flex h-8 w-8 items-center justify-center rounded-md text-slate-600 hover:bg-slate-200"
+                className="inline-flex h-8 w-8 items-center justify-center rounded-md text-slate-600 hover:bg-slate-200 md:h-11 md:w-11"
                 onClick={() => setMobileCartOpen(false)}
                 aria-label="Cerrar"
               >
-                <X className="h-4 w-4" />
+                <X className="h-4 w-4 md:h-6 md:w-6" />
               </button>
             </div>
             <div className="h-[calc(100%-2.75rem)] pb-[max(env(safe-area-inset-bottom),0.5rem)]">
