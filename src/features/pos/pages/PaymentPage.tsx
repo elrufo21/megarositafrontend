@@ -667,7 +667,11 @@ const PaymentPage = () => {
       ? computeTotalsFromItems(serverItemsFromStore)
       : totals,
   );
-  const [canPreviewPdf, setCanPreviewPdf] = useState(false);
+  const [canPreviewPdf, setCanPreviewPdf] = useState(() =>
+    typeof window !== "undefined"
+      ? window.matchMedia("(min-width: 1405px)").matches
+      : false,
+  );
   const [isPrinting, setIsPrinting] = useState(false);
   const [isDownloadingComprobante, setIsDownloadingComprobante] =
     useState(false);
