@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import { API_BASE_URL } from "@/config";
+import { API_BASE_URL, PRODUCT_IMAGE_BASE_URL } from "@/config";
 import { apiRequest } from "@/shared/helpers/apiRequest";
 import type { Product } from "@/types/product";
 import type { ProductUnitOption } from "@/types/product";
@@ -130,12 +130,40 @@ const normalizeSegment = (value: unknown) =>
   String(value ?? "")
     .replace(/[|;[\]\r\n]/g, " ")
     .trim();
-const normalizePersistedImageSegment = (value: unknown) => {
+const toImageFileName = (value: unknown) => {
   const normalized = normalizeSegment(value);
   if (!normalized) return "";
   const lower = normalized.toLowerCase();
   if (lower.startsWith("blob:") || lower.startsWith("data:")) return "";
-  return normalized;
+
+  try {
+    const url = new URL(normalized);
+    const fileName = decodeURIComponent(
+      url.pathname.split("/").filter(Boolean).pop() ?? "",
+    );
+    return fileName.trim();
+  } catch {
+    const fileName =
+      normalized.replace(/\\/g, "/").split("/").filter(Boolean).pop() ?? "";
+    return fileName.trim();
+  }
+};
+const normalizePersistedImageSegment = (value: unknown) => {
+  return toImageFileName(value);
+};
+const normalizeProductImageUrl = (value: unknown) => {
+  const normalized = normalizeSegment(value);
+  if (!normalized) return "";
+  if (/^(https?:|blob:|data:)/i.test(normalized)) return normalized;
+
+  const fileName = toImageFileName(normalized);
+  if (!fileName) return "";
+
+  const uncMatch = normalized.match(/^\\\\([^\\]+)\\/);
+  const baseUrl = uncMatch
+    ? `http://${uncMatch[1]}:8082`
+    : PRODUCT_IMAGE_BASE_URL;
+  return `${baseUrl.replace(/\/+$/, "")}/${encodeURIComponent(fileName)}`;
 };
 const normalizeUpperSegment = (value: unknown) =>
   normalizeSegment(value).toLocaleUpperCase("es-PE");
@@ -313,6 +341,7 @@ const mapApiToProduct = (item: ApiProduct): Product => {
   // Soporta variantes de payload sin romper el catalogo.
   // Algunos backends envian "marca" en lugar de "productoMarca".
   const raw = item as Record<string, unknown>;
+  const productImage = normalizeProductImageUrl(item.productoImagen);
   const marca = String(
     item.productoMarca ?? raw.marca ?? raw.Marca ?? "",
   ).trim();
@@ -336,7 +365,7 @@ const mapApiToProduct = (item: ApiProduct): Product => {
     cantidad: toNumberValue(item.productoCantidad, 0),
     usuario: item.productoUsuario ?? "",
     estado: normalizeEstado(item.productoEstado),
-    images: item.productoImagen ? [item.productoImagen] : [],
+    images: productImage ? [productImage] : [],
     idSubLinea: item.idSubLinea,
     preVentaB: toNumberValue(item.productoVentaB, 0),
   };
@@ -348,14 +377,14 @@ const mapApiToUnitOption = (item: ApiProduct): ProductUnitOption => {
     rawItem.valorUM ?? rawItem.factor ?? rawItem.ValorUM ?? rawItem.Factor,
     0,
   );
-  const unidadImagen = String(
+  const unidadImagen = normalizeProductImageUrl(
     rawItem.unidadImagen ??
       rawItem.UnidadImagen ??
       item.unidadImagen ??
       item.UnidadImagen ??
       item.productoImagen ??
       "",
-  ).trim();
+  );
 
   return {
     unidadMedida: (item.productoUM ?? "").trim(),
@@ -466,7 +495,7 @@ const mapProductToApi = (
   productoEstado: product.estado ?? "BUENO",
   productoUsuario: product.usuario ?? "",
   productoFecha: new Date().toISOString(),
-  productoImagen: product.images?.[0] ?? "",
+  productoImagen: normalizePersistedImageSegment(product.images?.[0] ?? ""),
   productoTipoCambio: 0,
   productoCostoDolar: 0,
   aplicaTC: null,
@@ -505,7 +534,7 @@ const buildProductDataString = (
     ? ""
     : hasUploadedImage
       ? ""
-      : normalizeSegment(payload.productoImagen ?? "");
+      : normalizePersistedImageSegment(payload.productoImagen ?? "");
 
   const header = [
     String(toNumberValue(payload.idProducto, 0)),

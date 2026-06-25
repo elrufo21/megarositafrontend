@@ -1510,7 +1510,13 @@ export default function ProductFormBase({
         ? (values.unidadImagenAlternaFile ?? null)
         : null,
     };
-    const saved = await Promise.resolve(onSave(payload));
+    let saved: boolean | void;
+    try {
+      saved = await Promise.resolve(onSave(payload));
+    } catch (error) {
+      console.error("No se pudo guardar el producto", error);
+      return;
+    }
     if (saved === false) return;
 
     if (mode === "create") {

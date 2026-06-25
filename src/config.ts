@@ -5,6 +5,15 @@ const rawApiBaseUrl =
   DEFAULT_API_BASE_URL;
 
 export const API_BASE_URL = rawApiBaseUrl.replace(/\/+$/, "");
+const rawProductImageBaseUrl =
+  String(
+    import.meta.env.VITE_PRODUCT_IMAGE_BASE_URL ??
+      "http://192.168.100.44:8082",
+  ).trim() || "http://192.168.100.44:8082";
+export const PRODUCT_IMAGE_BASE_URL = rawProductImageBaseUrl.replace(
+  /\/+$/,
+  "",
+);
 if (
   import.meta.env.PROD &&
   !String(import.meta.env.VITE_API_BASE_URL ?? "").trim()
