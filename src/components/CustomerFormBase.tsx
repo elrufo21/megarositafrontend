@@ -34,6 +34,7 @@ interface ClientFormBaseProps {
   onNew?: () => void;
   onDelete?: () => void;
   variant?: "page" | "modal";
+  showModalActions?: boolean;
 }
 
 const buildDefaults = (
@@ -62,6 +63,7 @@ export default function CustomerFormBase({
   onNew,
   onDelete,
   variant = "page",
+  showModalActions = false,
 }: ClientFormBaseProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const previousTipoDocumentoRef = useRef<"ruc" | "dni" | null>(null);
@@ -654,6 +656,29 @@ export default function CustomerFormBase({
                   </div>
                 </div>
               </div>
+
+              {isModal && showModalActions && (
+                <div className="mt-6 flex justify-end gap-2 border-t border-slate-200 pt-4">
+                  {mode !== "edit" && (
+                    <button
+                      type="button"
+                      onClick={handleNew}
+                      className="inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+                    >
+                      <Plus className="h-4 w-4" />
+                      Nuevo
+                    </button>
+                  )}
+                  <button
+                    type="submit"
+                    disabled={isSubmitting}
+                    className="inline-flex items-center gap-2 rounded-lg bg-slate-700 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-800 disabled:opacity-70"
+                  >
+                    <Save className="h-4 w-4" />
+                    {isSubmitting ? "Guardando..." : "Guardar"}
+                  </button>
+                </div>
+              )}
             </div>
           </HookForm>
         </div>

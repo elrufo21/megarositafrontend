@@ -6,6 +6,8 @@ import {
   useState,
   type FormEvent,
   type InputHTMLAttributes,
+  type KeyboardEvent,
+  type RefObject,
 } from "react";
 import { useLocation, useNavigate } from "react-router";
 import { createColumnHelper } from "@tanstack/react-table";
@@ -29,6 +31,7 @@ import {
   X,
 } from "lucide-react";
 import DataTable from "@/components/DataTable";
+import CustomerFormBase from "@/components/CustomerFormBase";
 import NavigableNumberInput from "@/components/inputs/NavigableNumberInput";
 import { useClientsStore } from "@/store/customers/customers.store";
 import { useProductsStore } from "@/store/products/products.store";
@@ -38,6 +41,7 @@ import { usePosCartDraftPersistence } from "@/features/pos/hooks/usePosCartDraft
 import type { Product } from "@/types/product";
 import type { ProductUnitOption } from "@/types/product";
 import type { PosCartItem } from "@/types/pos";
+import type { Client } from "@/types/customer";
 import { toast } from "@/shared/ui/toast";
 import { apiRequest } from "@/shared/helpers/apiRequest";
 import { buildApiUrl } from "@/config";
@@ -134,6 +138,8 @@ type PosSaleSettings = {
   discount: string;
 };
 
+type SaleFocusableElement = HTMLInputElement | HTMLTextAreaElement;
+
 type PersonalCodeFieldProps = {
   onInputRef: (node: HTMLInputElement | null) => void;
   onEnter?: () => void;
@@ -141,11 +147,26 @@ type PersonalCodeFieldProps = {
 
 const PersonalCodeField = ({ onInputRef, onEnter }: PersonalCodeFieldProps) => {
   const [isCodeVisible, setIsCodeVisible] = useState(false);
+  const inputRef = useRef<HTMLInputElement | null>(null);
+
+  const setInputRef = (node: HTMLInputElement | null) => {
+    inputRef.current = node;
+    onInputRef(node);
+  };
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      inputRef.current?.focus();
+      inputRef.current?.select();
+    }, 60);
+
+    return () => window.clearTimeout(timer);
+  }, []);
 
   return (
     <div className="relative">
       <input
-        ref={onInputRef}
+        ref={setInputRef}
         type={isCodeVisible ? "text" : "password"}
         autoFocus
         placeholder="Codigo de usuario"
@@ -247,6 +268,10 @@ const normalizePosSearchText = (value: unknown) =>
     .toLowerCase()
     .normalize("NFD")
     .replace(/[\u0300-\u036f]/g, "");
+const normalizePosDocumentText = (value: unknown) =>
+  String(value ?? "").replace(/\D/g, "");
+const tokenizePosSearchText = (value: unknown) =>
+  normalizePosSearchText(value).split(/\s+/).filter(Boolean);
 const priceLabel = (product: Product) =>
   formatPrice(product.preVenta ?? product.preVentaB ?? 0);
 const composeProductDisplayName = (name: unknown, brand?: unknown): string =>
@@ -364,6 +389,141 @@ const deriveVariationStock = (
   return safeReportedStock;
 };
 
+type SaleCustomerDialogContentProps = {
+  onSelectClient: (client: Client) => void;
+  onCreateClient: (client: Omit<Client, "id">) => Promise<boolean>;
+  initialQuery?: string;
+};
+
+const SaleCustomerDialogContent = ({
+  onSelectClient,
+  onCreateClient,
+  initialQuery = "",
+}: SaleCustomerDialogContentProps) => {
+  const clients = useClientsStore((state) => state.clients);
+  const fetchClients = useClientsStore((state) => state.fetchClients);
+  const [activeTab, setActiveTab] = useState<"list" | "form">("list");
+  const [query, setQuery] = useState(initialQuery);
+
+  useEffect(() => {
+    void fetchClients("");
+  }, [fetchClients]);
+
+  const filteredClients = useMemo(() => {
+    const tokens = tokenizePosSearchText(query);
+    if (!tokens.length) return clients.slice(0, 100);
+
+    return clients
+      .filter((client) => {
+        const haystack = normalizePosSearchText(
+          `${client.nombreRazon} ${client.ruc} ${client.dni} ${client.telefonoMovil}`,
+        );
+        return tokens.every((token) => haystack.includes(token));
+      })
+      .slice(0, 100);
+  }, [clients, query]);
+
+  return (
+    <div className="space-y-4">
+      <div className="grid grid-cols-2 rounded-lg border border-slate-200 bg-slate-100 p-1">
+        <button
+          type="button"
+          className={`rounded-md px-3 py-2 text-sm font-semibold transition-colors ${
+            activeTab === "list"
+              ? "bg-slate-800 text-white shadow-sm"
+              : "text-slate-600 hover:bg-white"
+          }`}
+          onClick={() => setActiveTab("list")}
+        >
+          Clientes
+        </button>
+        <button
+          type="button"
+          className={`rounded-md px-3 py-2 text-sm font-semibold transition-colors ${
+            activeTab === "form"
+              ? "bg-slate-800 text-white shadow-sm"
+              : "text-slate-600 hover:bg-white"
+          }`}
+          onClick={() => setActiveTab("form")}
+        >
+          Formulario
+        </button>
+      </div>
+
+      {activeTab === "list" ? (
+        <div className="space-y-3">
+          <input
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            placeholder="Buscar por nombre, DNI, RUC o teléfono"
+            className="h-10 w-full rounded-lg border border-slate-300 px-3 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+          />
+          <div className="max-h-[55vh] overflow-auto rounded-lg border border-slate-200">
+            <table className="w-full min-w-[720px] text-sm">
+              <thead className="sticky top-0 bg-slate-100 text-xs uppercase text-slate-500">
+                <tr className="text-left">
+                  <th className="px-3 py-2 font-semibold">Cliente</th>
+                  <th className="px-3 py-2 font-semibold">DNI</th>
+                  <th className="px-3 py-2 font-semibold">RUC</th>
+                  <th className="px-3 py-2 font-semibold">Teléfono</th>
+                  <th className="px-3 py-2 text-right font-semibold">Acción</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100 bg-white text-slate-800">
+                {filteredClients.length ? (
+                  filteredClients.map((client) => (
+                    <tr
+                      key={client.id}
+                      className="hover:bg-slate-50"
+                      onDoubleClick={() => onSelectClient(client)}
+                    >
+                      <td className="px-3 py-2 font-medium">
+                        {client.nombreRazon}
+                      </td>
+                      <td className="px-3 py-2">{client.dni}</td>
+                      <td className="px-3 py-2">{client.ruc}</td>
+                      <td className="px-3 py-2">{client.telefonoMovil}</td>
+                      <td className="px-3 py-2 text-right">
+                        <button
+                          type="button"
+                          className="rounded-md bg-slate-800 px-3 py-1.5 text-xs font-semibold text-white hover:bg-slate-900"
+                          onClick={() => onSelectClient(client)}
+                        >
+                          Usar
+                        </button>
+                      </td>
+                    </tr>
+                  ))
+                ) : (
+                  <tr>
+                    <td
+                      colSpan={5}
+                      className="px-3 py-8 text-center text-slate-500"
+                    >
+                      No se encontraron clientes.
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+          <div className="text-xs text-slate-500">
+            {filteredClients.length} de {clients.length} clientes
+          </div>
+        </div>
+      ) : (
+        <CustomerFormBase
+          mode="create"
+          variant="modal"
+          showModalActions
+          onSave={onCreateClient}
+          onNew={() => {}}
+        />
+      )}
+    </div>
+  );
+};
+
 const POSPage = () => {
   const [viewMode, setViewMode] = useState<"table" | "cards">("cards");
   const [searchTerm, setSearchTerm] = useState("");
@@ -405,6 +565,7 @@ const POSPage = () => {
   const isEditingMode = usePosStore((state) => state.isEditingMode);
   const clients = useClientsStore((state) => state.clients);
   const fetchClients = useClientsStore((state) => state.fetchClients);
+  const addClient = useClientsStore((state) => state.addClient);
   const updateClient = useClientsStore((state) => state.updateClient);
   const openDialog = useDialogStore((state) => state.openDialog);
   const closeDialog = useDialogStore((state) => state.closeDialog);
@@ -421,6 +582,21 @@ const POSPage = () => {
   const loadMoreArmedRef = useRef(true);
   const saleDefaultClientInitializedRef = useRef(false);
   const appendScrollTopRef = useRef<number | null>(null);
+  const warehouseSearchTimeoutRef = useRef<number | null>(null);
+  const warehouseLastSearchValueRef = useRef("");
+  const warehouseSearchInputRef = useRef<HTMLInputElement | null>(null);
+  const saleDocTypeInputRef = useRef<SaleFocusableElement | null>(null);
+  const salePaymentMethodInputRef = useRef<SaleFocusableElement | null>(null);
+  const saleCustomerInputRef = useRef<SaleFocusableElement | null>(null);
+  const saleDniInputRef = useRef<SaleFocusableElement | null>(null);
+  const saleRucInputRef = useRef<SaleFocusableElement | null>(null);
+  const saleFiscalAddressInputRef = useRef<SaleFocusableElement | null>(null);
+  const saleShippingAddressInputRef = useRef<SaleFocusableElement | null>(null);
+  const salePhoneInputRef = useRef<SaleFocusableElement | null>(null);
+  const saleBankEntityInputRef = useRef<SaleFocusableElement | null>(null);
+  const saleOperationInputRef = useRef<SaleFocusableElement | null>(null);
+  const saleMovementCostInputRef = useRef<SaleFocusableElement | null>(null);
+  const saleDiscountInputRef = useRef<SaleFocusableElement | null>(null);
   const [priceDrafts, setPriceDrafts] = useState<Record<number, string>>({});
   const [quantityDrafts, setQuantityDrafts] = useState<Record<number, string>>(
     {},
@@ -650,17 +826,39 @@ const POSPage = () => {
     });
   }, [clients]);
 
-  const clientOptions = useMemo(
-    () =>
-      uniqueSaleClients
-        .filter((client) => Number(client.id) > 0)
-        .map((client) => ({
+  const clientOptions = useMemo(() => {
+    const byLabel = new Map<
+      string,
+      (typeof uniqueSaleClients)[number] & { label: string }
+    >();
+
+    uniqueSaleClients
+      .filter((client) => Number(client.id) > 0)
+      .forEach((client) => {
+        const label = safeTrim(client.nombreRazon) || `Cliente ${client.id}`;
+        const key = normalizePosSearchText(label);
+        const option = {
           ...client,
-          label: safeTrim(client.nombreRazon) || `Cliente ${client.id}`,
-        }))
-        .sort((a, b) => a.label.localeCompare(b.label)),
-    [uniqueSaleClients],
-  );
+          label,
+        };
+        const current = byLabel.get(key);
+        const optionScore =
+          Number(Boolean(safeTrim(option.ruc))) * 2 +
+          Number(Boolean(safeTrim(option.dni)));
+        const currentScore = current
+          ? Number(Boolean(safeTrim(current.ruc))) * 2 +
+            Number(Boolean(safeTrim(current.dni)))
+          : -1;
+
+        if (!current || optionScore > currentScore) {
+          byLabel.set(key, option);
+        }
+      });
+
+    return Array.from(byLabel.values()).sort((a, b) =>
+      a.label.localeCompare(b.label),
+    );
+  }, [uniqueSaleClients]);
   const selectedSaleClient = useMemo(
     () =>
       clientOptions.find(
@@ -726,6 +924,36 @@ const POSPage = () => {
   const saleTotalAmount = roundCurrency(
     saleDocumentTotal + saleMovementAmount + saleCardAdditional,
   );
+  const focusSaleField = (
+    ref: RefObject<SaleFocusableElement | null>,
+    select = false,
+  ) => {
+    window.setTimeout(() => {
+      const node = ref.current;
+      node?.focus();
+      if (select) node?.select();
+    }, 0);
+  };
+  const nextSaleDocumentFieldRef =
+    saleSettings.docTypeCode === "01" ? saleRucInputRef : saleDniInputRef;
+  const nextSaleAfterPhoneRef = shouldShowSaleBankFields
+    ? saleBankEntityInputRef
+    : saleMovementCostInputRef;
+  const nextSaleAfterMovementRef = saleSettings.applyDiscount
+    ? saleDiscountInputRef
+    : null;
+  const handleSaleEnterFocus =
+    (
+      nextRef: RefObject<SaleFocusableElement | null> | null,
+      selectNext = false,
+    ) =>
+    (event: KeyboardEvent<HTMLElement>) => {
+      if (event.key !== "Enter" || event.shiftKey || !nextRef) return;
+      const input = event.currentTarget as HTMLInputElement;
+      if (input.getAttribute("aria-expanded") === "true") return;
+      event.preventDefault();
+      focusSaleField(nextRef, selectNext);
+    };
   const shouldRequireBoletaCustomerData =
     saleSettings.docTypeCode === "03" && saleTotalAmount >= 500;
   const saleClientOptions = useMemo(
@@ -759,37 +987,242 @@ const POSPage = () => {
     }),
     [documentForClient],
   );
-  const saleDniOptions = useMemo(
-    () =>
-      saleClientOptions
-        .map((client) => ({
-          value: safeTrim(client.dni),
-          label: safeTrim(client.dni),
-          client,
-        }))
-        .filter((option) => option.value),
-    [saleClientOptions],
+
+  const applyClientToSale = useCallback(
+    (client: Client) => {
+      const option = {
+        ...client,
+        label: safeTrim(client.nombreRazon) || `Cliente ${client.id}`,
+      };
+      setSaleCustomerInput(option.label);
+      setSaleSettings((prev) => ({
+        ...prev,
+        clienteId: option.id,
+        customerName: option.label,
+        ...customerFieldsFromClient(option, prev.docTypeCode),
+      }));
+    },
+    [customerFieldsFromClient],
   );
-  const saleRucOptions = useMemo(
-    () =>
-      saleClientOptions
-        .map((client) => ({
-          value: safeTrim(client.ruc),
-          label: safeTrim(client.ruc),
-          client,
-        }))
-        .filter((option) => option.value),
-    [saleClientOptions],
+
+  const handleSelectClientFromDialog = useCallback(
+    (client: Client) => {
+      applyClientToSale(client);
+      closeDialog();
+    },
+    [applyClientToSale, closeDialog],
   );
-  const visibleSaleClientOptions = useMemo(() => {
-    const query = normalizePosSearchText(saleCustomerInput);
-    if (!query) return saleClientOptions;
-    return saleClientOptions.filter((client) =>
-      normalizePosSearchText(
-        `${client.label} ${client.dni} ${client.ruc}`,
-      ).includes(query),
-    );
-  }, [saleClientOptions, saleCustomerInput]);
+
+  const handleCreateClientFromDialog = useCallback(
+    async (data: Omit<Client, "id">) => {
+      const payload: Omit<Client, "id"> = {
+        nombreRazon: safeTrim(data.nombreRazon).toUpperCase(),
+        ruc: safeTrim(data.ruc),
+        dni: safeTrim(data.dni),
+        direccionFiscal: safeTrim(data.direccionFiscal),
+        direccionDespacho: safeTrim(data.direccionDespacho),
+        telefonoMovil: safeTrim(data.telefonoMovil),
+        email: safeTrim(data.email),
+        registradoPor: safeTrim(data.registradoPor) || usernameFromSession,
+        estado: safeTrim(data.estado) || "ACTIVO",
+        fecha: data.fecha ?? null,
+      };
+
+      if (!payload.nombreRazon) {
+        toast.error("El nombre o razon social es obligatorio.");
+        return false;
+      }
+
+      const result = await addClient(payload);
+      if (!result.ok) {
+        toast.error(result.error ?? "No se pudo crear el cliente.");
+        return false;
+      }
+
+      await fetchClients("");
+      const refreshedClients = useClientsStore.getState().clients;
+      const normalizedName = normalizePosSearchText(payload.nombreRazon);
+      const normalizedRuc = safeTrim(payload.ruc);
+      const normalizedDni = safeTrim(payload.dni);
+      const createdClient =
+        refreshedClients.find((client) => {
+          const clientRuc = safeTrim(client.ruc);
+          const clientDni = safeTrim(client.dni);
+          return (
+            (normalizedRuc && clientRuc === normalizedRuc) ||
+            (normalizedDni && clientDni === normalizedDni) ||
+            normalizePosSearchText(client.nombreRazon) === normalizedName
+          );
+        }) ?? null;
+
+      applyClientToSale(
+        createdClient ?? {
+          id: 0,
+          ...payload,
+        },
+      );
+      toast.success("Cliente creado correctamente.");
+      closeDialog();
+      return true;
+    },
+    [
+      addClient,
+      applyClientToSale,
+      closeDialog,
+      fetchClients,
+      usernameFromSession,
+    ],
+  );
+
+  const openSaleCustomerDialog = useCallback(() => {
+    openDialog({
+      title: "Clientes",
+      maxWidth: "lg",
+      fullWidth: true,
+      cancelText: "Cerrar",
+      content: (
+        <SaleCustomerDialogContent
+          initialQuery={
+            safeTrim(saleCustomerInput).toUpperCase() === "VARIOS"
+              ? ""
+              : saleCustomerInput
+          }
+          onSelectClient={handleSelectClientFromDialog}
+          onCreateClient={handleCreateClientFromDialog}
+        />
+      ),
+    });
+  }, [
+    handleCreateClientFromDialog,
+    handleSelectClientFromDialog,
+    openDialog,
+    saleCustomerInput,
+  ]);
+  const saleDniOptions = useMemo(() => {
+    const byDocument = new Map<
+      string,
+      { value: string; label: string; client: (typeof clientOptions)[number] }
+    >();
+
+    saleClientOptions.forEach((client) => {
+      const value = safeTrim(client.dni);
+      const key = normalizePosDocumentText(value);
+      if (!key || byDocument.has(key)) return;
+      byDocument.set(key, {
+        value,
+        label: value,
+        client,
+      });
+    });
+
+    return Array.from(byDocument.values());
+  }, [saleClientOptions]);
+  const saleRucOptions = useMemo(() => {
+    const byDocument = new Map<
+      string,
+      { value: string; label: string; client: (typeof clientOptions)[number] }
+    >();
+
+    saleClientOptions.forEach((client) => {
+      const value = safeTrim(client.ruc);
+      const key = normalizePosDocumentText(value);
+      if (!key || byDocument.has(key)) return;
+      byDocument.set(key, {
+        value,
+        label: value,
+        client,
+      });
+    });
+
+    return Array.from(byDocument.values());
+  }, [saleClientOptions]);
+  const filterSaleClientOptions = useCallback(
+    (options: typeof saleClientOptions, inputValue: string) => {
+      const input = normalizePosSearchText(inputValue);
+      if (!input) return options.slice(0, 100);
+      const tokens = tokenizePosSearchText(input);
+
+      return options
+        .map((client) => {
+          const label = normalizePosSearchText(client.label);
+          const document = normalizePosSearchText(
+            `${client.dni ?? ""} ${client.ruc ?? ""}`,
+          );
+          const matches = tokens.every(
+            (token) => label.includes(token) || document.includes(token),
+          );
+          if (!matches) return null;
+
+          let score = 4;
+          if (label === input || document === input) score = 0;
+          else if (label.startsWith(input)) score = 1;
+          else if (
+            tokens.every((token) =>
+              label.split(" ").some((part) => part.startsWith(token)),
+            )
+          ) {
+            score = 2;
+          } else if (document.startsWith(input)) score = 3;
+
+          return { client, score };
+        })
+        .filter(
+          (
+            item,
+          ): item is {
+            client: (typeof saleClientOptions)[number];
+            score: number;
+          } => item !== null,
+        )
+        .sort((a, b) => {
+          if (a.score !== b.score) return a.score - b.score;
+          return a.client.label.localeCompare(b.client.label, "es", {
+            sensitivity: "base",
+          });
+        })
+        .map((item) => item.client)
+        .slice(0, 100);
+    },
+    [],
+  );
+  const filterSaleDocumentOptions = useCallback(
+    <
+      TOption extends {
+        value: string;
+        label: string;
+        client: { label: string };
+      },
+    >(
+      options: TOption[],
+      inputValue: string,
+    ) => {
+      const input = normalizePosSearchText(inputValue);
+      const inputDocument = normalizePosDocumentText(inputValue);
+      if (!input && !inputDocument) return options.slice(0, 100);
+
+      return options
+        .filter((option) => {
+          const doc = normalizePosDocumentText(option.value);
+          const clientLabel = normalizePosSearchText(option.client.label);
+          return (
+            (inputDocument !== "" && doc.includes(inputDocument)) ||
+            (input !== "" && clientLabel.includes(input))
+          );
+        })
+        .sort((a, b) => {
+          const aDoc = normalizePosDocumentText(a.value);
+          const bDoc = normalizePosDocumentText(b.value);
+          const aStarts =
+            inputDocument !== "" && aDoc.startsWith(inputDocument);
+          const bStarts =
+            inputDocument !== "" && bDoc.startsWith(inputDocument);
+          if (aStarts !== bStarts) return aStarts ? -1 : 1;
+          return aDoc.localeCompare(bDoc);
+        })
+        .slice(0, 100);
+    },
+    [],
+  );
   const applySaleCustomerInput = useCallback(
     (value: string) => {
       const typedName = normalizePosSearchText(value);
@@ -1071,6 +1504,15 @@ const POSPage = () => {
     root.scrollTop = Math.min(previousScrollTop, maxTop);
     appendScrollTopRef.current = null;
   }, [loading, products.length]);
+
+  useEffect(
+    () => () => {
+      if (warehouseSearchTimeoutRef.current !== null) {
+        window.clearTimeout(warehouseSearchTimeoutRef.current);
+      }
+    },
+    [],
+  );
 
   useEffect(() => {
     const routeState =
@@ -1392,7 +1834,10 @@ const POSPage = () => {
       setMobileCartOpen(false);
       await resetDraftForNewSale();
       if (createdNotaId) {
-        navigate(`${paymentBasePath}/${createdNotaId}?mode=view&autoprint=1`);
+        const paymentQuery = isSaleFactura
+          ? "mode=view"
+          : "mode=view&autoprint=1";
+        navigate(`${paymentBasePath}/${createdNotaId}?${paymentQuery}`);
         return;
       }
       console.error("No se pudo resolver notaId desde response", result);
@@ -1417,8 +1862,28 @@ const POSPage = () => {
     setMobileCartOpen(true);
   };
 
+  const handleWarehouseSearchChange = (value: string) => {
+    if (warehouseLastSearchValueRef.current === value) return;
+    warehouseLastSearchValueRef.current = value;
+    setWarehouseSearch(value);
+    setWarehousePage(1);
+
+    if (warehouseSearchTimeoutRef.current !== null) {
+      window.clearTimeout(warehouseSearchTimeoutRef.current);
+    }
+
+    warehouseSearchTimeoutRef.current = window.setTimeout(() => {
+      void fetchWarehouseProducts({
+        busqueda: value,
+        pagina: 1,
+      });
+      warehouseSearchTimeoutRef.current = null;
+    }, 250);
+  };
+
   const openWarehouseProducts = () => {
     setWarehouseModalOpen(true);
+    warehouseLastSearchValueRef.current = warehouseSearch;
     setWarehousePage(1);
     void fetchWarehouseProducts({
       busqueda: warehouseSearch,
@@ -1427,9 +1892,16 @@ const POSPage = () => {
   };
 
   const searchWarehouseProducts = () => {
+    const query = warehouseSearchInputRef.current?.value ?? warehouseSearch;
+    warehouseLastSearchValueRef.current = query;
+    if (warehouseSearchTimeoutRef.current !== null) {
+      window.clearTimeout(warehouseSearchTimeoutRef.current);
+      warehouseSearchTimeoutRef.current = null;
+    }
+    setWarehouseSearch(query);
     setWarehousePage(1);
     void fetchWarehouseProducts({
-      busqueda: warehouseSearch,
+      busqueda: query,
       pagina: 1,
     });
   };
@@ -2131,7 +2603,7 @@ const POSPage = () => {
           <button
             type="button"
             className="inline-flex items-center gap-1 rounded-lg border border-slate-300 bg-white px-2 py-1 text-xs font-medium text-slate-700 hover:bg-slate-100"
-            onClick={() => navigate("/customers/create")}
+            onClick={openSaleCustomerDialog}
           >
             <Plus className="h-3.5 w-3.5" />
             Cliente
@@ -2147,10 +2619,14 @@ const POSPage = () => {
             label="Tipo de documento"
             InputLabelProps={{ shrink: true }}
             SelectProps={{ displayEmpty: true }}
+            inputRef={saleDocTypeInputRef}
             value={saleSettings.docTypeCode}
-            onChange={(event) =>
-              handleSaleDocTypeChange(event.target.value as PosDocTypeCode)
-            }
+            onChange={(event) => {
+              const nextDocType = event.target.value as PosDocTypeCode;
+              handleSaleDocTypeChange(nextDocType);
+              focusSaleField(salePaymentMethodInputRef);
+            }}
+            onKeyDown={handleSaleEnterFocus(salePaymentMethodInputRef)}
             sx={POS_PAYMENT_TEXT_FIELD_SX}
           >
             {POS_DOC_TYPE_OPTIONS.map((value) => (
@@ -2168,13 +2644,16 @@ const POSPage = () => {
             label="Forma de pago"
             InputLabelProps={{ shrink: true }}
             SelectProps={{ displayEmpty: true }}
+            inputRef={salePaymentMethodInputRef}
             value={saleSettings.paymentMethod}
-            onChange={(event) =>
+            onChange={(event) => {
               setSaleSettings((prev) => ({
                 ...prev,
                 paymentMethod: event.target.value as PosPaymentMethod,
-              }))
-            }
+              }));
+              focusSaleField(saleCustomerInputRef);
+            }}
+            onKeyDown={handleSaleEnterFocus(saleCustomerInputRef)}
             sx={POS_PAYMENT_TEXT_FIELD_SX}
           >
             {POS_PAYMENT_METHODS.map((option) => (
@@ -2188,14 +2667,16 @@ const POSPage = () => {
             className="col-span-full"
             fullWidth
             size="small"
-            options={visibleSaleClientOptions}
+            options={saleClientOptions}
             value={selectedSaleClientValue}
             inputValue={saleCustomerInput}
             getOptionLabel={(option) => option?.label ?? ""}
             isOptionEqualToValue={(option, value) =>
               Number(option.id) === Number(value.id)
             }
-            filterOptions={(options) => options}
+            filterOptions={(options, state) =>
+              filterSaleClientOptions(options, state.inputValue)
+            }
             onInputChange={(_, value, reason) => {
               if (reason === "reset") return;
               applySaleCustomerInput(value);
@@ -2224,6 +2705,7 @@ const POSPage = () => {
                 customerName: client.label,
                 ...customerFieldsFromClient(client, prev.docTypeCode),
               }));
+              focusSaleField(nextSaleDocumentFieldRef, true);
             }}
             renderInput={(params) => {
               const inputProps =
@@ -2235,6 +2717,7 @@ const POSPage = () => {
                   label="Nombre del cliente"
                   placeholder="Seleccionar cliente"
                   sx={POS_PAYMENT_TEXT_FIELD_SX}
+                  inputRef={saleCustomerInputRef}
                   inputProps={{
                     ...params.inputProps,
                     name: "pos-sale-customer-name-autocomplete",
@@ -2254,6 +2737,15 @@ const POSPage = () => {
                     onInput: (event: FormEvent<HTMLInputElement>) => {
                       inputProps.onInput?.(event);
                       applySaleCustomerInput(event.currentTarget.value);
+                    },
+                    onKeyDown: (event: KeyboardEvent<HTMLInputElement>) => {
+                      inputProps.onKeyDown?.(event);
+                      if (!event.defaultPrevented) {
+                        handleSaleEnterFocus(
+                          nextSaleDocumentFieldRef,
+                          true,
+                        )(event);
+                      }
                     },
                   }}
                 />
@@ -2277,6 +2769,9 @@ const POSPage = () => {
             }
             isOptionEqualToValue={(option, value) =>
               option.value === value.value
+            }
+            filterOptions={(options, state) =>
+              filterSaleDocumentOptions(options, state.inputValue)
             }
             onInputChange={(_, value, reason) => {
               if (reason === "reset") return;
@@ -2302,25 +2797,37 @@ const POSPage = () => {
                     ? safeTrim(option.client.ruc)
                     : option.value,
               }));
+              focusSaleField(saleRucInputRef, true);
             }}
-            renderInput={(params) => (
-              <TextField
-                {...params}
-                variant="outlined"
-                label="DNI"
-                placeholder="Número de DNI"
-                sx={POS_PAYMENT_TEXT_FIELD_SX}
-                inputProps={{
-                  ...params.inputProps,
-                  "data-no-uppercase": "true",
-                  "data-auto-next": "true",
-                  autoComplete: "one-time-code",
-                  autoCorrect: "off",
-                  autoCapitalize: "off",
-                  spellCheck: false,
-                }}
-              />
-            )}
+            renderInput={(params) => {
+              const inputProps =
+                params.inputProps as InputHTMLAttributes<HTMLInputElement>;
+              return (
+                <TextField
+                  {...params}
+                  variant="outlined"
+                  label="DNI"
+                  placeholder="Número de DNI"
+                  sx={POS_PAYMENT_TEXT_FIELD_SX}
+                  inputRef={saleDniInputRef}
+                  inputProps={{
+                    ...params.inputProps,
+                    "data-no-uppercase": "true",
+                    "data-auto-next": "true",
+                    autoComplete: "one-time-code",
+                    autoCorrect: "off",
+                    autoCapitalize: "off",
+                    spellCheck: false,
+                    onKeyDown: (event: KeyboardEvent<HTMLInputElement>) => {
+                      inputProps.onKeyDown?.(event);
+                      if (!event.defaultPrevented) {
+                        handleSaleEnterFocus(saleRucInputRef, true)(event);
+                      }
+                    },
+                  }}
+                />
+              );
+            }}
           />
 
           <Autocomplete
@@ -2339,6 +2846,9 @@ const POSPage = () => {
             }
             isOptionEqualToValue={(option, value) =>
               option.value === value.value
+            }
+            filterOptions={(options, state) =>
+              filterSaleDocumentOptions(options, state.inputValue)
             }
             onInputChange={(_, value, reason) => {
               if (reason === "reset") return;
@@ -2364,25 +2874,37 @@ const POSPage = () => {
                     ? option.value
                     : safeTrim(option.client.dni),
               }));
+              focusSaleField(saleFiscalAddressInputRef);
             }}
-            renderInput={(params) => (
-              <TextField
-                {...params}
-                variant="outlined"
-                label="RUC"
-                placeholder="Número de RUC"
-                sx={POS_PAYMENT_TEXT_FIELD_SX}
-                inputProps={{
-                  ...params.inputProps,
-                  "data-no-uppercase": "true",
-                  "data-auto-next": "true",
-                  autoComplete: "one-time-code",
-                  autoCorrect: "off",
-                  autoCapitalize: "off",
-                  spellCheck: false,
-                }}
-              />
-            )}
+            renderInput={(params) => {
+              const inputProps =
+                params.inputProps as InputHTMLAttributes<HTMLInputElement>;
+              return (
+                <TextField
+                  {...params}
+                  variant="outlined"
+                  label="RUC"
+                  placeholder="Número de RUC"
+                  sx={POS_PAYMENT_TEXT_FIELD_SX}
+                  inputRef={saleRucInputRef}
+                  inputProps={{
+                    ...params.inputProps,
+                    "data-no-uppercase": "true",
+                    "data-auto-next": "true",
+                    autoComplete: "one-time-code",
+                    autoCorrect: "off",
+                    autoCapitalize: "off",
+                    spellCheck: false,
+                    onKeyDown: (event: KeyboardEvent<HTMLInputElement>) => {
+                      inputProps.onKeyDown?.(event);
+                      if (!event.defaultPrevented) {
+                        handleSaleEnterFocus(saleFiscalAddressInputRef)(event);
+                      }
+                    },
+                  }}
+                />
+              );
+            }}
           />
 
           <TextField
@@ -2396,6 +2918,8 @@ const POSPage = () => {
             value={saleSettings.fiscalAddress}
             InputLabelProps={{ shrink: true }}
             InputProps={{ readOnly: true }}
+            inputRef={saleFiscalAddressInputRef}
+            onKeyDown={handleSaleEnterFocus(saleShippingAddressInputRef)}
             onChange={(event) =>
               setSaleSettings((prev) => ({
                 ...prev,
@@ -2415,6 +2939,8 @@ const POSPage = () => {
             minRows={2}
             value={saleSettings.shippingAddress}
             InputLabelProps={{ shrink: true }}
+            inputRef={saleShippingAddressInputRef}
+            onKeyDown={handleSaleEnterFocus(salePhoneInputRef)}
             onChange={(event) =>
               setSaleSettings((prev) => ({
                 ...prev,
@@ -2431,6 +2957,8 @@ const POSPage = () => {
             size="small"
             label="Teléfono/Cel."
             value={saleSettings.phone}
+            inputRef={salePhoneInputRef}
+            onKeyDown={handleSaleEnterFocus(nextSaleAfterPhoneRef, true)}
             onChange={(event) =>
               setSaleSettings((prev) => ({
                 ...prev,
@@ -2450,13 +2978,16 @@ const POSPage = () => {
                 label="Entidad bancaria"
                 InputLabelProps={{ shrink: true }}
                 SelectProps={{ displayEmpty: true }}
+                inputRef={saleBankEntityInputRef}
                 value={saleSettings.bankEntity}
-                onChange={(event) =>
+                onChange={(event) => {
                   setSaleSettings((prev) => ({
                     ...prev,
                     bankEntity: event.target.value,
-                  }))
-                }
+                  }));
+                  focusSaleField(saleOperationInputRef, true);
+                }}
+                onKeyDown={handleSaleEnterFocus(saleOperationInputRef, true)}
                 sx={POS_PAYMENT_TEXT_FIELD_SX}
               >
                 <MenuItem value="-">-</MenuItem>
@@ -2471,6 +3002,8 @@ const POSPage = () => {
                 size="small"
                 label="N° Operación"
                 value={saleSettings.nroOperacion}
+                inputRef={saleOperationInputRef}
+                onKeyDown={handleSaleEnterFocus(saleMovementCostInputRef, true)}
                 onChange={(event) =>
                   setSaleSettings((prev) => ({
                     ...prev,
@@ -2506,6 +3039,7 @@ const POSPage = () => {
               size="small"
               label="Movilidad"
               value={saleSettings.movementCost}
+              inputRef={saleMovementCostInputRef}
               InputProps={{
                 startAdornment: (
                   <InputAdornment position="start">S/</InputAdornment>
@@ -2522,6 +3056,7 @@ const POSPage = () => {
                   movementCost: event.target.value,
                 }))
               }
+              onKeyDown={handleSaleEnterFocus(nextSaleAfterMovementRef, true)}
               onFocus={(event) => event.currentTarget.select()}
               onBlur={(event) => {
                 const normalized = roundCurrency(
@@ -2554,6 +3089,7 @@ const POSPage = () => {
                 size="small"
                 label="Descuento"
                 value={saleSettings.discount}
+                inputRef={saleDiscountInputRef}
                 InputProps={{
                   startAdornment: (
                     <InputAdornment position="start">S/</InputAdornment>
@@ -3086,15 +3622,6 @@ const POSPage = () => {
                   </div>
                 </div>
               </div>
-              <div className="flex justify-end">
-                <button
-                  type="button"
-                  className="rounded-md bg-slate-800 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-900"
-                  onClick={() => setStockInquiry(null)}
-                >
-                  Cerrar
-                </button>
-              </div>
             </div>
           </div>
         </div>
@@ -3142,8 +3669,14 @@ const POSPage = () => {
                 }}
               >
                 <input
+                  ref={warehouseSearchInputRef}
                   value={warehouseSearch}
-                  onChange={(event) => setWarehouseSearch(event.target.value)}
+                  onInput={(event) =>
+                    handleWarehouseSearchChange(event.currentTarget.value)
+                  }
+                  onChange={(event) =>
+                    handleWarehouseSearchChange(event.target.value)
+                  }
                   placeholder="Buscar por código, producto o almacén"
                   className="h-10 flex-1 rounded-lg border border-slate-300 px-3 text-sm outline-none focus:border-slate-500 focus:ring-2 focus:ring-slate-100"
                 />

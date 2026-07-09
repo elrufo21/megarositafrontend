@@ -93,6 +93,7 @@ interface ProductsState {
 
 const CATALOG_DEFAULT_PAGE_SIZE = 50;
 const CATALOG_MAX_PAGE_SIZE = 100;
+let warehouseProductsRequestSeq = 0;
 
 const toNumberValue = (value: unknown, fallback = 0) => {
   if (typeof value === "number") {
@@ -867,9 +868,19 @@ export const useProductsStore = create<ProductsState>((set) => ({
     pagina = 1,
     tamanoPagina = CATALOG_DEFAULT_PAGE_SIZE,
   } = {}) => {
-    set({ warehouseLoading: true });
+    const requestSeq = ++warehouseProductsRequestSeq;
     const normalizedPage = toPositiveInt(pagina, 1);
     const normalizedPageSize = normalizeCatalogPageSize(tamanoPagina);
+    set({
+      warehouseLoading: true,
+      warehouseProducts: [],
+      warehousePagination: {
+        pagina: normalizedPage,
+        tamanoPagina: normalizedPageSize,
+        totalRegistros: 0,
+        hasMore: false,
+      },
+    });
 
     try {
       const params = new URLSearchParams({
@@ -894,6 +905,8 @@ export const useProductsStore = create<ProductsState>((set) => ({
         items.length,
       );
 
+      if (requestSeq !== warehouseProductsRequestSeq) return;
+
       set({
         warehouseProducts: items,
         warehousePagination: {
@@ -906,6 +919,7 @@ export const useProductsStore = create<ProductsState>((set) => ({
       });
     } catch (error) {
       console.error("Error loading warehouse products", error);
+      if (requestSeq !== warehouseProductsRequestSeq) return;
       set({ warehouseLoading: false });
     }
   },

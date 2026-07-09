@@ -287,6 +287,9 @@ const normalizeSearchText = (value: unknown) =>
 const tokenizeSearchText = (value: unknown) =>
   normalizeSearchText(value).split(" ").filter(Boolean);
 
+const normalizeDocumentText = (value: unknown) =>
+  String(value ?? "").replace(/\D/g, "");
+
 const composeProductDisplayName = (name: unknown, brand?: unknown): string => {
   const normalizedName = String(name ?? "").trim();
   const normalizedBrand = String(brand ?? "").trim();
@@ -2744,31 +2747,58 @@ const PaymentPage = () => {
   }, [clients]);
 
   const clientOptions = useMemo(
-    () =>
-      uniqueClients
-        .map((client) => {
-          const label = safeTrim(client.nombreRazon ?? "");
-          const dni = safeTrim(client.dni ?? "");
-          const ruc = safeTrim(client.ruc ?? "");
-          return {
-            // Mantiene compatibilidad con el valor del campo (customerName).
-            value: label,
-            label,
-            dni,
-            ruc,
-            id: client.id,
-            optionKey:
-              Number(client.id) > 0
-                ? `client-${client.id}`
-                : `${normalizeSearchText(label)}-${dni}-${ruc}`,
-            searchLabel: normalizeSearchText(label),
-            searchDocument: normalizeSearchText(`${dni} ${ruc}`),
-          };
-        })
-        .filter((option) => !!option.label)
+    () => {
+      const byLabel = new Map<
+        string,
+        {
+          value: string;
+          label: string;
+          dni: string;
+          ruc: string;
+          id: number;
+          optionKey: string;
+          searchLabel: string;
+          searchDocument: string;
+        }
+      >();
+
+      uniqueClients.forEach((client) => {
+        const label = safeTrim(client.nombreRazon ?? "");
+        if (!label) return;
+        const dni = safeTrim(client.dni ?? "");
+        const ruc = safeTrim(client.ruc ?? "");
+        const option = {
+          value: label,
+          label,
+          dni,
+          ruc,
+          id: client.id,
+          optionKey:
+            Number(client.id) > 0
+              ? `client-${client.id}`
+              : `${normalizeSearchText(label)}-${dni}-${ruc}`,
+          searchLabel: normalizeSearchText(label),
+          searchDocument: normalizeSearchText(`${dni} ${ruc}`),
+        };
+
+        const key = option.searchLabel;
+        const current = byLabel.get(key);
+        const optionScore =
+          Number(Boolean(option.ruc)) * 2 + Number(Boolean(option.dni));
+        const currentScore = current
+          ? Number(Boolean(current.ruc)) * 2 + Number(Boolean(current.dni))
+          : -1;
+
+        if (!current || optionScore > currentScore) {
+          byLabel.set(key, option);
+        }
+      });
+
+      return Array.from(byLabel.values())
         .sort((a, b) =>
           a.label.localeCompare(b.label, "es", { sensitivity: "base" }),
-        ),
+        );
+    },
     [uniqueClients],
   );
 
@@ -2781,30 +2811,68 @@ const PaymentPage = () => {
   );
 
   const dniOptions = useMemo(
-    () =>
+    () => {
+      const byDocument = new Map<
+        string,
+        {
+          value: string;
+          label: string;
+          dni: string;
+          nombreRazon: string;
+          id: number;
+        }
+      >();
+
       uniqueClients
         .filter((client) => client.dni?.trim())
-        .map((client) => ({
-          value: (client.dni ?? "").trim(),
-          label: (client.dni ?? "").trim(),
-          dni: (client.dni ?? "").trim(),
-          nombreRazon: (client.nombreRazon ?? "").trim(),
-          id: client.id,
-        })),
+        .forEach((client) => {
+          const dni = (client.dni ?? "").trim();
+          const key = normalizeDocumentText(dni);
+          if (!key || byDocument.has(key)) return;
+          byDocument.set(key, {
+            value: dni,
+            label: dni,
+            dni,
+            nombreRazon: (client.nombreRazon ?? "").trim(),
+            id: client.id,
+          });
+        });
+
+      return Array.from(byDocument.values());
+    },
     [uniqueClients],
   );
 
   const rucOptions = useMemo(
-    () =>
+    () => {
+      const byDocument = new Map<
+        string,
+        {
+          value: string;
+          label: string;
+          ruc: string;
+          nombreRazon: string;
+          id: number;
+        }
+      >();
+
       uniqueClients
         .filter((client) => client.ruc?.trim())
-        .map((client) => ({
-          value: (client.ruc ?? "").trim(),
-          label: (client.ruc ?? "").trim(),
-          ruc: (client.ruc ?? "").trim(),
-          nombreRazon: (client.nombreRazon ?? "").trim(),
-          id: client.id,
-        })),
+        .forEach((client) => {
+          const ruc = (client.ruc ?? "").trim();
+          const key = normalizeDocumentText(ruc);
+          if (!key || byDocument.has(key)) return;
+          byDocument.set(key, {
+            value: ruc,
+            label: ruc,
+            ruc,
+            nombreRazon: (client.nombreRazon ?? "").trim(),
+            id: client.id,
+          });
+        });
+
+      return Array.from(byDocument.values());
+    },
     [uniqueClients],
   );
 
@@ -3107,6 +3175,7 @@ const PaymentPage = () => {
       state: { inputValue: string },
     ) => {
       const input = (state.inputValue ?? "").trim().toLowerCase();
+      const inputDocument = normalizeDocumentText(input);
       const filtered = options.filter((opt) => {
         const label = (opt.label ?? "").toLowerCase();
         const valueStr = String(opt.value ?? "").toLowerCase();
@@ -3118,11 +3187,13 @@ const PaymentPage = () => {
         )
           .toString()
           .toLowerCase();
+        const docDigits = normalizeDocumentText(docStr);
         return (
           input === "" ||
           label.includes(input) ||
           valueStr.includes(input) ||
-          docStr.includes(input)
+          docStr.includes(input) ||
+          (inputDocument !== "" && docDigits.includes(inputDocument))
         );
       });
 
@@ -3138,7 +3209,12 @@ const PaymentPage = () => {
           )
             .toString()
             .toLowerCase();
-          return label === input || valueStr === input || docStr === input;
+          return (
+            label === input ||
+            valueStr === input ||
+            docStr === input ||
+            normalizeDocumentText(docStr) === inputDocument
+          );
         });
 
         if (!exists) {
@@ -4432,23 +4508,15 @@ const PaymentPage = () => {
       serieForImmediatePrint && numeroForImmediatePrint
         ? `${serieForImmediatePrint}-${numeroForImmediatePrint}`
         : safeTrim(documentNumber);
-    const shouldPrintFacturaAsProformaOnCreate = isCreateFlow && isFactura;
-
-    void handlePrint({
-      skipConfirmedCheck: true,
-      silent: true,
-      previewPropsOverride:
-        immediateDocumentNumber || shouldPrintFacturaAsProformaOnCreate
-          ? {
-              ...(immediateDocumentNumber
-                ? { documentNumber: immediateDocumentNumber }
-                : {}),
-              ...(shouldPrintFacturaAsProformaOnCreate
-                ? { docType: "proforma" as const }
-                : {}),
-            }
+    if (!isFactura) {
+      void handlePrint({
+        skipConfirmedCheck: true,
+        silent: true,
+        previewPropsOverride: immediateDocumentNumber
+          ? { documentNumber: immediateDocumentNumber }
           : undefined,
-    });
+      });
+    }
   };
 
   const handleMobileTopConfirm = () => {
@@ -5615,6 +5683,13 @@ const PaymentPage = () => {
     silent?: boolean;
   }): Promise<boolean> => {
     const silent = options?.silent === true;
+    if (isFactura) {
+      if (!silent) {
+        toast.error("Las facturas no se imprimen en ticketera.");
+      }
+      return false;
+    }
+
     if (isNotaAnulada) {
       if (!silent) {
         toast.error("Documento anulado. Impresión no permitida.");
@@ -5681,6 +5756,7 @@ const PaymentPage = () => {
 
   useEffect(() => {
     if (!shouldAutoPrintOnLoad) return;
+    if (isFactura) return;
     if (!routeNotaId) return;
     if (autoPrintTriggeredRef.current) return;
     if (!hasLoadedNotaMeta) return;
@@ -5698,6 +5774,7 @@ const PaymentPage = () => {
     hasLoadedNotaMeta,
     handlePrint,
     itemsToRender,
+    isFactura,
     purchasedItems,
     routeNotaId,
     shouldAutoPrintOnLoad,
@@ -6229,7 +6306,7 @@ const PaymentPage = () => {
                   : "Descargar PDF"}
             </button>
           )}
-          {canShowOutputDocumentActions && isPdfEnabled && (
+          {canShowOutputDocumentActions && isPdfEnabled && !isFactura && (
             <button
               type="button"
               className="inline-flex shrink-0 items-center justify-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-medium text-slate-800 transition-colors hover:bg-slate-50 disabled:opacity-50"
@@ -6330,7 +6407,9 @@ const PaymentPage = () => {
             const valueLabel = safeTrim(
               (value as any)?.label ?? (value as any)?.value ?? value,
             );
-            return optionLabel === valueLabel;
+            return (
+              normalizeSearchText(optionLabel) === normalizeSearchText(valueLabel)
+            );
           }}
           getOptionKey={(option: any) =>
             String(
@@ -6741,7 +6820,7 @@ const PaymentPage = () => {
             Enviar por WhatsApp
           </button>
         )}
-        {canShowOutputDocumentActions && (
+        {canShowOutputDocumentActions && !isFactura && (
           <button
             className="inline-flex w-full items-center justify-center gap-2 rounded-lg border border-blue-300 bg-blue-50 py-2.5 text-blue-800 transition-colors hover:bg-blue-100 disabled:opacity-50"
             onClick={() => {
