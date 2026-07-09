@@ -1,6 +1,18 @@
-import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type FormEvent,
+  type InputHTMLAttributes,
+} from "react";
 import { useLocation, useNavigate } from "react-router";
 import { createColumnHelper } from "@tanstack/react-table";
+import TextField from "@mui/material/TextField";
+import MenuItem from "@mui/material/MenuItem";
+import Autocomplete from "@mui/material/Autocomplete";
+import InputAdornment from "@mui/material/InputAdornment";
 import {
   CheckCircle2,
   Eye,
@@ -13,10 +25,12 @@ import {
   ShoppingCart,
   TableProperties,
   Trash2,
+  Warehouse,
   X,
 } from "lucide-react";
 import DataTable from "@/components/DataTable";
 import NavigableNumberInput from "@/components/inputs/NavigableNumberInput";
+import { useClientsStore } from "@/store/customers/customers.store";
 import { useProductsStore } from "@/store/products/products.store";
 import { usePosStore, selectTotals } from "@/store/pos/pos.store";
 import { useDialogStore } from "@/store/app/dialog.store";
@@ -27,6 +41,10 @@ import type { PosCartItem } from "@/types/pos";
 import { toast } from "@/shared/ui/toast";
 import { apiRequest } from "@/shared/helpers/apiRequest";
 import { buildApiUrl } from "@/config";
+import {
+  buildSaleMonetarySummary,
+  roundCurrency,
+} from "@/shared/helpers/saleMonetary";
 
 type PosCatalogProduct = Product & {
   catalogKey: string;
@@ -34,6 +52,36 @@ type PosCatalogProduct = Product & {
   isVariation?: boolean;
   baseProductId?: number;
   valorUM?: number;
+};
+
+type StockWarehouseRow = {
+  almacenNombre: string;
+  cantidad: number;
+  stock: number;
+  unidadMedida: string;
+};
+
+type StockInquiryState = {
+  productName: string;
+  productCode: string;
+  unit: string;
+  storeStock: number;
+  requestedQty: number;
+  missingQty: number;
+  rows: StockWarehouseRow[];
+  loading: boolean;
+};
+
+type StockWarehousesResponse = {
+  cantidadPedido?: number | string;
+  stockTienda?: number | string;
+  faltaCompletar?: number | string;
+  items?: Array<{
+    almacenNombre?: string | null;
+    cantidad?: number | string | null;
+    stock?: number | string | null;
+    unidadMedida?: string | null;
+  }>;
 };
 
 type PersonalByCodeResponse = {
@@ -46,7 +94,44 @@ type AuthSessionPayload = {
     companyId?: unknown;
     displayName?: unknown;
     username?: unknown;
+    maxDiscount?: unknown;
+    cardPercentage?: unknown;
+    tarjetaPorcentaje?: unknown;
+    TarjetaPorcentaje?: unknown;
   };
+  descuentoMax?: unknown;
+  tarjetaPorcentaje?: unknown;
+  TarjetaPorcentaje?: unknown;
+  loginPayload?: {
+    tarjetaPorcentaje?: unknown;
+    TarjetaPorcentaje?: unknown;
+  };
+};
+
+type PosDocTypeCode = "SELECCIONAR" | "03" | "01" | "101" | "001";
+type PosPaymentMethod =
+  | "EFECTIVO"
+  | "TARJETA"
+  | "DEPO. BCP"
+  | "DEPO. SCOTIABANK"
+  | "DEPO. CONTINENTAL";
+
+type PosSaleSettings = {
+  docTypeCode: PosDocTypeCode;
+  paymentMethod: PosPaymentMethod;
+  clienteId: number | null;
+  customerName: string;
+  customerId: string;
+  customerRuc: string;
+  customerDni: string;
+  fiscalAddress: string;
+  shippingAddress: string;
+  phone: string;
+  movementCost: string;
+  bankEntity: string;
+  nroOperacion: string;
+  applyDiscount: boolean;
+  discount: string;
 };
 
 type PersonalCodeFieldProps = {
@@ -88,6 +173,56 @@ const columnHelper = createColumnHelper<PosCatalogProduct>();
 const CATALOG_PAGE_SIZE = 50;
 const TABLE_PAGE_SIZE_OPTIONS = [20, 50, 100];
 const PROFORMA_DEFAULT_CONTACT_ID = 47;
+const POS_DOC_TYPE_CONFIG: Record<
+  PosDocTypeCode,
+  { docu: string; serie: string; label: string }
+> = {
+  SELECCIONAR: { docu: "", serie: "", label: "Seleccione" },
+  "03": { docu: "BOLETA", serie: "BA01", label: "Boleta" },
+  "01": { docu: "FACTURA", serie: "FA01", label: "Factura" },
+  "101": { docu: "PROFORMA V", serie: "0001", label: "Proforma V" },
+  "001": { docu: "PROFORMA", serie: "0001", label: "Proforma" },
+};
+const POS_DOC_TYPE_OPTIONS: PosDocTypeCode[] = [
+  "SELECCIONAR",
+  "101",
+  "03",
+  "01",
+  "001",
+];
+const POS_PAYMENT_METHODS: Array<{ value: PosPaymentMethod; label: string }> = [
+  { value: "EFECTIVO", label: "Efectivo" },
+  { value: "TARJETA", label: "Tarjeta" },
+  { value: "DEPO. BCP", label: "DEPO. BCP" },
+  { value: "DEPO. SCOTIABANK", label: "DEPO. SCOTIABANK" },
+  { value: "DEPO. CONTINENTAL", label: "DEPO. CONTINENTAL" },
+];
+const POS_PAYMENT_TEXT_FIELD_SX = {
+  "& .MuiOutlinedInput-root": {
+    borderRadius: "0.45rem",
+    backgroundColor: "#fff",
+    minHeight: "2.5rem",
+    "@media (max-width:1024px)": {
+      minHeight: "2.875rem",
+    },
+    "& fieldset": {
+      borderWidth: "1px",
+      borderColor: "#e5e7eb",
+    },
+    "&.Mui-focused fieldset": {
+      borderColor: "#3b82f6",
+      boxShadow: "0 0 0 2px rgba(59,130,246,0.25)",
+    },
+  },
+  "& .MuiInputBase-input": {
+    fontSize: "0.875rem",
+    py: 1,
+    "@media (max-width:1024px)": {
+      fontSize: "1rem",
+      py: 1.2,
+    },
+  },
+};
 
 const roundPrice = (value: number) =>
   Math.ceil((value - Number.EPSILON) * 100) / 100;
@@ -96,6 +231,22 @@ const formatPrice = (value: unknown) => {
   if (!Number.isFinite(numeric)) return "0.00";
   return roundPrice(numeric).toFixed(2);
 };
+const parsePercentageLikeValue = (value: unknown, fallback = 0): number => {
+  const normalized = String(value ?? "")
+    .trim()
+    .replace("%", "")
+    .replace(",", ".");
+  if (!normalized) return fallback;
+  const numeric = Number(normalized);
+  if (!Number.isFinite(numeric) || numeric < 0) return fallback;
+  return numeric;
+};
+const normalizePosSearchText = (value: unknown) =>
+  String(value ?? "")
+    .trim()
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "");
 const priceLabel = (product: Product) =>
   formatPrice(product.preVenta ?? product.preVentaB ?? 0);
 const composeProductDisplayName = (name: unknown, brand?: unknown): string =>
@@ -103,6 +254,17 @@ const composeProductDisplayName = (name: unknown, brand?: unknown): string =>
     .map((value) => String(value ?? "").trim())
     .filter(Boolean)
     .join(" ");
+const resolvePosImageSrc = (value: unknown) => {
+  const raw = String(value ?? "").trim();
+  if (!raw || /^(https?:|blob:|data:)/i.test(raw)) return raw;
+
+  const parts = raw.replace(/\\+/g, "/").split("/").filter(Boolean);
+  const fileName = parts.at(-1) ?? "";
+  if (!fileName) return "";
+
+  const host = raw.startsWith("\\") ? parts[0] : "192.168.100.44";
+  return `http://${host}:8082/${encodeURIComponent(fileName)}`;
+};
 const buildVariationDetailId = (baseId: number, index: number) =>
   -1 * (baseId * 1000 + (index + 1));
 const getCartItemKey = (item: Pick<PosCartItem, "productId" | "detalleId">) =>
@@ -203,21 +365,33 @@ const deriveVariationStock = (
 };
 
 const POSPage = () => {
-  const [viewMode, setViewMode] = useState<"table" | "cards">("table");
+  const [viewMode, setViewMode] = useState<"table" | "cards">("cards");
   const [searchTerm, setSearchTerm] = useState("");
   const [catalogPage, setCatalogPage] = useState(1);
   const [tablePage, setTablePage] = useState(1);
   const [tablePageSize, setTablePageSize] = useState(CATALOG_PAGE_SIZE);
   const [debouncedSearchTerm, setDebouncedSearchTerm] = useState("");
   const [mobileCartOpen, setMobileCartOpen] = useState(false);
+  const [cartTab, setCartTab] = useState<"payment" | "products">("products");
+  const [warehouseModalOpen, setWarehouseModalOpen] = useState(false);
+  const [warehouseImagePreview, setWarehouseImagePreview] = useState<{
+    src: string;
+    title: string;
+  } | null>(null);
+  const [warehouseSearch, setWarehouseSearch] = useState("");
+  const [warehousePage, setWarehousePage] = useState(1);
   const navigate = useNavigate();
   const location = useLocation();
   const {
     products,
+    warehouseProducts,
     fetchCatalogProducts,
+    fetchWarehouseProducts,
     resetCatalogProducts,
     loading,
+    warehouseLoading,
     catalogPagination,
+    warehousePagination,
   } = useProductsStore();
   const items = usePosStore((state) => state.items);
   const totals = usePosStore(selectTotals);
@@ -229,6 +403,9 @@ const POSPage = () => {
   const clearEditingNota = usePosStore((state) => state.clearEditingNota);
   const editingNotaId = usePosStore((state) => state.editingNotaId);
   const isEditingMode = usePosStore((state) => state.isEditingMode);
+  const clients = useClientsStore((state) => state.clients);
+  const fetchClients = useClientsStore((state) => state.fetchClients);
+  const updateClient = useClientsStore((state) => state.updateClient);
   const openDialog = useDialogStore((state) => state.openDialog);
   const closeDialog = useDialogStore((state) => state.closeDialog);
   const setDialogLoading = useDialogStore((state) => state.setLoading);
@@ -242,12 +419,34 @@ const POSPage = () => {
   const catalogScrollRef = useRef<HTMLDivElement | null>(null);
   const loadMoreRef = useRef<HTMLDivElement | null>(null);
   const loadMoreArmedRef = useRef(true);
+  const saleDefaultClientInitializedRef = useRef(false);
   const appendScrollTopRef = useRef<number | null>(null);
   const [priceDrafts, setPriceDrafts] = useState<Record<number, string>>({});
   const [quantityDrafts, setQuantityDrafts] = useState<Record<number, string>>(
     {},
   );
+  const [stockInquiry, setStockInquiry] = useState<StockInquiryState | null>(
+    null,
+  );
   const [isSubmittingQuickSale, setIsSubmittingQuickSale] = useState(false);
+  const [saleSettings, setSaleSettings] = useState<PosSaleSettings>({
+    docTypeCode: "SELECCIONAR",
+    paymentMethod: "EFECTIVO",
+    clienteId: PROFORMA_DEFAULT_CONTACT_ID,
+    customerName: "VARIOS",
+    customerId: "",
+    customerRuc: "",
+    customerDni: "",
+    fiscalAddress: "",
+    shippingAddress: "",
+    phone: "",
+    movementCost: "0",
+    bankEntity: "-",
+    nroOperacion: "",
+    applyDiscount: false,
+    discount: "0",
+  });
+  const [saleCustomerInput, setSaleCustomerInput] = useState("VARIOS");
 
   const safeTrim = (value: unknown) => String(value ?? "").trim();
   const parseRecordLikeValue = (
@@ -357,11 +556,29 @@ const POSPage = () => {
     if (!normalized) return "";
     return normalized.split(" ")[0] ?? "";
   };
-  const { companyId, usernameFromSession } = useMemo(() => {
+  const toDecimal = (value: unknown) => {
+    if (typeof value === "number") return Number.isFinite(value) ? value : 0;
+    const raw = safeTrim(value).replace(/[^\d,.-]/g, "");
+    if (!raw) return 0;
+    const normalized =
+      raw.includes(",") && raw.lastIndexOf(",") > raw.lastIndexOf(".")
+        ? raw.replace(/\./g, "").replace(",", ".")
+        : raw.replace(/,/g, "");
+    const parsed = Number(normalized);
+    return Number.isFinite(parsed) ? parsed : 0;
+  };
+  const {
+    companyId,
+    usernameFromSession,
+    discountMaxFromSession,
+    cardPercentageFromSession,
+  } = useMemo(() => {
     if (typeof window === "undefined") {
       return {
         companyId: 1,
         usernameFromSession: "USUARIO",
+        discountMaxFromSession: 0,
+        cardPercentageFromSession: 5,
       };
     }
 
@@ -384,12 +601,371 @@ const POSPage = () => {
       safeTrim(parsedSession?.user?.displayName) ||
       safeTrim(parsedSession?.user?.username) ||
       "USUARIO";
+    const discountMaxRaw =
+      parsedSession?.user?.maxDiscount ?? parsedSession?.descuentoMax ?? 0;
+    const discountMaxNumeric = Number(discountMaxRaw);
+    const discountMaxFromSession =
+      Number.isFinite(discountMaxNumeric) && discountMaxNumeric > 0
+        ? discountMaxNumeric
+        : 0;
+    const cardPercentageFromSession = parsePercentageLikeValue(
+      parsedSession?.user?.cardPercentage ??
+        parsedSession?.user?.tarjetaPorcentaje ??
+        parsedSession?.user?.TarjetaPorcentaje ??
+        parsedSession?.tarjetaPorcentaje ??
+        parsedSession?.TarjetaPorcentaje ??
+        parsedSession?.loginPayload?.tarjetaPorcentaje ??
+        parsedSession?.loginPayload?.TarjetaPorcentaje ??
+        5,
+      5,
+    );
 
     return {
       companyId: safeCompanyId,
       usernameFromSession: username,
+      discountMaxFromSession,
+      cardPercentageFromSession,
     };
   }, []);
+
+  const uniqueSaleClients = useMemo(() => {
+    const seen = new Set<string>();
+    return clients.filter((client, index) => {
+      const dniKey = safeTrim(client.dni).replace(/\D/g, "");
+      const rucKey = safeTrim(client.ruc).replace(/\D/g, "");
+      const idKey =
+        client.id !== undefined && client.id !== null ? `id-${client.id}` : "";
+      const nameKey = client.nombreRazon
+        ? `name-${normalizePosSearchText(client.nombreRazon)}`
+        : "";
+      const key =
+        (dniKey && `dni-${dniKey}`) ||
+        (rucKey && `ruc-${rucKey}`) ||
+        nameKey ||
+        idKey ||
+        `idx-${index}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+  }, [clients]);
+
+  const clientOptions = useMemo(
+    () =>
+      uniqueSaleClients
+        .filter((client) => Number(client.id) > 0)
+        .map((client) => ({
+          ...client,
+          label: safeTrim(client.nombreRazon) || `Cliente ${client.id}`,
+        }))
+        .sort((a, b) => a.label.localeCompare(b.label)),
+    [uniqueSaleClients],
+  );
+  const selectedSaleClient = useMemo(
+    () =>
+      clientOptions.find(
+        (client) => Number(client.id) === Number(saleSettings.clienteId),
+      ) ?? null,
+    [clientOptions, saleSettings.clienteId],
+  );
+  const selectedSaleClientValue =
+    selectedSaleClient &&
+    normalizePosSearchText(selectedSaleClient.label) ===
+      normalizePosSearchText(saleCustomerInput)
+      ? selectedSaleClient
+      : null;
+  const saleDocConfig = POS_DOC_TYPE_CONFIG[saleSettings.docTypeCode];
+  const isSaleFactura = saleSettings.docTypeCode === "01";
+  const isSaleProforma =
+    saleSettings.docTypeCode === "101" || saleSettings.docTypeCode === "001";
+  const shouldShowSaleBankFields = saleSettings.paymentMethod !== "EFECTIVO";
+  const saleDiscountAmount = saleSettings.applyDiscount
+    ? roundCurrency(
+        Math.min(
+          Math.max(0, toDecimal(saleSettings.discount)),
+          Math.max(0, Number(discountMaxFromSession ?? 0)),
+          Math.max(0, Number(totals.total ?? 0)),
+        ),
+      )
+    : 0;
+  const saleDiscountedTotal = roundCurrency(
+    Math.max(0, Number(totals.total ?? 0) - saleDiscountAmount),
+  );
+  const saleMonetarySummary = useMemo(
+    () =>
+      isSaleProforma
+        ? {
+            subtotalWithoutIgv: saleDiscountedTotal,
+            igv: 0,
+            totalWithIgv: saleDiscountedTotal,
+          }
+        : buildSaleMonetarySummary({
+            lines: items.map((item) => ({
+              quantity: Number(item.cantidad ?? 0),
+              unitPrice: Number(item.precio ?? 0),
+              unitMeasure: item.unidadMedida ?? "UND",
+            })),
+            pricesIncludeIgv: true,
+            targetTotalWithIgv: saleDiscountedTotal,
+          }),
+    [isSaleProforma, items, saleDiscountedTotal],
+  );
+  const saleGravada = roundCurrency(saleMonetarySummary.subtotalWithoutIgv);
+  const saleIgvAmount = roundCurrency(saleMonetarySummary.igv);
+  const saleDocumentTotal = roundCurrency(saleMonetarySummary.totalWithIgv);
+  const saleMovementAmount = roundCurrency(
+    Math.max(0, toDecimal(saleSettings.movementCost)),
+  );
+  const saleCardAdditional =
+    saleSettings.paymentMethod === "TARJETA"
+      ? roundCurrency(
+          saleDocumentTotal *
+            (Math.max(0, Number(cardPercentageFromSession ?? 0)) / 100),
+        )
+      : 0;
+  const saleTotalAmount = roundCurrency(
+    saleDocumentTotal + saleMovementAmount + saleCardAdditional,
+  );
+  const shouldRequireBoletaCustomerData =
+    saleSettings.docTypeCode === "03" && saleTotalAmount >= 500;
+  const saleClientOptions = useMemo(
+    () =>
+      isSaleFactura
+        ? clientOptions.filter(
+            (client) => client.label.toUpperCase() !== "VARIOS",
+          )
+        : clientOptions,
+    [clientOptions, isSaleFactura],
+  );
+
+  const documentForClient = useCallback(
+    (
+      client: (typeof clientOptions)[number] | null,
+      docTypeCode = saleSettings.docTypeCode,
+    ) => safeTrim(docTypeCode === "01" ? client?.ruc : client?.dni),
+    [saleSettings.docTypeCode],
+  );
+  const customerFieldsFromClient = useCallback(
+    (
+      client: (typeof clientOptions)[number] | null,
+      docTypeCode: PosDocTypeCode,
+    ) => ({
+      customerId: documentForClient(client, docTypeCode),
+      customerRuc: safeTrim(client?.ruc),
+      customerDni: safeTrim(client?.dni),
+      fiscalAddress: safeTrim(client?.direccionFiscal),
+      shippingAddress: safeTrim(client?.direccionDespacho),
+      phone: safeTrim(client?.telefonoMovil),
+    }),
+    [documentForClient],
+  );
+  const saleDniOptions = useMemo(
+    () =>
+      saleClientOptions
+        .map((client) => ({
+          value: safeTrim(client.dni),
+          label: safeTrim(client.dni),
+          client,
+        }))
+        .filter((option) => option.value),
+    [saleClientOptions],
+  );
+  const saleRucOptions = useMemo(
+    () =>
+      saleClientOptions
+        .map((client) => ({
+          value: safeTrim(client.ruc),
+          label: safeTrim(client.ruc),
+          client,
+        }))
+        .filter((option) => option.value),
+    [saleClientOptions],
+  );
+  const visibleSaleClientOptions = useMemo(() => {
+    const query = normalizePosSearchText(saleCustomerInput);
+    if (!query) return saleClientOptions;
+    return saleClientOptions.filter((client) =>
+      normalizePosSearchText(
+        `${client.label} ${client.dni} ${client.ruc}`,
+      ).includes(query),
+    );
+  }, [saleClientOptions, saleCustomerInput]);
+  const applySaleCustomerInput = useCallback(
+    (value: string) => {
+      const typedName = normalizePosSearchText(value);
+      const matchedClient =
+        saleClientOptions.find(
+          (client) => normalizePosSearchText(client.label) === typedName,
+        ) ?? null;
+
+      setSaleCustomerInput(value);
+      setSaleSettings((prev) => ({
+        ...prev,
+        clienteId: matchedClient?.id ?? null,
+        customerName: value,
+        ...(matchedClient
+          ? customerFieldsFromClient(matchedClient, prev.docTypeCode)
+          : {
+              customerId: "",
+              customerRuc: "",
+              customerDni: "",
+              fiscalAddress: "",
+              shippingAddress: "",
+              phone: "",
+            }),
+      }));
+    },
+    [customerFieldsFromClient, saleClientOptions],
+  );
+  const ensureExistingSaleCustomer = (rawName: string) => {
+    if (!isSaleFactura && !shouldRequireBoletaCustomerData) return;
+    const typedName = safeTrim(rawName);
+    if (!typedName) return;
+    const matchedClient = saleClientOptions.find(
+      (client) =>
+        normalizePosSearchText(client.label) ===
+        normalizePosSearchText(typedName),
+    );
+    if (matchedClient) {
+      setSaleCustomerInput(matchedClient.label);
+      setSaleSettings((prev) => ({
+        ...prev,
+        clienteId: matchedClient.id,
+        customerName: matchedClient.label,
+        ...customerFieldsFromClient(matchedClient, prev.docTypeCode),
+      }));
+      return;
+    }
+    toast.error(
+      "Intentaste seleccionar un cliente que no existe, por favor agrega el cliente y seleccionalo.",
+    );
+    setSaleCustomerInput("");
+    setSaleSettings((prev) => ({
+      ...prev,
+      clienteId: null,
+      customerName: "",
+      customerId: "",
+      customerRuc: "",
+      customerDni: "",
+      fiscalAddress: "",
+      shippingAddress: "",
+      phone: "",
+    }));
+  };
+
+  useEffect(() => {
+    if (!clients.length) void fetchClients("ACTIVO");
+  }, [clients.length, fetchClients]);
+
+  useEffect(() => {
+    if (saleDefaultClientInitializedRef.current || !clientOptions.length)
+      return;
+    const defaultClient =
+      clientOptions.find(
+        (client) => Number(client.id) === PROFORMA_DEFAULT_CONTACT_ID,
+      ) ??
+      clientOptions.find((client) => client.label.toUpperCase() === "VARIOS") ??
+      clientOptions[0];
+    if (!defaultClient) return;
+    setSaleCustomerInput(defaultClient.label);
+    setSaleSettings((prev) => ({
+      ...prev,
+      clienteId: defaultClient.id,
+      customerName: defaultClient.label,
+      ...customerFieldsFromClient(defaultClient, prev.docTypeCode),
+    }));
+    saleDefaultClientInitializedRef.current = true;
+  }, [clientOptions, customerFieldsFromClient]);
+
+  const handleSaleDocTypeChange = (docTypeCode: PosDocTypeCode) => {
+    setSaleSettings((prev) => {
+      const selectedClient =
+        clientOptions.find(
+          (client) => Number(client.id) === Number(prev.clienteId),
+        ) ?? null;
+      const documentValue = documentForClient(selectedClient, docTypeCode);
+      const isFacturaDoc = docTypeCode === "01";
+      const isInvalidFacturaClient =
+        isFacturaDoc &&
+        (!selectedClient || selectedClient.label.toUpperCase() === "VARIOS");
+
+      return {
+        ...prev,
+        docTypeCode,
+        clienteId: isInvalidFacturaClient ? null : prev.clienteId,
+        customerName: isInvalidFacturaClient ? "" : prev.customerName,
+        customerId: isInvalidFacturaClient ? "" : documentValue,
+        customerRuc: isInvalidFacturaClient ? "" : prev.customerRuc,
+        customerDni: isInvalidFacturaClient ? "" : prev.customerDni,
+        fiscalAddress: isInvalidFacturaClient ? "" : prev.fiscalAddress,
+        shippingAddress: isInvalidFacturaClient ? "" : prev.shippingAddress,
+        phone: isInvalidFacturaClient ? "" : prev.phone,
+      };
+    });
+    if (docTypeCode === "01") {
+      const currentClient = selectedSaleClientValue;
+      if (!currentClient || currentClient.label.toUpperCase() === "VARIOS") {
+        setSaleCustomerInput("");
+      }
+    }
+  };
+
+  const validateSaleSettings = () => {
+    const customerName = safeTrim(saleSettings.customerName);
+    const customerDocument = safeTrim(saleSettings.customerId).replace(
+      /\D/g,
+      "",
+    );
+    const discount = saleSettings.applyDiscount
+      ? toDecimal(saleSettings.discount)
+      : 0;
+
+    if (saleSettings.docTypeCode === "SELECCIONAR") {
+      toast.error("Selecciona el tipo de documento.");
+      setCartTab("payment");
+      return false;
+    }
+
+    if (isSaleFactura) {
+      if (!customerName || customerName.toUpperCase() === "VARIOS") {
+        toast.error("Para factura selecciona un cliente valido.");
+        return false;
+      }
+      if (!selectedSaleClient) {
+        toast.error("Para factura debes seleccionar un cliente registrado.");
+        return false;
+      }
+      if (customerDocument.length !== 11) {
+        toast.error("Para factura ingresa un RUC valido de 11 digitos.");
+        return false;
+      }
+    }
+
+    if (!isSaleFactura && customerDocument && customerDocument.length !== 8) {
+      toast.error("El DNI debe tener 8 digitos.");
+      return false;
+    }
+
+    if (discount < 0) {
+      toast.error("El descuento no puede ser negativo.");
+      return false;
+    }
+    if (discount > Math.max(0, Number(discountMaxFromSession ?? 0))) {
+      toast.error(
+        `El descuento no puede superar S/ ${roundCurrency(
+          Number(discountMaxFromSession ?? 0),
+        ).toFixed(2)}.`,
+      );
+      return false;
+    }
+
+    if (shouldShowSaleBankFields && !safeTrim(saleSettings.nroOperacion)) {
+      toast.error("Ingresa el numero de operacion.");
+      return false;
+    }
+
+    return true;
+  };
 
   const focusSearchInput = () => {
     window.requestAnimationFrame(() => {
@@ -629,6 +1205,36 @@ const POSPage = () => {
       });
     });
 
+  const updateMissingSaleClientContact = async () => {
+    if (!selectedSaleClient) return;
+    if (safeTrim(selectedSaleClient.label).toUpperCase() === "VARIOS") return;
+
+    const nextShippingAddress = safeTrim(saleSettings.shippingAddress);
+    const nextPhone = safeTrim(saleSettings.phone);
+    const patch: Partial<typeof selectedSaleClient> = {};
+
+    if (
+      !safeTrim(selectedSaleClient.direccionDespacho) &&
+      nextShippingAddress
+    ) {
+      patch.direccionDespacho = nextShippingAddress;
+    }
+    if (!safeTrim(selectedSaleClient.telefonoMovil) && nextPhone) {
+      patch.telefonoMovil = nextPhone;
+    }
+    if (!Object.keys(patch).length) return;
+
+    const result = await updateClient(selectedSaleClient.id, {
+      ...selectedSaleClient,
+      ...patch,
+    });
+    if (!result.ok) {
+      toast.error(result.error ?? "No se pudo actualizar el cliente.");
+      return;
+    }
+    await fetchClients("ACTIVO");
+  };
+
   const confirmFromPos = async () => {
     if (isSubmittingQuickSale) return;
     if (!items.length) {
@@ -660,6 +1266,8 @@ const POSPage = () => {
       return;
     }
 
+    if (!validateSaleSettings()) return;
+
     const authorizedPersonalName =
       await requestPersonalAuthorizationForPayment();
     if (!authorizedPersonalName) return;
@@ -667,8 +1275,17 @@ const POSPage = () => {
       toFirstName(authorizedPersonalName) ||
       toFirstName(usernameFromSession) ||
       "USUARIO";
-    const safeSubtotal = roundPrice(Math.max(0, Number(totals.subTotal ?? 0)));
-    const safeTotal = roundPrice(Math.max(0, Number(totals.total ?? 0)));
+    const safeSubtotal = saleGravada;
+    const safeDiscount = saleDiscountAmount;
+    const safeDocumentTotal = saleDocumentTotal;
+    const safePayTotal = saleTotalAmount;
+    const isCashPayment = saleSettings.paymentMethod === "EFECTIVO";
+    const isCardPayment = saleSettings.paymentMethod === "TARJETA";
+    const selectedClienteId = Number(saleSettings.clienteId ?? 0);
+    const clienteId =
+      Number.isFinite(selectedClienteId) && selectedClienteId > 0
+        ? selectedClienteId
+        : PROFORMA_DEFAULT_CONTACT_ID;
     const safeItems = items.map((item) => ({
       ...item,
       cantidad: Math.max(0, Number(item.cantidad ?? 0)),
@@ -683,34 +1300,38 @@ const POSPage = () => {
 
     const payload = {
       nota: {
-        notaDocu: "PROFORMA V",
-        clienteId: PROFORMA_DEFAULT_CONTACT_ID,
+        notaDocu: saleDocConfig.docu,
+        clienteId,
         notaUsuario: resolvedPaymentUsername,
-        notaFormaPago: "EFECTIVO",
+        notaFormaPago: saleSettings.paymentMethod,
         notaCondicion: "ALCONTADO",
-        notaDireccion: "",
-        notaTelefono: "",
+        notaDireccion: safeTrim(saleSettings.shippingAddress),
+        notaTelefono: safeTrim(saleSettings.phone),
         notaSubtotal: safeSubtotal,
-        notaMovilidad: 0,
-        notaDescuento: 0,
-        notaTotal: safeTotal,
+        notaMovilidad: saleMovementAmount,
+        notaDescuento: safeDiscount,
+        notaTotal: roundCurrency(safeDocumentTotal + saleMovementAmount),
         notaAcuenta: 0,
-        notaSaldo: safeTotal,
-        notaAdicional: 0,
-        notaTarjeta: 0,
-        notaPagar: safeTotal,
+        notaSaldo: safePayTotal,
+        notaAdicional: saleCardAdditional,
+        notaTarjeta: isCardPayment ? safePayTotal : 0,
+        notaPagar: safePayTotal,
         notaEstado: "PENDIENTE",
         companiaId: companyId,
         notaEntrega: "INMEDIATA",
         notaConcepto: "MERCADERIA",
-        notaSerie: "0001",
+        notaSerie: saleDocConfig.serie,
         notaNumero: "",
         notaGanancia,
         icbper: 0,
-        entidadBancaria: "",
-        nroOperacion: "",
-        efectivo: safeTotal,
-        deposito: 0,
+        entidadBancaria: shouldShowSaleBankFields
+          ? safeTrim(saleSettings.bankEntity)
+          : "",
+        nroOperacion: shouldShowSaleBankFields
+          ? safeTrim(saleSettings.nroOperacion)
+          : "",
+        efectivo: isCashPayment ? safePayTotal : 0,
+        deposito: isCashPayment ? 0 : safePayTotal,
       },
       detalles: safeItems.map((item) => ({
         idProducto: Number(item.productId ?? 0),
@@ -737,6 +1358,7 @@ const POSPage = () => {
 
     setIsSubmittingQuickSale(true);
     try {
+      await updateMissingSaleClientContact();
       const result = await apiRequest({
         url: buildApiUrl("/Nota/register-with-detail"),
         method: "POST",
@@ -791,38 +1413,174 @@ const POSPage = () => {
   };
 
   const handleCartShortcut = () => {
+    setCartTab("products");
     setMobileCartOpen(true);
   };
 
+  const openWarehouseProducts = () => {
+    setWarehouseModalOpen(true);
+    setWarehousePage(1);
+    void fetchWarehouseProducts({
+      busqueda: warehouseSearch,
+      pagina: 1,
+    });
+  };
+
+  const searchWarehouseProducts = () => {
+    setWarehousePage(1);
+    void fetchWarehouseProducts({
+      busqueda: warehouseSearch,
+      pagina: 1,
+    });
+  };
+
+  const changeWarehousePage = (nextPage: number) => {
+    const page = Math.max(1, nextPage);
+    setWarehousePage(page);
+    void fetchWarehouseProducts({
+      busqueda: warehouseSearch,
+      pagina: page,
+    });
+  };
+
+  const openWarehouseImage = (item: (typeof warehouseProducts)[number]) => {
+    const src = resolvePosImageSrc(item.productoImagen);
+    if (!src) {
+      toast.error("Este producto no tiene imagen.");
+      return;
+    }
+    setWarehouseImagePreview({
+      src,
+      title: item.descripcion || item.productoNombre || item.productoCodigo,
+    });
+  };
+
+  const confirmStockInquiry = (
+    product: Pick<
+      PosCatalogProduct,
+      | "id"
+      | "baseProductId"
+      | "codigo"
+      | "nombre"
+      | "productoMarca"
+      | "unidadMedida"
+      | "cantidad"
+    >,
+    requestedQty: number,
+    onConfirm?: () => void,
+    onCancel?: () => void,
+  ) => {
+    openDialog({
+      title: "Sin stock suficiente",
+      content: (
+        <p className="text-sm text-slate-700">
+          No hay stock suficiente. ¿Desea consultar al almacén?
+        </p>
+      ),
+      confirmText: "Consultar",
+      cancelText: "Ignorar",
+      onConfirm: () => {
+        onConfirm?.();
+        void openStockInquiry(product, requestedQty);
+        focusSearchInput();
+      },
+      onCancel,
+    });
+  };
+
   const handleAddProduct = (product: PosCatalogProduct) => {
-    const productDisplayName = composeProductDisplayName(
-      product.nombre,
-      product.productoMarca,
-    );
     const available = Number(product.cantidad ?? 0);
     if (!Number.isFinite(available) || available <= 0) {
-      openDialog({
-        title: "Sin stock",
-        content: (
-          <p className="text-sm text-slate-700">
-            {productDisplayName} no tiene stock disponible. ¿Deseas agregarlo de
-            todos modos?
-          </p>
-        ),
-        confirmText: "Agregar",
-        cancelText: "Cancelar",
-        onConfirm: () => {
-          addProduct(product, 1);
-
-          focusSearchInput();
-        },
-      });
+      confirmStockInquiry(product, 1, () => addProduct(product, 1));
       return;
     }
 
     addProduct(product, 1);
+    if (1 > available) confirmStockInquiry(product, 1);
 
     focusSearchInput();
+  };
+
+  const openStockInquiry = async (
+    product: Pick<
+      PosCatalogProduct,
+      | "id"
+      | "baseProductId"
+      | "codigo"
+      | "nombre"
+      | "productoMarca"
+      | "unidadMedida"
+      | "cantidad"
+    >,
+    requestedQty: number,
+  ) => {
+    const storeStock = Math.max(0, toDecimal(product.cantidad));
+    const missingQty = Math.max(0, requestedQty - storeStock);
+    const productName = composeProductDisplayName(
+      product.nombre,
+      product.productoMarca,
+    );
+
+    setStockInquiry({
+      productName,
+      productCode: product.codigo,
+      unit: product.unidadMedida || "UNIDAD",
+      storeStock,
+      requestedQty,
+      missingQty,
+      rows: [],
+      loading: true,
+    });
+
+    const response = await apiRequest<
+      StockWarehousesResponse,
+      null,
+      StockWarehousesResponse
+    >({
+      url: buildApiUrl(
+        `/Productos/${Number(product.baseProductId ?? product.id)}/stock-almacenes?cantidad=${encodeURIComponent(
+          String(requestedQty),
+        )}&unidad=${encodeURIComponent(product.unidadMedida || "")}`,
+      ),
+      method: "GET",
+      fallback: { items: [] },
+    });
+    const nextStoreStock = toDecimal(response.stockTienda ?? storeStock);
+    const nextRequestedQty = toDecimal(response.cantidadPedido ?? requestedQty);
+    const nextMissingQty = Math.max(
+      0,
+      toDecimal(response.faltaCompletar ?? missingQty),
+    );
+    const unit = normalizeUnitLabel(product.unidadMedida);
+    const rows = (response.items ?? [])
+      .map((item): StockWarehouseRow => {
+        const stock = Math.max(0, toDecimal(item.stock));
+        return {
+          almacenNombre: safeTrim(item.almacenNombre) || "ALMACEN",
+          cantidad: Math.max(
+            0,
+            toDecimal(item.cantidad) || Math.min(nextMissingQty, stock),
+          ),
+          stock,
+          unidadMedida:
+            safeTrim(item.unidadMedida) || product.unidadMedida || "UNIDAD",
+        };
+      })
+      .filter((row) => row.stock > 0)
+      .filter((row) => !unit || normalizeUnitLabel(row.unidadMedida) === unit);
+
+    setStockInquiry((current) =>
+      current && current.productCode === product.codigo
+        ? {
+            ...current,
+            storeStock: nextStoreStock,
+            requestedQty: nextRequestedQty,
+            missingQty: nextMissingQty,
+            rows,
+            loading: false,
+          }
+        : current,
+    );
   };
 
   const catalogProducts = useMemo<PosCatalogProduct[]>(() => {
@@ -842,7 +1600,7 @@ const POSPage = () => {
           product.unidadMedida,
           variation,
         );
-        const variationImage = String(variation.unidadImagen ?? "").trim();
+        const variationImage = resolvePosImageSrc(variation.unidadImagen);
         const variationStock = deriveVariationStock(
           product.cantidad,
           product.unidadMedida,
@@ -942,7 +1700,32 @@ const POSPage = () => {
       return next;
     });
     updateQuantity(itemKey, desired);
+    if (desired > Math.max(0, Number(item.stock ?? 0))) {
+      confirmStockInquiry(
+        {
+          id: item.productId,
+          codigo: item.codigo,
+          nombre: item.nombre,
+          productoMarca: item.productoMarca,
+          unidadMedida: item.unidadMedida ?? "UNIDAD",
+          cantidad: item.stock ?? 0,
+        },
+        desired,
+        undefined,
+        () => clearCartItemQuantity(itemKey),
+      );
+    }
   };
+
+  function clearCartItemQuantity(itemKey: number) {
+    updateQuantity(itemKey, 0);
+    setQuantityDrafts((prev) => {
+      if (!(itemKey in prev)) return prev;
+      const next = { ...prev };
+      delete next[itemKey];
+      return next;
+    });
+  }
 
   const handleManualQuantity = (item: PosCartItem, value: string) => {
     if (!/^\d*\.?\d*$/.test(value)) return;
@@ -969,7 +1752,23 @@ const POSPage = () => {
     if (normalized === "" || Number.isNaN(parsed)) {
       updateQuantity(itemKey, 0);
     } else {
-      updateQuantity(itemKey, Math.max(0, parsed));
+      const desired = Math.max(0, parsed);
+      updateQuantity(itemKey, desired);
+      if (desired > Math.max(0, Number(item.stock ?? 0))) {
+        confirmStockInquiry(
+          {
+            id: item.productId,
+            codigo: item.codigo,
+            nombre: item.nombre,
+            productoMarca: item.productoMarca,
+            unidadMedida: item.unidadMedida ?? "UNIDAD",
+            cantidad: item.stock ?? 0,
+          },
+          desired,
+          undefined,
+          () => clearCartItemQuantity(itemKey),
+        );
+      }
     }
 
     setQuantityDrafts((prev) => {
@@ -1119,25 +1918,37 @@ const POSPage = () => {
 
   const renderCartPanel = ({ mobile = false }: { mobile?: boolean } = {}) => (
     <div
-      className={`bg-white rounded-xl shadow p-4 md:p-6 xl:p-4 ${mobile ? "h-full flex flex-col" : ""}`}
+      className={`bg-white rounded-xl shadow p-4 md:p-6 xl:p-4 flex flex-col ${mobile ? "h-full" : ""}`}
     >
-      <div className="flex items-center justify-between mb-3">
-        <div>
-          <h3 className="text-lg font-semibold text-slate-800 md:text-2xl xl:text-lg">Carrito</h3>
-          <p className="text-xs text-gray-500 md:text-sm xl:text-xs">Actualización en tiempo real</p>
-        </div>
+      <div className="order-2 mb-3 grid grid-cols-2 rounded-lg border border-slate-200 bg-slate-100 p-1">
         <button
-          className="flex items-center gap-2 text-sm text-slate-700 hover:text-slate-900 md:text-lg xl:text-sm"
-          onClick={confirmClear}
-          disabled={!items.length}
+          type="button"
+          className={`rounded-md px-3 py-2 text-sm font-semibold transition-colors ${
+            cartTab === "payment"
+              ? "bg-slate-800 text-white shadow-sm"
+              : "text-slate-600 hover:bg-white"
+          }`}
+          onClick={() => setCartTab("payment")}
         >
-          <RotateCcw className="h-4 w-4 md:h-5 md:w-5 xl:h-4 xl:w-4" />
-          Vaciar
+          Pago
+        </button>
+        <button
+          type="button"
+          className={`rounded-md px-3 py-2 text-sm font-semibold transition-colors ${
+            cartTab === "products"
+              ? "bg-slate-800 text-white shadow-sm"
+              : "text-slate-600 hover:bg-white"
+          }`}
+          onClick={() => setCartTab("products")}
+        >
+          Productos
         </button>
       </div>
 
       <div
-        className={`space-y-3 overflow-y-auto pr-1 ${
+        className={`order-4 mt-3 space-y-3 overflow-y-auto pr-1 ${
+          cartTab !== "products" ? "hidden" : ""
+        } ${
           mobile
             ? "flex-1 min-h-0 max-h-none"
             : "max-h-[min(56vh,520px)] md:max-h-[58vh]"
@@ -1151,7 +1962,9 @@ const POSPage = () => {
 
         {items.map((item) => {
           const isZeroOrNegative = (item.cantidad ?? 0) <= 0;
-          const isStockNegative = Number(item.stock ?? 0) < 0;
+          const stockValue = Number(item.stock ?? 0);
+          const isStockNegative =
+            stockValue < 0 || Number(item.cantidad ?? 0) > stockValue;
           const minPrice = getMinAllowedPrice(item);
           const highlightClass =
             isZeroOrNegative || isStockNegative
@@ -1183,6 +1996,25 @@ const POSPage = () => {
                       </span>
                     </p>
                   )}
+                  <button
+                    type="button"
+                    className="mt-1 text-left text-xs font-semibold text-blue-700 hover:text-blue-900 md:text-sm xl:text-xs"
+                    onClick={() =>
+                      void openStockInquiry(
+                        {
+                          id: item.productId,
+                          codigo: item.codigo,
+                          nombre: item.nombre,
+                          productoMarca: item.productoMarca,
+                          unidadMedida: item.unidadMedida ?? "UNIDAD",
+                          cantidad: item.stock ?? 0,
+                        },
+                        Number(item.cantidad ?? 0),
+                      )
+                    }
+                  >
+                    Consultar almacenes
+                  </button>
                 </div>
 
                 <div className="w-32 text-right md:w-40 xl:w-32">
@@ -1191,7 +2023,9 @@ const POSPage = () => {
                   </label>
 
                   <div className="mt-1 flex items-center gap-1">
-                    <span className="text-sm text-gray-500 md:text-base xl:text-sm">S/</span>
+                    <span className="text-sm text-gray-500 md:text-base xl:text-sm">
+                      S/
+                    </span>
                     <NavigableNumberInput
                       min={minPrice}
                       step="0.01"
@@ -1242,7 +2076,9 @@ const POSPage = () => {
 
                 <div className="flex items-center gap-3">
                   <div className="text-right">
-                    <p className="text-xs text-gray-500 md:text-sm xl:text-xs">Subtotal</p>
+                    <p className="text-xs text-gray-500 md:text-sm xl:text-xs">
+                      Subtotal
+                    </p>
                     <p
                       className={`text-base font-semibold md:text-xl xl:text-base ${
                         isZeroOrNegative ? "text-red-600" : "text-slate-800"
@@ -1265,14 +2101,553 @@ const POSPage = () => {
         })}
       </div>
 
-      <div className="mt-4 border-t pt-3 space-y-2">
+      <button
+        className={`order-4 mt-3 w-full items-center justify-center gap-2 rounded-lg bg-emerald-500 py-2.5 text-white transition-colors hover:bg-emerald-600 disabled:opacity-50 md:py-3 md:text-lg xl:py-2.5 xl:text-base ${
+          cartTab === "products" ? "inline-flex" : "hidden"
+        }`}
+        disabled={!items.length || isSubmittingQuickSale}
+        onClick={goToPayment}
+      >
+        {isSubmittingQuickSale ? (
+          <Loader2 className="w-5 h-5 animate-spin" />
+        ) : (
+          <CheckCircle2 className="w-5 h-5" />
+        )}
+        {isSubmittingQuickSale ? "Confirmando..." : "Confirmar"}
+      </button>
+
+      <div
+        className={`order-3 mt-4 rounded-xl border border-slate-200 bg-slate-50 p-3 ${
+          cartTab !== "payment" ? "hidden" : ""
+        } ${mobile ? "min-h-0 flex-1 overflow-y-auto" : ""}`}
+      >
+        <div className="mb-3 flex items-center justify-between gap-2">
+          <div>
+            <p className="text-sm font-semibold text-slate-800">
+              Datos de venta
+            </p>
+            <p className="text-xs text-slate-500">Se enviarán listos a pago</p>
+          </div>
+          <button
+            type="button"
+            className="inline-flex items-center gap-1 rounded-lg border border-slate-300 bg-white px-2 py-1 text-xs font-medium text-slate-700 hover:bg-slate-100"
+            onClick={() => navigate("/customers/create")}
+          >
+            <Plus className="h-3.5 w-3.5" />
+            Cliente
+          </button>
+        </div>
+
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-1 2xl:grid-cols-2">
+          <TextField
+            fullWidth
+            select
+            variant="outlined"
+            size="small"
+            label="Tipo de documento"
+            InputLabelProps={{ shrink: true }}
+            SelectProps={{ displayEmpty: true }}
+            value={saleSettings.docTypeCode}
+            onChange={(event) =>
+              handleSaleDocTypeChange(event.target.value as PosDocTypeCode)
+            }
+            sx={POS_PAYMENT_TEXT_FIELD_SX}
+          >
+            {POS_DOC_TYPE_OPTIONS.map((value) => (
+              <MenuItem key={value} value={value}>
+                {POS_DOC_TYPE_CONFIG[value].label}
+              </MenuItem>
+            ))}
+          </TextField>
+
+          <TextField
+            fullWidth
+            select
+            variant="outlined"
+            size="small"
+            label="Forma de pago"
+            InputLabelProps={{ shrink: true }}
+            SelectProps={{ displayEmpty: true }}
+            value={saleSettings.paymentMethod}
+            onChange={(event) =>
+              setSaleSettings((prev) => ({
+                ...prev,
+                paymentMethod: event.target.value as PosPaymentMethod,
+              }))
+            }
+            sx={POS_PAYMENT_TEXT_FIELD_SX}
+          >
+            {POS_PAYMENT_METHODS.map((option) => (
+              <MenuItem key={option.value} value={option.value}>
+                {option.label}
+              </MenuItem>
+            ))}
+          </TextField>
+
+          <Autocomplete
+            className="col-span-full"
+            fullWidth
+            size="small"
+            options={visibleSaleClientOptions}
+            value={selectedSaleClientValue}
+            inputValue={saleCustomerInput}
+            getOptionLabel={(option) => option?.label ?? ""}
+            isOptionEqualToValue={(option, value) =>
+              Number(option.id) === Number(value.id)
+            }
+            filterOptions={(options) => options}
+            onInputChange={(_, value, reason) => {
+              if (reason === "reset") return;
+              applySaleCustomerInput(value);
+            }}
+            onBlur={() => ensureExistingSaleCustomer(saleCustomerInput)}
+            onChange={(_, client) => {
+              if (!client) {
+                setSaleCustomerInput("");
+                setSaleSettings((prev) => ({
+                  ...prev,
+                  clienteId: null,
+                  customerName: "",
+                  customerId: "",
+                  customerRuc: "",
+                  customerDni: "",
+                  fiscalAddress: "",
+                  shippingAddress: "",
+                  phone: "",
+                }));
+                return;
+              }
+              setSaleCustomerInput(client.label);
+              setSaleSettings((prev) => ({
+                ...prev,
+                clienteId: client.id,
+                customerName: client.label,
+                ...customerFieldsFromClient(client, prev.docTypeCode),
+              }));
+            }}
+            renderInput={(params) => {
+              const inputProps =
+                params.inputProps as InputHTMLAttributes<HTMLInputElement>;
+              return (
+                <TextField
+                  {...params}
+                  variant="outlined"
+                  label="Nombre del cliente"
+                  placeholder="Seleccionar cliente"
+                  sx={POS_PAYMENT_TEXT_FIELD_SX}
+                  inputProps={{
+                    ...params.inputProps,
+                    name: "pos-sale-customer-name-autocomplete",
+                    "data-no-history-guard": "true",
+                    "data-no-uppercase": "true",
+                    "data-auto-next": "true",
+                    autoComplete: "one-time-code",
+                    autoCorrect: "off",
+                    autoCapitalize: "off",
+                    spellCheck: false,
+                    "aria-autocomplete": "none",
+                    "data-lpignore": "true",
+                    "data-1p-ignore": "true",
+                    "data-bwignore": "true",
+                    "data-form-type": "other",
+                    "data-autocomplete": "off",
+                    onInput: (event: FormEvent<HTMLInputElement>) => {
+                      inputProps.onInput?.(event);
+                      applySaleCustomerInput(event.currentTarget.value);
+                    },
+                  }}
+                />
+              );
+            }}
+          />
+
+          <Autocomplete
+            fullWidth
+            size="small"
+            freeSolo
+            options={saleDniOptions}
+            value={
+              saleDniOptions.find(
+                (option) => option.value === saleSettings.customerDni,
+              ) ?? null
+            }
+            inputValue={saleSettings.customerDni}
+            getOptionLabel={(option) =>
+              typeof option === "string" ? option : option.label
+            }
+            isOptionEqualToValue={(option, value) =>
+              option.value === value.value
+            }
+            onInputChange={(_, value, reason) => {
+              if (reason === "reset") return;
+              setSaleSettings((prev) => ({
+                ...prev,
+                customerDni: value,
+                customerId:
+                  prev.docTypeCode === "01" ? prev.customerRuc : value,
+                clienteId: null,
+              }));
+            }}
+            onChange={(_, option) => {
+              if (!option || typeof option === "string") return;
+              setSaleCustomerInput(option.client.label);
+              setSaleSettings((prev) => ({
+                ...prev,
+                clienteId: option.client.id,
+                customerName: option.client.label,
+                ...customerFieldsFromClient(option.client, prev.docTypeCode),
+                customerDni: option.value,
+                customerId:
+                  prev.docTypeCode === "01"
+                    ? safeTrim(option.client.ruc)
+                    : option.value,
+              }));
+            }}
+            renderInput={(params) => (
+              <TextField
+                {...params}
+                variant="outlined"
+                label="DNI"
+                placeholder="Número de DNI"
+                sx={POS_PAYMENT_TEXT_FIELD_SX}
+                inputProps={{
+                  ...params.inputProps,
+                  "data-no-uppercase": "true",
+                  "data-auto-next": "true",
+                  autoComplete: "one-time-code",
+                  autoCorrect: "off",
+                  autoCapitalize: "off",
+                  spellCheck: false,
+                }}
+              />
+            )}
+          />
+
+          <Autocomplete
+            fullWidth
+            size="small"
+            freeSolo
+            options={saleRucOptions}
+            value={
+              saleRucOptions.find(
+                (option) => option.value === saleSettings.customerRuc,
+              ) ?? null
+            }
+            inputValue={saleSettings.customerRuc}
+            getOptionLabel={(option) =>
+              typeof option === "string" ? option : option.label
+            }
+            isOptionEqualToValue={(option, value) =>
+              option.value === value.value
+            }
+            onInputChange={(_, value, reason) => {
+              if (reason === "reset") return;
+              setSaleSettings((prev) => ({
+                ...prev,
+                customerRuc: value,
+                customerId:
+                  prev.docTypeCode === "01" ? value : prev.customerDni,
+                clienteId: null,
+              }));
+            }}
+            onChange={(_, option) => {
+              if (!option || typeof option === "string") return;
+              setSaleCustomerInput(option.client.label);
+              setSaleSettings((prev) => ({
+                ...prev,
+                clienteId: option.client.id,
+                customerName: option.client.label,
+                ...customerFieldsFromClient(option.client, prev.docTypeCode),
+                customerRuc: option.value,
+                customerId:
+                  prev.docTypeCode === "01"
+                    ? option.value
+                    : safeTrim(option.client.dni),
+              }));
+            }}
+            renderInput={(params) => (
+              <TextField
+                {...params}
+                variant="outlined"
+                label="RUC"
+                placeholder="Número de RUC"
+                sx={POS_PAYMENT_TEXT_FIELD_SX}
+                inputProps={{
+                  ...params.inputProps,
+                  "data-no-uppercase": "true",
+                  "data-auto-next": "true",
+                  autoComplete: "one-time-code",
+                  autoCorrect: "off",
+                  autoCapitalize: "off",
+                  spellCheck: false,
+                }}
+              />
+            )}
+          />
+
+          <TextField
+            className="col-span-full"
+            fullWidth
+            variant="outlined"
+            size="small"
+            label="Dirección fiscal"
+            multiline
+            minRows={2}
+            value={saleSettings.fiscalAddress}
+            InputLabelProps={{ shrink: true }}
+            InputProps={{ readOnly: true }}
+            onChange={(event) =>
+              setSaleSettings((prev) => ({
+                ...prev,
+                fiscalAddress: event.target.value,
+              }))
+            }
+            sx={POS_PAYMENT_TEXT_FIELD_SX}
+          />
+
+          <TextField
+            fullWidth
+            variant="outlined"
+            className="col-span-full"
+            size="small"
+            label="Dirección despacho"
+            multiline
+            minRows={2}
+            value={saleSettings.shippingAddress}
+            InputLabelProps={{ shrink: true }}
+            onChange={(event) =>
+              setSaleSettings((prev) => ({
+                ...prev,
+                shippingAddress: event.target.value,
+              }))
+            }
+            sx={POS_PAYMENT_TEXT_FIELD_SX}
+          />
+
+          <TextField
+            fullWidth
+            variant="outlined"
+            className="col-span-full"
+            size="small"
+            label="Teléfono/Cel."
+            value={saleSettings.phone}
+            onChange={(event) =>
+              setSaleSettings((prev) => ({
+                ...prev,
+                phone: event.target.value,
+              }))
+            }
+            sx={POS_PAYMENT_TEXT_FIELD_SX}
+          />
+
+          {shouldShowSaleBankFields && (
+            <>
+              <TextField
+                fullWidth
+                select
+                variant="outlined"
+                size="small"
+                label="Entidad bancaria"
+                InputLabelProps={{ shrink: true }}
+                SelectProps={{ displayEmpty: true }}
+                value={saleSettings.bankEntity}
+                onChange={(event) =>
+                  setSaleSettings((prev) => ({
+                    ...prev,
+                    bankEntity: event.target.value,
+                  }))
+                }
+                sx={POS_PAYMENT_TEXT_FIELD_SX}
+              >
+                <MenuItem value="-">-</MenuItem>
+                <MenuItem value="BCP">BCP</MenuItem>
+                <MenuItem value="INTERBANK">INTERBANK</MenuItem>
+                <MenuItem value="CONTINENTAL">CONTINENTAL</MenuItem>
+              </TextField>
+
+              <TextField
+                fullWidth
+                variant="outlined"
+                size="small"
+                label="N° Operación"
+                value={saleSettings.nroOperacion}
+                onChange={(event) =>
+                  setSaleSettings((prev) => ({
+                    ...prev,
+                    nroOperacion: event.target.value,
+                  }))
+                }
+                sx={POS_PAYMENT_TEXT_FIELD_SX}
+              />
+            </>
+          )}
+        </div>
+
+        <div className="mt-3 flex flex-wrap items-center gap-3 border-t border-slate-200 pt-3 text-sm text-slate-700">
+          <label className="inline-flex items-center gap-2 font-medium">
+            <input
+              type="checkbox"
+              className="h-4 w-4 rounded accent-slate-700"
+              checked={saleSettings.applyDiscount}
+              onChange={(event) =>
+                setSaleSettings((prev) => ({
+                  ...prev,
+                  applyDiscount: event.target.checked,
+                  discount: event.target.checked ? prev.discount : "0",
+                }))
+              }
+            />
+            Aplica descuento
+          </label>
+          <div className="relative ml-auto w-36">
+            <TextField
+              type="number"
+              variant="outlined"
+              size="small"
+              label="Movilidad"
+              value={saleSettings.movementCost}
+              InputProps={{
+                startAdornment: (
+                  <InputAdornment position="start">S/</InputAdornment>
+                ),
+              }}
+              inputProps={{
+                min: 0,
+                max: roundCurrency(discountMaxFromSession),
+                step: "0.01",
+              }}
+              onChange={(event) =>
+                setSaleSettings((prev) => ({
+                  ...prev,
+                  movementCost: event.target.value,
+                }))
+              }
+              onFocus={(event) => event.currentTarget.select()}
+              onBlur={(event) => {
+                const normalized = roundCurrency(
+                  Math.max(0, toDecimal(event.currentTarget.value)),
+                );
+                setSaleSettings((prev) => ({
+                  ...prev,
+                  movementCost: String(normalized),
+                }));
+              }}
+              sx={{
+                ...POS_PAYMENT_TEXT_FIELD_SX,
+                "& input[type=number]": {
+                  MozAppearance: "textfield",
+                  textAlign: "right",
+                },
+                "& input[type=number]::-webkit-outer-spin-button, & input[type=number]::-webkit-inner-spin-button":
+                  {
+                    WebkitAppearance: "none",
+                    margin: 0,
+                  },
+              }}
+            />
+          </div>
+          {saleSettings.applyDiscount && (
+            <div className="relative w-36">
+              <TextField
+                type="number"
+                variant="outlined"
+                size="small"
+                label="Descuento"
+                value={saleSettings.discount}
+                InputProps={{
+                  startAdornment: (
+                    <InputAdornment position="start">S/</InputAdornment>
+                  ),
+                }}
+                inputProps={{
+                  min: 0,
+                  max: roundCurrency(discountMaxFromSession),
+                  step: "0.01",
+                }}
+                onChange={(event) =>
+                  setSaleSettings((prev) => ({
+                    ...prev,
+                    discount: event.target.value,
+                  }))
+                }
+                onFocus={(event) => event.currentTarget.select()}
+                onBlur={(event) => {
+                  const clamped = roundCurrency(
+                    Math.min(
+                      Math.max(0, toDecimal(event.currentTarget.value)),
+                      Math.max(0, Number(discountMaxFromSession ?? 0)),
+                      Math.max(0, Number(totals.total ?? 0)),
+                    ),
+                  );
+                  setSaleSettings((prev) => ({
+                    ...prev,
+                    discount: String(clamped),
+                  }));
+                }}
+                sx={{
+                  ...POS_PAYMENT_TEXT_FIELD_SX,
+                  "& input[type=number]": {
+                    MozAppearance: "textfield",
+                    textAlign: "right",
+                  },
+                  "& input[type=number]::-webkit-outer-spin-button, & input[type=number]::-webkit-inner-spin-button":
+                    {
+                      WebkitAppearance: "none",
+                      margin: 0,
+                    },
+                }}
+              />
+            </div>
+          )}
+        </div>
+      </div>
+
+      <div
+        className={`order-5 mt-4 border-t pt-3 space-y-2 ${
+          cartTab !== "payment" ? "hidden" : ""
+        }`}
+      >
         <div className="flex justify-between text-sm text-gray-700 md:text-lg xl:text-sm">
-          <span>Importe</span>
-          <span className="font-semibold">S/ {totals.subTotal.toFixed(2)}</span>
+          <span>Op. gravada</span>
+          <span className="font-semibold">S/ {saleGravada.toFixed(2)}</span>
+        </div>
+        {saleSettings.paymentMethod === "TARJETA" && (
+          <div className="flex justify-between text-sm text-gray-700 md:text-lg xl:text-sm">
+            <span>
+              Adicional {roundCurrency(cardPercentageFromSession).toFixed(2)}%
+            </span>
+            <span className="font-semibold">
+              S/ {saleCardAdditional.toFixed(2)}
+            </span>
+          </div>
+        )}
+        {saleMovementAmount > 0 && (
+          <div className="flex justify-between text-sm text-rose-700 md:text-lg xl:text-sm">
+            <span>Movilidad</span>
+            <span className="font-semibold">
+              S/ {saleMovementAmount.toFixed(2)}
+            </span>
+          </div>
+        )}
+        {saleDiscountAmount > 0 && (
+          <div className="flex justify-between text-sm text-rose-700 md:text-lg xl:text-sm">
+            <span>Descuento</span>
+            <span className="font-semibold">
+              - S/ {saleDiscountAmount.toFixed(2)}
+            </span>
+          </div>
+        )}
+        <div className="flex justify-between text-sm text-gray-700 md:text-lg xl:text-sm">
+          <span>Sub total</span>
+          <span className="font-semibold">S/ {saleGravada.toFixed(2)}</span>
+        </div>
+        <div className="flex justify-between text-sm text-gray-700 md:text-lg xl:text-sm">
+          <span>IGV (18%)</span>
+          <span className="font-semibold">S/ {saleIgvAmount.toFixed(2)}</span>
         </div>
         <div className="flex justify-between text-base font-bold text-slate-800 md:text-xl xl:text-base">
-          <span>Total</span>
-          <span>S/ {totals.total.toFixed(2)}</span>
+          <span>Total pago</span>
+          <span>S/ {saleTotalAmount.toFixed(2)}</span>
         </div>
         <button
           className="mt-3 inline-flex w-full items-center justify-center gap-2 rounded-lg bg-emerald-500 py-2.5 text-white transition-colors hover:bg-emerald-600 disabled:opacity-50 md:py-3 md:text-lg xl:py-2.5 xl:text-base"
@@ -1336,6 +2711,15 @@ const POSPage = () => {
                   Tabla
                 </button>
               </div>
+              <button
+                type="button"
+                className="inline-flex items-center gap-1 rounded-lg border border-slate-300 bg-white px-3 py-1 text-sm text-slate-700 hover:bg-slate-50"
+                onClick={openWarehouseProducts}
+                title="Ver productos de almacén"
+              >
+                <Warehouse className="w-4 h-4" />
+                Almacén
+              </button>
             </div>
             <button
               type="button"
@@ -1387,7 +2771,7 @@ const POSPage = () => {
                 {isCardsView ? (
                   <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 2xl:grid-cols-3">
                     {visibleProducts.map((product) => {
-                      const image = product.images?.[0];
+                      const image = resolvePosImageSrc(product.images?.[0]);
                       const stockValue = Number(product.cantidad ?? 0);
                       const isOutOfStock =
                         !Number.isFinite(stockValue) || stockValue <= 0;
@@ -1402,14 +2786,29 @@ const POSPage = () => {
                         >
                           <div className="aspect-video rounded-lg overflow-hidden bg-white border flex items-center justify-center">
                             {image ? (
-                              <img
-                                src={image}
-                                alt={composeProductDisplayName(
-                                  product.nombre,
-                                  product.productoMarca,
-                                )}
-                                className="w-full h-full object-contain"
-                              />
+                              <button
+                                type="button"
+                                className="h-full w-full cursor-zoom-in"
+                                onClick={() =>
+                                  setWarehouseImagePreview({
+                                    src: image,
+                                    title: composeProductDisplayName(
+                                      product.nombre,
+                                      product.productoMarca,
+                                    ),
+                                  })
+                                }
+                                title="Ver imagen"
+                              >
+                                <img
+                                  src={image}
+                                  alt={composeProductDisplayName(
+                                    product.nombre,
+                                    product.productoMarca,
+                                  )}
+                                  className="w-full h-full object-contain"
+                                />
+                              </button>
                             ) : (
                               <div className="text-sm text-gray-500">
                                 Sin imagen
@@ -1524,12 +2923,17 @@ const POSPage = () => {
             aria-label="Cerrar carrito"
             onClick={() => setMobileCartOpen(false)}
           />
-          <div className="absolute inset-x-0 bottom-0 h-[min(84vh,720px)] rounded-t-2xl bg-slate-100 p-3 shadow-2xl">
-            <div className="mx-auto mb-2 h-1.5 w-12 rounded-full bg-slate-300" />
+          <div className="absolute inset-0 bg-slate-100 p-3 shadow-2xl">
             <div className="mb-2 flex items-center justify-between px-1">
-              <p className="text-sm font-semibold text-slate-700 md:text-lg">
-                Resumen de carrito
-              </p>
+              <button
+                type="button"
+                className="inline-flex items-center gap-2 rounded-md px-2 py-1.5 text-sm text-slate-600 hover:bg-slate-200 disabled:opacity-50 md:text-base"
+                onClick={confirmClear}
+                disabled={!items.length}
+              >
+                <RotateCcw className="h-4 w-4 md:h-5 md:w-5" />
+                Vaciar
+              </button>
               <button
                 type="button"
                 className="inline-flex h-8 w-8 items-center justify-center rounded-md text-slate-600 hover:bg-slate-200 md:h-11 md:w-11"
@@ -1541,6 +2945,354 @@ const POSPage = () => {
             </div>
             <div className="h-[calc(100%-2.75rem)] pb-[max(env(safe-area-inset-bottom),0.5rem)]">
               {renderCartPanel({ mobile: true })}
+            </div>
+          </div>
+        </div>
+      )}
+      {stockInquiry && (
+        <div
+          className="fixed inset-0 z-[130] flex items-center justify-center bg-slate-950/55 p-3 backdrop-blur-[2px]"
+          onClick={() => setStockInquiry(null)}
+        >
+          <div
+            className="w-full max-w-3xl overflow-hidden rounded-lg border border-slate-200 bg-white shadow-2xl"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="flex items-start justify-between gap-3 border-b border-slate-200 bg-slate-50 px-4 py-3">
+              <div className="flex min-w-0 gap-3">
+                <div className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-slate-800 text-white">
+                  <Warehouse className="h-5 w-5" />
+                </div>
+                <div className="min-w-0">
+                  <p className="text-sm font-semibold text-slate-900">
+                    Stock en otros almacenes
+                  </p>
+                  <p className="truncate text-xs text-slate-500">
+                    {stockInquiry.productName}
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-slate-500 hover:bg-slate-200 hover:text-slate-800"
+                onClick={() => setStockInquiry(null)}
+                aria-label="Cerrar"
+                title="Cerrar"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+            <div className="space-y-4 p-4">
+              <div className="grid gap-3 sm:grid-cols-3">
+                <div className="rounded-md border border-slate-200 bg-slate-50 p-3">
+                  <p className="text-xs font-medium text-slate-500">
+                    Stock tienda
+                  </p>
+                  <p className="mt-1 text-2xl font-semibold text-slate-900">
+                    {stockInquiry.storeStock.toFixed(2)}
+                  </p>
+                  <p className="text-xs text-slate-500">{stockInquiry.unit}</p>
+                </div>
+                <div className="rounded-md border border-amber-200 bg-amber-50 p-3">
+                  <p className="text-xs font-medium text-amber-700">
+                    Pedido total
+                  </p>
+                  <p className="mt-1 text-2xl font-semibold text-amber-900">
+                    {stockInquiry.requestedQty.toFixed(2)}
+                  </p>
+                  <p className="text-xs text-amber-700">{stockInquiry.unit}</p>
+                </div>
+                <div className="rounded-md border border-rose-200 bg-rose-50 p-3">
+                  <p className="text-xs font-medium text-rose-700">
+                    Falta completar
+                  </p>
+                  <p className="mt-1 text-2xl font-semibold text-rose-900">
+                    {stockInquiry.missingQty.toFixed(2)}
+                  </p>
+                  <p className="text-xs text-rose-700">{stockInquiry.unit}</p>
+                </div>
+              </div>
+
+              <div className="overflow-hidden rounded-md border border-slate-200">
+                <div className="max-h-72 overflow-auto">
+                  <table className="w-full min-w-[560px] text-sm">
+                    <thead className="sticky top-0 bg-slate-100 text-xs uppercase text-slate-500">
+                      <tr className="text-left">
+                        <th className="px-3 py-2 font-semibold">Almacén</th>
+                        <th className="px-3 py-2 text-right font-semibold">
+                          Cantidad
+                        </th>
+                        <th className="px-3 py-2 text-right font-semibold">
+                          Stock
+                        </th>
+                        <th className="px-3 py-2 font-semibold">UM</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100 bg-white text-slate-800">
+                      {stockInquiry.loading ? (
+                        <tr>
+                          <td className="px-3 py-8 text-center" colSpan={4}>
+                            <div className="inline-flex items-center gap-2 text-slate-500">
+                              <Loader2 className="h-4 w-4 animate-spin" />
+                              Consultando almacenes...
+                            </div>
+                          </td>
+                        </tr>
+                      ) : stockInquiry.rows.length ? (
+                        stockInquiry.rows.map((row) => (
+                          <tr
+                            key={`${row.almacenNombre}-${row.unidadMedida}`}
+                            className="hover:bg-slate-50"
+                          >
+                            <td className="px-3 py-2 font-medium">
+                              {row.almacenNombre}
+                            </td>
+                            <td className="px-3 py-2 text-right font-semibold text-emerald-700">
+                              {row.cantidad.toFixed(2)}
+                            </td>
+                            <td className="px-3 py-2 text-right">
+                              {row.stock.toFixed(2)}
+                            </td>
+                            <td className="px-3 py-2">{row.unidadMedida}</td>
+                          </tr>
+                        ))
+                      ) : (
+                        <tr>
+                          <td
+                            className="px-3 py-8 text-center text-slate-500"
+                            colSpan={4}
+                          >
+                            No se encontró stock en otros almacenes.
+                          </td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+                <div className="flex flex-col gap-2 border-t border-slate-200 bg-slate-50 px-3 py-3 text-sm text-slate-600 sm:flex-row sm:items-center sm:justify-between">
+                  <span>{stockInquiry.rows.length} almacenes disponibles</span>
+                  <div className="flex items-center gap-2 font-semibold text-slate-800">
+                    <span>Cant. total</span>
+                    <span className="rounded-md bg-slate-800 px-3 py-1 text-base text-white">
+                      {(
+                        stockInquiry.storeStock +
+                        stockInquiry.rows.reduce(
+                          (sum, row) => sum + row.stock,
+                          0,
+                        )
+                      ).toFixed(2)}
+                    </span>
+                    <span>{stockInquiry.unit}</span>
+                  </div>
+                </div>
+              </div>
+              <div className="flex justify-end">
+                <button
+                  type="button"
+                  className="rounded-md bg-slate-800 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-900"
+                  onClick={() => setStockInquiry(null)}
+                >
+                  Cerrar
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+      {warehouseModalOpen && (
+        <div
+          className="fixed inset-0 z-[125] flex items-center justify-center bg-slate-950/55 p-3 backdrop-blur-[2px]"
+          onClick={() => setWarehouseModalOpen(false)}
+        >
+          <div
+            className="flex max-h-[86vh] w-full max-w-5xl flex-col overflow-hidden rounded-lg border border-slate-200 bg-white shadow-2xl"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="flex items-start justify-between gap-3 border-b border-slate-200 bg-slate-50 px-4 py-3">
+              <div className="flex min-w-0 gap-3">
+                <div className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-slate-800 text-white">
+                  <Warehouse className="h-5 w-5" />
+                </div>
+                <div className="min-w-0">
+                  <p className="text-sm font-semibold text-slate-900">
+                    Productos de almacén
+                  </p>
+                  <p className="text-xs text-slate-500">
+                    Stock disponible por almacén y unidad de medida
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-slate-500 hover:bg-slate-200 hover:text-slate-800"
+                onClick={() => setWarehouseModalOpen(false)}
+                aria-label="Cerrar"
+                title="Cerrar"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            <div className="flex min-h-0 flex-1 flex-col gap-3 p-4">
+              <form
+                className="flex flex-col gap-2 sm:flex-row"
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  searchWarehouseProducts();
+                }}
+              >
+                <input
+                  value={warehouseSearch}
+                  onChange={(event) => setWarehouseSearch(event.target.value)}
+                  placeholder="Buscar por código, producto o almacén"
+                  className="h-10 flex-1 rounded-lg border border-slate-300 px-3 text-sm outline-none focus:border-slate-500 focus:ring-2 focus:ring-slate-100"
+                />
+                <button
+                  type="submit"
+                  className="rounded-lg bg-slate-800 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-900"
+                >
+                  Buscar
+                </button>
+              </form>
+
+              <div className="min-h-0 flex-1 overflow-hidden rounded-md border border-slate-200">
+                <div className="max-h-[52vh] overflow-auto">
+                  <table className="w-full min-w-[860px] text-sm">
+                    <thead className="sticky top-0 bg-slate-100 text-xs uppercase text-slate-500">
+                      <tr className="text-left">
+                        <th className="px-3 py-2 font-semibold">Código</th>
+                        <th className="px-3 py-2 font-semibold">Producto</th>
+                        <th className="px-3 py-2 text-right font-semibold">
+                          Cantidad
+                        </th>
+                        <th className="px-3 py-2 font-semibold">UM</th>
+                        <th className="px-3 py-2 text-right font-semibold">
+                          P. Venta S/
+                        </th>
+                        <th className="px-3 py-2 text-right font-semibold">
+                          Acción
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100 bg-white text-slate-800">
+                      {warehouseLoading ? (
+                        <tr>
+                          <td className="px-3 py-8 text-center" colSpan={7}>
+                            <div className="inline-flex items-center gap-2 text-slate-500">
+                              <Loader2 className="h-4 w-4 animate-spin" />
+                              Cargando productos...
+                            </div>
+                          </td>
+                        </tr>
+                      ) : warehouseProducts.length ? (
+                        warehouseProducts.map((item) => (
+                          <tr
+                            key={`${item.idStock}-${item.productoUM}`}
+                            className="hover:bg-slate-50"
+                          >
+                            <td className="px-3 py-2">{item.productoCodigo}</td>
+                            <td className="px-3 py-2">
+                              <div className="font-medium">
+                                {item.descripcion}
+                              </div>
+                              {item.productoUbicacion && (
+                                <div className="text-xs text-slate-500">
+                                  {item.productoUbicacion}
+                                </div>
+                              )}
+                            </td>
+                            <td className="px-3 py-2 text-right font-semibold text-emerald-700">
+                              {item.cantidad.toFixed(2)}
+                            </td>
+                            <td className="px-3 py-2">{item.productoUM}</td>
+                            <td className="px-3 py-2 text-right">
+                              {formatPrice(item.productoVenta)}
+                            </td>
+                            <td className="px-3 py-2 text-right">
+                              <button
+                                type="button"
+                                className="inline-flex items-center gap-1 rounded-md bg-slate-800 px-3 py-1.5 text-xs font-semibold text-white hover:bg-slate-900"
+                                onClick={() => openWarehouseImage(item)}
+                              >
+                                <Eye className="h-3.5 w-3.5" />
+                                Imagen
+                              </button>
+                            </td>
+                          </tr>
+                        ))
+                      ) : (
+                        <tr>
+                          <td
+                            className="px-3 py-8 text-center text-slate-500"
+                            colSpan={7}
+                          >
+                            No se encontraron productos de almacén.
+                          </td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              <div className="flex flex-col gap-2 text-sm text-slate-600 sm:flex-row sm:items-center sm:justify-between">
+                <span>
+                  {warehouseProducts.length} de{" "}
+                  {warehousePagination.totalRegistros} resultados
+                </span>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    className="rounded-md border border-slate-300 px-3 py-1.5 hover:bg-slate-50 disabled:opacity-50"
+                    disabled={warehousePage <= 1 || warehouseLoading}
+                    onClick={() => changeWarehousePage(warehousePage - 1)}
+                  >
+                    Anterior
+                  </button>
+                  <span>Página {warehousePage}</span>
+                  <button
+                    type="button"
+                    className="rounded-md border border-slate-300 px-3 py-1.5 hover:bg-slate-50 disabled:opacity-50"
+                    disabled={!warehousePagination.hasMore || warehouseLoading}
+                    onClick={() => changeWarehousePage(warehousePage + 1)}
+                  >
+                    Siguiente
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+      {warehouseImagePreview && (
+        <div
+          className="fixed inset-0 z-[140] flex items-center justify-center bg-slate-950/70 p-4 backdrop-blur-[2px]"
+          onClick={() => setWarehouseImagePreview(null)}
+        >
+          <div
+            className="w-full max-w-3xl overflow-hidden rounded-lg bg-white shadow-2xl"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="flex items-center justify-between gap-3 border-b border-slate-200 px-4 py-3">
+              <p className="truncate text-sm font-semibold text-slate-900">
+                {warehouseImagePreview.title}
+              </p>
+              <button
+                type="button"
+                className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-slate-500 hover:bg-slate-100 hover:text-slate-800"
+                onClick={() => setWarehouseImagePreview(null)}
+                aria-label="Cerrar imagen"
+                title="Cerrar"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+            <div className="flex max-h-[76vh] items-center justify-center bg-slate-100 p-3">
+              <img
+                src={warehouseImagePreview.src}
+                alt={warehouseImagePreview.title}
+                className="max-h-[72vh] max-w-full rounded-md object-contain"
+              />
             </div>
           </div>
         </div>

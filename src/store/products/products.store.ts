@@ -3,6 +3,7 @@ import { API_BASE_URL, PRODUCT_IMAGE_BASE_URL } from "@/config";
 import { apiRequest } from "@/shared/helpers/apiRequest";
 import type { Product } from "@/types/product";
 import type { ProductUnitOption } from "@/types/product";
+import type { ProductWarehouseItem } from "@/types/product";
 
 interface ApiProduct {
   idProducto?: number;
@@ -21,12 +22,15 @@ interface ApiProduct {
   productoVenta?: number | string | null;
   productoVentaB?: number | string | null;
   productoCantidad?: number | string | null;
+  almacenNombre?: string | null;
+  productoUbicacion?: string | null;
   productoObs?: string | null;
   productoEstado?: string | null;
   productoUsuario?: string | null;
   productoFecha?: string | null;
   productoImagen?: string | null;
   valorCritico?: number | null;
+  maxCantVen?: number | string | null;
   aplicaTC?: string | null;
   fechaVencimiento?: string | null;
   aplicaFechaV?: boolean | null;
@@ -44,6 +48,13 @@ interface FetchCatalogProductsParams {
   append?: boolean;
 }
 
+interface FetchWarehouseProductsParams {
+  almacenId?: number | null;
+  busqueda?: string;
+  pagina?: number;
+  tamanoPagina?: number;
+}
+
 interface CatalogPaginationState {
   pagina: number;
   tamanoPagina: number;
@@ -53,10 +64,14 @@ interface CatalogPaginationState {
 
 interface ProductsState {
   products: Product[];
+  warehouseProducts: ProductWarehouseItem[];
   loading: boolean;
+  warehouseLoading: boolean;
   catalogPagination: CatalogPaginationState;
+  warehousePagination: CatalogPaginationState;
   fetchProducts: (estado?: "ACTIVO" | "INACTIVO" | "") => Promise<void>;
   fetchCatalogProducts: (params?: FetchCatalogProductsParams) => Promise<void>;
+  fetchWarehouseProducts: (params?: FetchWarehouseProductsParams) => Promise<void>;
   resetCatalogProducts: () => void;
   addProduct: (
     product: Omit<Product, "id"> & {
@@ -151,7 +166,7 @@ const toImageFileName = (value: unknown) => {
 const normalizePersistedImageSegment = (value: unknown) => {
   return toImageFileName(value);
 };
-const normalizeProductImageUrl = (value: unknown) => {
+export const resolveProductImageUrl = (value: unknown) => {
   const normalized = normalizeSegment(value);
   if (!normalized) return "";
   if (/^(https?:|blob:|data:)/i.test(normalized)) return normalized;
@@ -159,7 +174,7 @@ const normalizeProductImageUrl = (value: unknown) => {
   const fileName = toImageFileName(normalized);
   if (!fileName) return "";
 
-  const uncMatch = normalized.match(/^\\\\([^\\]+)\\/);
+  const uncMatch = normalized.match(/^\\+([^\\]+)\\/);
   const baseUrl = uncMatch
     ? `http://${uncMatch[1]}:8082`
     : PRODUCT_IMAGE_BASE_URL;
@@ -341,7 +356,7 @@ const mapApiToProduct = (item: ApiProduct): Product => {
   // Soporta variantes de payload sin romper el catalogo.
   // Algunos backends envian "marca" en lugar de "productoMarca".
   const raw = item as Record<string, unknown>;
-  const productImage = normalizeProductImageUrl(item.productoImagen);
+  const productImage = resolveProductImageUrl(item.productoImagen);
   const marca = String(
     item.productoMarca ?? raw.marca ?? raw.Marca ?? "",
   ).trim();
@@ -363,6 +378,9 @@ const mapApiToProduct = (item: ApiProduct): Product => {
     preVenta: toNumberValue(item.productoVenta, 0),
     aplicaINV: String(item.aplicaINV ?? "").toUpperCase() === "N" ? "N" : "S",
     cantidad: toNumberValue(item.productoCantidad, 0),
+    almacenNombre: item.almacenNombre ?? undefined,
+    productoUbicacion: item.productoUbicacion ?? undefined,
+    maxCantVen: item.maxCantVen ?? undefined,
     usuario: item.productoUsuario ?? "",
     estado: normalizeEstado(item.productoEstado),
     images: productImage ? [productImage] : [],
@@ -377,7 +395,7 @@ const mapApiToUnitOption = (item: ApiProduct): ProductUnitOption => {
     rawItem.valorUM ?? rawItem.factor ?? rawItem.ValorUM ?? rawItem.Factor,
     0,
   );
-  const unidadImagen = normalizeProductImageUrl(
+  const unidadImagen = resolveProductImageUrl(
     rawItem.unidadImagen ??
       rawItem.UnidadImagen ??
       item.unidadImagen ??
@@ -397,6 +415,33 @@ const mapApiToUnitOption = (item: ApiProduct): ProductUnitOption => {
     unidadImagen: unidadImagen || undefined,
   };
 };
+
+const mapApiToWarehouseProduct = (
+  item: Record<string, unknown>,
+): ProductWarehouseItem => ({
+  totalRegistros: toNumberValue(item.totalRegistros, 0),
+  idStock: toNumberValue(item.idStock, 0),
+  almacenId: toNumberValue(item.almacenId, 0),
+  almacenNombre: normalizeSegment(item.almacenNombre),
+  idProducto: toNumberValue(item.idProducto, 0),
+  productoCodigo: normalizeSegment(item.productoCodigo),
+  productoNombre: normalizeSegment(item.productoNombre),
+  productoMarca: normalizeSegment(item.productoMarca) || undefined,
+  descripcion: normalizeSegment(item.descripcion),
+  cantidad: toNumberValue(item.cantidad, 0),
+  productoUM: normalizeSegment(item.productoUM),
+  productoVenta: toNumberValue(item.productoVenta, 0),
+  productoVentaB: toNumberValue(item.productoVentaB, 0),
+  precioCosto: toNumberValue(item.precioCosto, 0),
+  valorUM: toNumberValue(item.valorUM, 0),
+  valorCritico: toNumberValue(item.valorCritico, 0),
+  productoImagen: resolveProductImageUrl(item.productoImagen) || undefined,
+  productoUbicacion: normalizeSegment(item.productoUbicacion) || undefined,
+  usuario: normalizeSegment(item.usuario) || undefined,
+  fechaEdicion: normalizeSegment(item.fechaEdicion) || undefined,
+  inversion: toNumberValue(item.inversion, 0),
+  esUnidadAlterna: Boolean(item.esUnidadAlterna),
+});
 
 const groupProductsByHeader = (items: ApiProduct[]): Product[] => {
   if (!items.length) return [];
@@ -699,8 +744,16 @@ const toSavedApiProduct = (
 
 export const useProductsStore = create<ProductsState>((set) => ({
   products: [],
+  warehouseProducts: [],
   loading: false,
+  warehouseLoading: false,
   catalogPagination: {
+    pagina: 1,
+    tamanoPagina: CATALOG_DEFAULT_PAGE_SIZE,
+    totalRegistros: 0,
+    hasMore: false,
+  },
+  warehousePagination: {
     pagina: 1,
     tamanoPagina: CATALOG_DEFAULT_PAGE_SIZE,
     totalRegistros: 0,
@@ -805,6 +858,55 @@ export const useProductsStore = create<ProductsState>((set) => ({
     } catch (error) {
       console.error("Error loading paginated products", error);
       set({ loading: false });
+    }
+  },
+
+  fetchWarehouseProducts: async ({
+    almacenId = null,
+    busqueda = "",
+    pagina = 1,
+    tamanoPagina = CATALOG_DEFAULT_PAGE_SIZE,
+  } = {}) => {
+    set({ warehouseLoading: true });
+    const normalizedPage = toPositiveInt(pagina, 1);
+    const normalizedPageSize = normalizeCatalogPageSize(tamanoPagina);
+
+    try {
+      const params = new URLSearchParams({
+        pagina: String(normalizedPage),
+        tamanoPagina: String(normalizedPageSize),
+      });
+      const normalizedBusqueda = String(busqueda ?? "").trim();
+      if (normalizedBusqueda) params.set("busqueda", normalizedBusqueda);
+      if (Number(almacenId ?? 0) > 0) params.set("almacenId", String(almacenId));
+
+      const response = await apiRequest<unknown>({
+        url: `${baseUrl}/almacen-productos?${params.toString()}`,
+        method: "GET",
+        fallback: [],
+      });
+      const rawItems = Array.isArray(response)
+        ? (response as Record<string, unknown>[])
+        : [];
+      const items = rawItems.map(mapApiToWarehouseProduct);
+      const totalRegistros = Math.max(
+        ...items.map((item) => item.totalRegistros ?? 0),
+        items.length,
+      );
+
+      set({
+        warehouseProducts: items,
+        warehousePagination: {
+          pagina: normalizedPage,
+          tamanoPagina: normalizedPageSize,
+          totalRegistros,
+          hasMore: normalizedPage * normalizedPageSize < totalRegistros,
+        },
+        warehouseLoading: false,
+      });
+    } catch (error) {
+      console.error("Error loading warehouse products", error);
+      set({ warehouseLoading: false });
     }
   },
 

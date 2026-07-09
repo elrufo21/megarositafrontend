@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { PosCartItem, PosTotals } from "@/types/pos";
 import { generateTicketQrBase64 } from "@/components/ticketQr";
 
@@ -7,6 +7,7 @@ type TicketHTMLProps = {
   clientId?: string;
   clientAddress?: string;
   docType?: "boleta" | "factura" | "proforma";
+  documentTitle?: string;
   paymentMethod?: string;
   items?: PosCartItem[];
   totals?: PosTotals;
@@ -216,6 +217,7 @@ const TicketHTML = ({
   clientId,
   clientAddress,
   docType = "boleta",
+  documentTitle,
   paymentMethod,
   items,
   totals,
@@ -328,7 +330,7 @@ const TicketHTML = ({
         docType === "factura"
           ? "FACTURA ELECTRONICA"
           : docType === "proforma"
-            ? "PROFORMA DE VENTA"
+            ? documentTitle?.trim() || "PROFORMA"
             : "BOLETA DE VENTA ELECTRONICA",
       documentNumber: documentNumber || "",
       emissionDate,
@@ -376,6 +378,7 @@ const TicketHTML = ({
     clientAddress,
     clientName,
     docType,
+    documentTitle,
     documentNumber,
     noteId,
     items,
@@ -740,13 +743,5 @@ const TicketHTML = ({
     </div>
   );
 };
-
-// ─── Print helper ─────────────────────────────────────────────────────────────
-// Llama a esto desde tu botón de imprimir:
-//
-//   import { printTicket } from "./TicketHTML";
-//   <button onClick={printTicket}>Imprimir</button>
-//
-export const printTicket = () => window.print();
 
 export default TicketHTML;

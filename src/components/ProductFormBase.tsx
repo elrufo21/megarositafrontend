@@ -15,7 +15,10 @@ import { focusFirstInput } from "@/shared/helpers/focusFirstInput";
 import { focusNextInput } from "@/shared/helpers/focusNextInput";
 import { useMaintenanceStore } from "@/store/maintenance/maintenance.store";
 import { useDialogStore } from "@/store/app/dialog.store";
-import { useProductsStore } from "@/store/products/products.store";
+import {
+  resolveProductImageUrl,
+  useProductsStore,
+} from "@/store/products/products.store";
 import { useAuthStore } from "@/store/auth/auth.store";
 import { HookForm } from "@/components/forms/HookForm";
 import { HookFormInput } from "@/components/forms/HookFormInput";
@@ -986,7 +989,7 @@ export default function ProductFormBase({
   const isServiceProduct = aplicaINV === "N";
   const placeholderImage =
     "data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='400' height='400'><rect width='100%' height='100%' fill='%23f3f4f6'/><text x='50%' y='50%' dominant-baseline='middle' text-anchor='middle' fill='%239ca3af' font-size='20' font-family='Arial, sans-serif'>No image</text></svg>";
-  const currentImage = (watch("images")?.[0] ?? "").trim();
+  const currentImage = resolveProductImageUrl(watch("images")?.[0]);
   const displayImage = currentImage !== "" ? currentImage : placeholderImage;
   const hasImage = currentImage !== "";
   const unidadAlternaActual = normalizeUnitLabel(watch("unidadAlterna"));

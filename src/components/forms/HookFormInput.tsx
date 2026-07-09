@@ -5,7 +5,7 @@ import type {
   KeyboardEvent,
   ReactNode,
 } from "react";
-import { useRef } from "react";
+import { useId, useRef } from "react";
 import type { FieldValues, Path, RegisterOptions } from "react-hook-form";
 import { Controller, useFormContext } from "react-hook-form";
 import TextField from "@mui/material/TextField";
@@ -65,12 +65,10 @@ export function HookFormInput<T extends FieldValues>({
   const isAuthAutoCompleteField =
     explicitAutoComplete === "username" ||
     explicitAutoComplete === "current-password";
-  const maskedNameRef = useRef(
-    `sgo_${Math.random().toString(36).slice(2, 14)}`,
-  );
+  const maskedName = `sgo_${useId().replace(/:/g, "_")}`;
   const resolvedDomName = isAuthAutoCompleteField
     ? String(name)
-    : maskedNameRef.current;
+    : maskedName;
   const shouldMaskPassword = normalizedType === "password";
   const resolvedInputType = shouldMaskPassword ? "text" : type;
   const resolvedAutoComplete =

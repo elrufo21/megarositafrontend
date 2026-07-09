@@ -7,6 +7,38 @@
     <meta name="google" content="notranslate" />
     <meta http-equiv="Content-Language" content="es" />
     <title>sgo</title>
+    <script>
+      (() => {
+        const fix = (value) => {
+          const raw = String(value ?? "").trim();
+          if (!raw || /^(https?:|blob:|data:)/i.test(raw)) return value;
+          const match = raw.match(/^\\+([^\\]+)\\.*\\([^\\]+)$/);
+          return match
+            ? `http://${match[1]}:8082/${encodeURIComponent(match[2])}`
+            : value;
+        };
+        const src = Object.getOwnPropertyDescriptor(HTMLImageElement.prototype, "src");
+        if (src?.set) {
+          Object.defineProperty(HTMLImageElement.prototype, "src", {
+            get: src.get,
+            set(value) {
+              src.set.call(this, fix(value));
+            },
+            configurable: true,
+          });
+        }
+        const setAttribute = Element.prototype.setAttribute;
+        Element.prototype.setAttribute = function (name, value) {
+          return setAttribute.call(
+            this,
+            name,
+            this.tagName === "IMG" && String(name).toLowerCase() === "src"
+              ? fix(value)
+              : value,
+          );
+        };
+      })();
+    </script>
   </head>
   <body class="notranslate">
     <div id="root" class="notranslate"></div>

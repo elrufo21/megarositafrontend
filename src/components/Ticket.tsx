@@ -7,7 +7,7 @@ import {
   Image,
 } from "@react-pdf/renderer";
 
-import React, { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { PosCartItem, PosTotals } from "@/types/pos";
 import { generateTicketQrBase64 } from "@/components/ticketQr";
 
@@ -21,6 +21,7 @@ type TicketDocumentProps = {
   clientAddress?: string;
   notaUsuario?: string;
   docType?: "boleta" | "factura" | "proforma";
+  documentTitle?: string;
   paymentMethod?: string;
   items?: PosCartItem[];
   totals?: PosTotals;
@@ -623,6 +624,7 @@ const TicketDocument = ({
   clientAddress,
   notaUsuario,
   docType = "boleta",
+  documentTitle,
   paymentMethod,
   items,
   totals,
@@ -780,7 +782,7 @@ const TicketDocument = ({
         docType === "factura"
           ? "FACTURA ELECTRONICA"
           : docType === "proforma"
-            ? "PROFORMA DE VENTA"
+            ? documentTitle?.trim() || "PROFORMA"
             : "BOLETA DE VENTA ELECTRONICA",
       documentNumber: documentNumber || "",
       emissionDate,
@@ -834,6 +836,7 @@ const TicketDocument = ({
     clientName,
     notaUsuario,
     docType,
+    documentTitle,
     documentNumber,
     noteId,
     items,
