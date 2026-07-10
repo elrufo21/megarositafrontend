@@ -1882,13 +1882,26 @@ const POSPage = () => {
   };
 
   const openWarehouseProducts = () => {
+    const initialSearch = searchTerm.trim();
     setWarehouseModalOpen(true);
-    warehouseLastSearchValueRef.current = warehouseSearch;
+    setWarehouseSearch(initialSearch);
+    warehouseLastSearchValueRef.current = initialSearch;
     setWarehousePage(1);
     void fetchWarehouseProducts({
-      busqueda: warehouseSearch,
+      busqueda: initialSearch,
       pagina: 1,
     });
+  };
+
+  const closeWarehouseProducts = () => {
+    if (warehouseSearchTimeoutRef.current !== null) {
+      window.clearTimeout(warehouseSearchTimeoutRef.current);
+      warehouseSearchTimeoutRef.current = null;
+    }
+    warehouseLastSearchValueRef.current = "";
+    setWarehouseSearch("");
+    setWarehousePage(1);
+    setWarehouseModalOpen(false);
   };
 
   const searchWarehouseProducts = () => {
@@ -2417,16 +2430,33 @@ const POSPage = () => {
             Productos
           </button>
         </div>
-        <button
-          type="button"
-          className={`${mobile ? "hidden" : "inline-flex"} shrink-0 items-center justify-center gap-1 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm font-semibold text-red-700 transition-colors hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-50`}
-          disabled={!items.length || isSubmittingQuickSale}
-          onClick={confirmClear}
-          title="Vaciar carrito"
-        >
-          <Trash2 className="h-4 w-4" />
-          Vaciar
-        </button>
+        {cartTab === "payment" ? (
+          <button
+            type="button"
+            className={`${mobile ? "hidden" : "inline-flex"} shrink-0 items-center justify-center gap-1 rounded-lg bg-emerald-500 px-3 py-2 text-sm font-semibold text-white transition-colors hover:bg-emerald-600 disabled:cursor-not-allowed disabled:opacity-50`}
+            disabled={!items.length || isSubmittingQuickSale}
+            onClick={goToPayment}
+            title="Confirmar"
+          >
+            {isSubmittingQuickSale ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <CheckCircle2 className="h-4 w-4" />
+            )}
+            Confirmar
+          </button>
+        ) : (
+          <button
+            type="button"
+            className={`${mobile ? "hidden" : "inline-flex"} shrink-0 items-center justify-center gap-1 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm font-semibold text-red-700 transition-colors hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-50`}
+            disabled={!items.length || isSubmittingQuickSale}
+            onClick={confirmClear}
+            title="Vaciar carrito"
+          >
+            <Trash2 className="h-4 w-4" />
+            Vaciar
+          </button>
+        )}
       </div>
 
       <div
@@ -3641,7 +3671,7 @@ const POSPage = () => {
       {warehouseModalOpen && (
         <div
           className="fixed inset-0 z-[125] flex items-center justify-center bg-slate-950/55 p-3 backdrop-blur-[2px]"
-          onClick={() => setWarehouseModalOpen(false)}
+          onClick={closeWarehouseProducts}
         >
           <div
             className="flex h-[86vh] w-full max-w-5xl flex-col overflow-hidden rounded-lg border border-slate-200 bg-white shadow-2xl"
@@ -3664,7 +3694,7 @@ const POSPage = () => {
               <button
                 type="button"
                 className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-slate-500 hover:bg-slate-200 hover:text-slate-800"
-                onClick={() => setWarehouseModalOpen(false)}
+                onClick={closeWarehouseProducts}
                 aria-label="Cerrar"
                 title="Cerrar"
               >
@@ -3783,7 +3813,8 @@ const POSPage = () => {
               <div className="flex flex-col gap-2 text-sm text-slate-600 sm:flex-row sm:items-center sm:justify-between">
                 <span>
                   {warehouseProducts.length} de{" "}
-                  {warehousePagination.totalRegistros} resultados
+                  {warehousePagination.totalRegistros.toLocaleString("en-US")}{" "}
+                  resultados
                 </span>
                 <div className="flex items-center gap-2">
                   <button
