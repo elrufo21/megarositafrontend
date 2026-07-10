@@ -2392,28 +2392,40 @@ const POSPage = () => {
     <div
       className={`bg-white rounded-xl shadow p-4 md:p-6 xl:p-4 flex flex-col ${mobile ? "h-full" : ""}`}
     >
-      <div className="order-2 mb-3 grid grid-cols-2 rounded-lg border border-slate-200 bg-slate-100 p-1">
+      <div className="order-2 mb-3 flex gap-2">
+        <div className="grid flex-1 grid-cols-2 rounded-lg border border-slate-200 bg-slate-100 p-1">
+          <button
+            type="button"
+            className={`rounded-md px-3 py-2 text-sm font-semibold transition-colors ${
+              cartTab === "payment"
+                ? "bg-slate-800 text-white shadow-sm"
+                : "text-slate-600 hover:bg-white"
+            }`}
+            onClick={() => setCartTab("payment")}
+          >
+            Pago
+          </button>
+          <button
+            type="button"
+            className={`rounded-md px-3 py-2 text-sm font-semibold transition-colors ${
+              cartTab === "products"
+                ? "bg-slate-800 text-white shadow-sm"
+                : "text-slate-600 hover:bg-white"
+            }`}
+            onClick={() => setCartTab("products")}
+          >
+            Productos
+          </button>
+        </div>
         <button
           type="button"
-          className={`rounded-md px-3 py-2 text-sm font-semibold transition-colors ${
-            cartTab === "payment"
-              ? "bg-slate-800 text-white shadow-sm"
-              : "text-slate-600 hover:bg-white"
-          }`}
-          onClick={() => setCartTab("payment")}
+          className={`${mobile ? "hidden" : "inline-flex"} shrink-0 items-center justify-center gap-1 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm font-semibold text-red-700 transition-colors hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-50`}
+          disabled={!items.length || isSubmittingQuickSale}
+          onClick={confirmClear}
+          title="Vaciar carrito"
         >
-          Pago
-        </button>
-        <button
-          type="button"
-          className={`rounded-md px-3 py-2 text-sm font-semibold transition-colors ${
-            cartTab === "products"
-              ? "bg-slate-800 text-white shadow-sm"
-              : "text-slate-600 hover:bg-white"
-          }`}
-          onClick={() => setCartTab("products")}
-        >
-          Productos
+          <Trash2 className="h-4 w-4" />
+          Vaciar
         </button>
       </div>
 
@@ -3632,7 +3644,7 @@ const POSPage = () => {
           onClick={() => setWarehouseModalOpen(false)}
         >
           <div
-            className="flex max-h-[86vh] w-full max-w-5xl flex-col overflow-hidden rounded-lg border border-slate-200 bg-white shadow-2xl"
+            className="flex h-[86vh] w-full max-w-5xl flex-col overflow-hidden rounded-lg border border-slate-200 bg-white shadow-2xl"
             onClick={(event) => event.stopPropagation()}
           >
             <div className="flex items-start justify-between gap-3 border-b border-slate-200 bg-slate-50 px-4 py-3">
@@ -3689,7 +3701,7 @@ const POSPage = () => {
               </form>
 
               <div className="min-h-0 flex-1 overflow-hidden rounded-md border border-slate-200">
-                <div className="max-h-[52vh] overflow-auto">
+                <div className="h-full overflow-auto">
                   <table className="w-full min-w-[860px] text-sm">
                     <thead className="sticky top-0 bg-slate-100 text-xs uppercase text-slate-500">
                       <tr className="text-left">
