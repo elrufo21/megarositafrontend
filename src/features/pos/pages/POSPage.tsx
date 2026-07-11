@@ -1664,7 +1664,7 @@ const POSPage = () => {
               </div>
               <button
                 type="button"
-                className="h-10 shrink-0 rounded-md bg-blue-600 px-4 text-sm font-semibold uppercase text-white shadow-sm hover:bg-blue-700 sm:hidden"
+                className="h-10 shrink-0 rounded-md bg-blue-600 px-4 text-sm font-semibold uppercase text-white shadow-sm hover:bg-blue-700 lg:hidden"
                 onClick={() => {
                   void submitPersonalCode();
                 }}

@@ -15,7 +15,7 @@ import { useDialogStore } from "@/store/app/dialog.store";
 
 export function GlobalDialog() {
   const theme = useTheme();
-  const isMobile = useMediaQuery(theme.breakpoints.down("sm"));
+  const isMobile = useMediaQuery(theme.breakpoints.down("lg"));
   const {
     open,
     title,

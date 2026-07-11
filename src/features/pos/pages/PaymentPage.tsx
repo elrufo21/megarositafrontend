@@ -2727,7 +2727,7 @@ const PaymentPage = () => {
               </div>
               <button
                 type="button"
-                className="h-10 shrink-0 rounded-md bg-blue-600 px-4 text-sm font-semibold uppercase text-white shadow-sm hover:bg-blue-700 sm:hidden"
+                className="h-10 shrink-0 rounded-md bg-blue-600 px-4 text-sm font-semibold uppercase text-white shadow-sm hover:bg-blue-700 lg:hidden"
                 onClick={() => {
                   void submitPersonalCode();
                 }}
@@ -6002,9 +6002,7 @@ const PaymentPage = () => {
                     <div className="mt-1 inline-flex h-9 w-full items-center gap-1 rounded-md border border-slate-300 bg-white px-2">
                       <span className="text-xs text-slate-500">S/</span>
                       <input
-                        type="number"
-                        min={minPrice}
-                        step="0.01"
+                        type="text"
                         inputMode="decimal"
                         className="w-full border-0 bg-transparent text-right text-sm outline-none appearance-none [appearance:textfield] disabled:text-slate-500 [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
                         value={
@@ -6129,9 +6127,7 @@ const PaymentPage = () => {
                       <div className="inline-flex h-9 items-center justify-end gap-1 rounded-md border border-slate-300 bg-white px-2">
                         <span className="text-xs text-slate-500">S/</span>
                         <input
-                          type="number"
-                          min={minPrice}
-                          step="0.01"
+                          type="text"
                           inputMode="decimal"
                           data-payment-column="price"
                           data-payment-row-index={rowIndex}
