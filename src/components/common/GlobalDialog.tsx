@@ -27,6 +27,7 @@ export function GlobalDialog() {
     disableBackdropClose,
     disableClose,
     hideCancelButton,
+    hideMobileConfirmButton,
     mobileFullScreen,
     mobileActions,
     loading,
@@ -119,7 +120,7 @@ export function GlobalDialog() {
                     <X size={16} />
                   </IconButton>
                 )}
-                {onConfirm && (
+                {onConfirm && !hideMobileConfirmButton && (
                   <Button
                     onClick={handleConfirm}
                     variant="contained"

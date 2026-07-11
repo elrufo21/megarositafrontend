@@ -19,13 +19,11 @@ import {
   CheckCircle2,
   Eye,
   EyeOff,
-  LayoutGrid,
   Loader2,
   Minus,
   Plus,
   RotateCcw,
   ShoppingCart,
-  TableProperties,
   Trash2,
   Warehouse,
   X,
@@ -167,10 +165,15 @@ const PersonalCodeField = ({ onInputRef, onEnter }: PersonalCodeFieldProps) => {
     <div className="relative">
       <input
         ref={setInputRef}
-        type={isCodeVisible ? "text" : "password"}
+        type="text"
         autoFocus
+        autoComplete="one-time-code"
+        data-lpignore="true"
+        data-1p-ignore="true"
+        data-bwignore="true"
+        data-form-type="other"
         placeholder="Codigo de usuario"
-        className="h-10 w-full rounded-lg border border-slate-300 px-3 pr-10 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+        className={`h-10 w-full rounded-lg border border-slate-300 px-3 pr-10 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100 ${isCodeVisible ? "" : "[-webkit-text-security:disc]"}`}
         onKeyDown={(event) => {
           if (event.key !== "Enter") return;
           event.preventDefault();
@@ -430,8 +433,8 @@ const SaleCustomerDialogContent = ({
           type="button"
           className={`rounded-md px-3 py-2 text-sm font-semibold transition-colors ${
             activeTab === "list"
-              ? "bg-slate-800 text-white shadow-sm"
-              : "text-slate-600 hover:bg-white"
+              ? "bg-[#B23636] text-white shadow-sm"
+              : "text-slate-600 hover:bg-red-50 hover:text-[#B23636]"
           }`}
           onClick={() => setActiveTab("list")}
         >
@@ -441,8 +444,8 @@ const SaleCustomerDialogContent = ({
           type="button"
           className={`rounded-md px-3 py-2 text-sm font-semibold transition-colors ${
             activeTab === "form"
-              ? "bg-slate-800 text-white shadow-sm"
-              : "text-slate-600 hover:bg-white"
+              ? "bg-[#B23636] text-white shadow-sm"
+              : "text-slate-600 hover:bg-red-50 hover:text-[#B23636]"
           }`}
           onClick={() => setActiveTab("form")}
         >
@@ -456,11 +459,11 @@ const SaleCustomerDialogContent = ({
             value={query}
             onChange={(event) => setQuery(event.target.value)}
             placeholder="Buscar por nombre, DNI, RUC o teléfono"
-            className="h-10 w-full rounded-lg border border-slate-300 px-3 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+            className="h-10 w-full rounded-lg border border-slate-300 px-3 text-sm outline-none focus:border-[#B23636] focus:ring-2 focus:ring-red-100"
           />
           <div className="max-h-[55vh] overflow-auto rounded-lg border border-slate-200">
             <table className="w-full min-w-[720px] text-sm">
-              <thead className="sticky top-0 bg-slate-100 text-xs uppercase text-slate-500">
+              <thead className="sticky top-0 bg-red-50 text-xs uppercase text-[#B23636]">
                 <tr className="text-left">
                   <th className="px-3 py-2 font-semibold">Cliente</th>
                   <th className="px-3 py-2 font-semibold">DNI</th>
@@ -486,7 +489,7 @@ const SaleCustomerDialogContent = ({
                       <td className="px-3 py-2 text-right">
                         <button
                           type="button"
-                          className="rounded-md bg-slate-800 px-3 py-1.5 text-xs font-semibold text-white hover:bg-slate-900"
+                          className="rounded-md bg-[#B23636] px-3 py-1.5 text-xs font-semibold text-white hover:bg-[#9f2f2f]"
                           onClick={() => onSelectClient(client)}
                         >
                           Usar
@@ -515,7 +518,6 @@ const SaleCustomerDialogContent = ({
         <CustomerFormBase
           mode="create"
           variant="modal"
-          showModalActions
           onSave={onCreateClient}
           onNew={() => {}}
         />
@@ -585,6 +587,7 @@ const POSPage = () => {
   const warehouseSearchTimeoutRef = useRef<number | null>(null);
   const warehouseLastSearchValueRef = useRef("");
   const warehouseSearchInputRef = useRef<HTMLInputElement | null>(null);
+  const warehouseWasOpenRef = useRef(false);
   const saleDocTypeInputRef = useRef<SaleFocusableElement | null>(null);
   const salePaymentMethodInputRef = useRef<SaleFocusableElement | null>(null);
   const saleCustomerInputRef = useRef<SaleFocusableElement | null>(null);
@@ -616,11 +619,11 @@ const POSPage = () => {
     fiscalAddress: "",
     shippingAddress: "",
     phone: "",
-    movementCost: "0",
+    movementCost: "",
     bankEntity: "-",
     nroOperacion: "",
     applyDiscount: false,
-    discount: "0",
+    discount: "",
   });
   const [saleCustomerInput, setSaleCustomerInput] = useState("VARIOS");
 
@@ -1410,6 +1413,24 @@ const POSPage = () => {
     });
   };
 
+  useEffect(() => {
+    if (warehouseModalOpen) {
+      warehouseWasOpenRef.current = true;
+      window.requestAnimationFrame(() => {
+        const input = warehouseSearchInputRef.current;
+        if (!input || input.disabled) return;
+        input.focus({ preventScroll: true });
+        const length = input.value.length;
+        input.setSelectionRange(length, length);
+      });
+      return;
+    }
+
+    if (!warehouseWasOpenRef.current) return;
+    warehouseWasOpenRef.current = false;
+    focusSearchInput();
+  }, [warehouseModalOpen]);
+
   const handleSearchTermInput = (event: FormEvent<HTMLInputElement>) => {
     setSearchTerm(event.currentTarget.value);
   };
@@ -1606,35 +1627,51 @@ const POSPage = () => {
         resolve(nombreApellido);
         return true;
       };
+      const submitPersonalCode = async () => {
+        setDialogLoading(true);
+        try {
+          const isValid = await validatePersonalCode();
+          if (isValid) {
+            closeDialog();
+          }
+        } finally {
+          setDialogLoading(false);
+        }
+      };
 
       openDialog({
         title: "Validar usuario",
         confirmText: "Validar",
-        cancelText: "Cancelar",
+        cancelText: "Cerrar",
         disableBackdropClose: true,
+        hideMobileConfirmButton: true,
+        mobileActions: <></>,
         content: (
           <div className="space-y-3">
             <p className="text-sm text-slate-700">
               Ingrese su codigo de usuario para confirmar el pago.
             </p>
-            <PersonalCodeField
-              onInputRef={(node) => {
-                codeInputRef = node;
-              }}
-              onEnter={() => {
-                void (async () => {
-                  setDialogLoading(true);
-                  try {
-                    const isValid = await validatePersonalCode();
-                    if (isValid) {
-                      closeDialog();
-                    }
-                  } finally {
-                    setDialogLoading(false);
-                  }
-                })();
-              }}
-            />
+            <div className="flex items-start gap-2">
+              <div className="min-w-0 flex-1">
+                <PersonalCodeField
+                  onInputRef={(node) => {
+                    codeInputRef = node;
+                  }}
+                  onEnter={() => {
+                    void submitPersonalCode();
+                  }}
+                />
+              </div>
+              <button
+                type="button"
+                className="h-10 shrink-0 rounded-md bg-blue-600 px-4 text-sm font-semibold uppercase text-white shadow-sm hover:bg-blue-700 sm:hidden"
+                onClick={() => {
+                  void submitPersonalCode();
+                }}
+              >
+                Validar
+              </button>
+            </div>
             <p className="text-xs text-slate-500">
               Si el codigo no existe o esta inactivo, no se permitira confirmar.
             </p>
@@ -1827,19 +1864,26 @@ const POSPage = () => {
 
       const createdNotaId = parseNotaId(result);
       toast.success("Pedido registrado");
+      if (createdNotaId) {
+        const paymentQuery = isSaleFactura
+          ? "mode=view"
+          : "mode=view&autoprint=1";
+        navigate(`${paymentBasePath}/${createdNotaId}?${paymentQuery}`);
+        window.setTimeout(() => {
+          clearCart();
+          clearEditingNota();
+          setPriceDrafts({});
+          setQuantityDrafts({});
+          void resetDraftForNewSale();
+        }, 0);
+        return;
+      }
       clearCart();
       clearEditingNota();
       setPriceDrafts({});
       setQuantityDrafts({});
       setMobileCartOpen(false);
       await resetDraftForNewSale();
-      if (createdNotaId) {
-        const paymentQuery = isSaleFactura
-          ? "mode=view"
-          : "mode=view&autoprint=1";
-        navigate(`${paymentBasePath}/${createdNotaId}?${paymentQuery}`);
-        return;
-      }
       console.error("No se pudo resolver notaId desde response", result);
       toast.error(
         "Se registró, pero no se pudo abrir la nota automáticamente (sin notaId en respuesta).",
@@ -1858,6 +1902,10 @@ const POSPage = () => {
   };
 
   const handleCartShortcut = () => {
+    if (items.length === 0) {
+      toast.info("No ha seleccionado ningun item.");
+      return;
+    }
     setCartTab("products");
     setMobileCartOpen(true);
   };
@@ -2817,11 +2865,12 @@ const POSPage = () => {
             }
             onInputChange={(_, value, reason) => {
               if (reason === "reset") return;
+              const numericValue = value.replace(/\D/g, "");
               setSaleSettings((prev) => ({
                 ...prev,
-                customerDni: value,
+                customerDni: numericValue,
                 customerId:
-                  prev.docTypeCode === "01" ? prev.customerRuc : value,
+                  prev.docTypeCode === "01" ? prev.customerRuc : numericValue,
                 clienteId: null,
               }));
             }}
@@ -2856,6 +2905,8 @@ const POSPage = () => {
                     ...params.inputProps,
                     "data-no-uppercase": "true",
                     "data-auto-next": "true",
+                    inputMode: "numeric",
+                    pattern: "[0-9]*",
                     autoComplete: "one-time-code",
                     autoCorrect: "off",
                     autoCapitalize: "off",
@@ -2894,11 +2945,12 @@ const POSPage = () => {
             }
             onInputChange={(_, value, reason) => {
               if (reason === "reset") return;
+              const numericValue = value.replace(/\D/g, "");
               setSaleSettings((prev) => ({
                 ...prev,
-                customerRuc: value,
+                customerRuc: numericValue,
                 customerId:
-                  prev.docTypeCode === "01" ? value : prev.customerDni,
+                  prev.docTypeCode === "01" ? numericValue : prev.customerDni,
                 clienteId: null,
               }));
             }}
@@ -2933,6 +2985,8 @@ const POSPage = () => {
                     ...params.inputProps,
                     "data-no-uppercase": "true",
                     "data-auto-next": "true",
+                    inputMode: "numeric",
+                    pattern: "[0-9]*",
                     autoComplete: "one-time-code",
                     autoCorrect: "off",
                     autoCapitalize: "off",
@@ -3068,7 +3122,7 @@ const POSPage = () => {
                 setSaleSettings((prev) => ({
                   ...prev,
                   applyDiscount: event.target.checked,
-                  discount: event.target.checked ? prev.discount : "0",
+                  discount: event.target.checked ? prev.discount : "",
                 }))
               }
             />
@@ -3101,6 +3155,10 @@ const POSPage = () => {
               onKeyDown={handleSaleEnterFocus(nextSaleAfterMovementRef, true)}
               onFocus={(event) => event.currentTarget.select()}
               onBlur={(event) => {
+                if (event.currentTarget.value.trim() === "") {
+                  setSaleSettings((prev) => ({ ...prev, movementCost: "" }));
+                  return;
+                }
                 const normalized = roundCurrency(
                   Math.max(0, toDecimal(event.currentTarget.value)),
                 );
@@ -3150,6 +3208,10 @@ const POSPage = () => {
                 }
                 onFocus={(event) => event.currentTarget.select()}
                 onBlur={(event) => {
+                  if (event.currentTarget.value.trim() === "") {
+                    setSaleSettings((prev) => ({ ...prev, discount: "" }));
+                    return;
+                  }
                   const clamped = roundCurrency(
                     Math.min(
                       Math.max(0, toDecimal(event.currentTarget.value)),
@@ -3263,32 +3325,6 @@ const POSPage = () => {
         <section className="space-y-4 xl:col-span-2">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
-              <div className="flex rounded-lg border bg-gray-50 overflow-hidden">
-                <button
-                  className={`flex items-center gap-1 px-3 py-1 text-sm ${
-                    viewMode === "cards"
-                      ? "bg-slate-700 text-white"
-                      : "text-slate-700"
-                  }`}
-                  onClick={switchToCardsView}
-                  title="Ver como cards"
-                >
-                  <LayoutGrid className="w-4 h-4" />
-                  Cards
-                </button>
-                <button
-                  className={`flex items-center gap-1 px-3 py-1 text-sm ${
-                    viewMode === "table"
-                      ? "bg-slate-700 text-white"
-                      : "text-slate-700"
-                  }`}
-                  onClick={switchToTableView}
-                  title="Ver como tabla"
-                >
-                  <TableProperties className="w-4 h-4" />
-                  Tabla
-                </button>
-              </div>
               <button
                 type="button"
                 className="inline-flex items-center gap-1 rounded-lg border border-slate-300 bg-white px-3 py-1 text-sm text-slate-700 hover:bg-slate-50"
@@ -3301,7 +3337,7 @@ const POSPage = () => {
             </div>
             <button
               type="button"
-              className="fixed right-3 top-[calc(var(--app-shell-header-h)+0.75rem)] z-30 flex items-center gap-2 rounded-lg bg-slate-700 px-3 py-2 text-sm text-white shadow-lg xl:static xl:z-auto xl:shadow-sm"
+              className="fixed right-3 top-[calc(var(--app-shell-header-h)+2.25rem)] z-30 flex items-center gap-2 rounded-lg bg-slate-700 px-3 py-2 text-sm text-white shadow-lg xl:static xl:z-auto xl:shadow-sm"
               onClick={handleCartShortcut}
               aria-label="Abrir carrito"
             >
@@ -3770,11 +3806,6 @@ const POSPage = () => {
                               <div className="font-medium">
                                 {item.descripcion}
                               </div>
-                              {item.productoUbicacion && (
-                                <div className="text-xs text-slate-500">
-                                  {item.productoUbicacion}
-                                </div>
-                              )}
                             </td>
                             <td className="px-3 py-2 text-right font-semibold text-emerald-700">
                               {item.cantidad.toFixed(2)}

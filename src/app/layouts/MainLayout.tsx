@@ -660,7 +660,7 @@ export default function MainLayout() {
               </button>
 
               {userMenuOpen && (
-                <div className="absolute right-0 z-50 mt-2 w-44 rounded-lg border border-slate-100 bg-white text-slate-800 shadow-lg">
+                <div className="absolute right-0 z-[220] mt-2 w-44 rounded-lg border border-slate-100 bg-white text-slate-800 shadow-lg">
                   <button
                     className="w-full rounded-lg px-3 py-2 text-left text-sm transition-colors hover:bg-slate-50"
                     onClick={() => {

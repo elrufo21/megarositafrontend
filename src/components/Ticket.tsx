@@ -258,6 +258,20 @@ const splitTicketDescriptionTwoLines = (
   return [line1, remaining];
 };
 
+const splitTicketPvs = (value: string) => {
+  const normalized = String(value ?? "").replace(/\s+/g, " ").trim();
+  const match = normalized.match(
+    /\|\*\*\|\s*PV\s*:\s*([0-9.,]+)\s*\|\*\*\|\s*SV\s*:\s*([0-9.,]+)/i,
+  );
+  if (!match) return { description: normalized, pv: "", sv: "" };
+
+  return {
+    description: normalized.replace(match[0], "").trim(),
+    pv: match[1] ?? "",
+    sv: match[2] ?? "",
+  };
+};
+
 const toFirstName = (value: unknown): string => {
   const normalized = String(value ?? "")
     .trim()
@@ -525,6 +539,20 @@ const styles = StyleSheet.create({
     fontSize: 9,
     fontWeight: "bold",
     textAlign: "left",
+  },
+  pvsRow: {
+    flexDirection: "row",
+    marginTop: 2,
+    fontSize: 9,
+    fontWeight: "bold",
+  },
+  pvsLabel: {
+    width: "70%",
+    textAlign: "left",
+  },
+  pvsAmount: {
+    width: "30%",
+    textAlign: "right",
   },
   tableItemMetaRow: {
     flexDirection: "row",
@@ -898,7 +926,8 @@ const TicketDocument = ({
     const TABLE_HEADER = 8 + 4 + 6 + 8 + 1; // row + margins + padding + separator
 
     const rowsHeight = ticketData.items.reduce((acc, item) => {
-      const fullDescription = `${formatUnitPrefix(item.unitMeasure)}${item.description}`;
+      const pvs = splitTicketPvs(String(item.description ?? ""));
+      const fullDescription = `${formatUnitPrefix(item.unitMeasure)}${pvs.description}`;
       const [, descriptionLine2] =
         splitTicketDescriptionTwoLines(fullDescription);
       const firstRowHeight = 9;
@@ -907,8 +936,11 @@ const TicketDocument = ({
         Math.ceil((descriptionLine2.length || 1) / 34),
       );
       const secondRowHeight = secondRowLines * 9 + 3;
+      const pvsHeight = pvs.pv || pvs.sv ? 22 : 0;
       const separatorHeight = 1 + 6 + 6;
-      return acc + firstRowHeight + secondRowHeight + separatorHeight;
+      return (
+        acc + firstRowHeight + secondRowHeight + pvsHeight + separatorHeight
+      );
     }, 0);
     const cardAdditionalDetailRowHeight = ticketData.showCardAdditional
       ? 8 + 6
@@ -1019,7 +1051,8 @@ const TicketDocument = ({
           {ticketData.items.map((item, index) => (
             <View key={index}>
               {(() => {
-                const fullDescription = `${formatUnitPrefix(item.unitMeasure)}${item.description}`;
+                const pvs = splitTicketPvs(String(item.description ?? ""));
+                const fullDescription = `${formatUnitPrefix(item.unitMeasure)}${pvs.description}`;
                 const [descriptionLine1, descriptionLine2] =
                   splitTicketDescriptionTwoLines(fullDescription);
                 return (
@@ -1043,6 +1076,26 @@ const TicketDocument = ({
                         {item.total.toFixed(2)}
                       </Text>
                     </View>
+                    {(pvs.pv || pvs.sv) && (
+                      <View>
+                        {pvs.pv && (
+                          <View style={styles.pvsRow}>
+                            <Text style={styles.pvsLabel}>
+                              PVS TOTAL DE VENTA -----&gt;
+                            </Text>
+                            <Text style={styles.pvsAmount}>{pvs.pv}</Text>
+                          </View>
+                        )}
+                        {pvs.sv && (
+                          <View style={styles.pvsRow}>
+                            <Text style={styles.pvsLabel}>
+                              PVS TOTAL DEL MES -----&gt;
+                            </Text>
+                            <Text style={styles.pvsAmount}>{pvs.sv}</Text>
+                          </View>
+                        )}
+                      </View>
+                    )}
                   </View>
                 );
               })()}

@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef } from "react";
-import { Plus, Save, Trash2 } from "lucide-react";
+import { ArrowLeft, Plus, Save, Trash2 } from "lucide-react";
 import { useForm } from "react-hook-form";
 
 import { HookForm } from "@/components/forms/HookForm";
@@ -34,7 +34,6 @@ interface ClientFormBaseProps {
   onNew?: () => void;
   onDelete?: () => void;
   variant?: "page" | "modal";
-  showModalActions?: boolean;
 }
 
 const buildDefaults = (
@@ -63,12 +62,11 @@ export default function CustomerFormBase({
   onNew,
   onDelete,
   variant = "page",
-  showModalActions = false,
 }: ClientFormBaseProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const previousTipoDocumentoRef = useRef<"ruc" | "dni" | null>(null);
   const setDialogData = useDialogStore((s) => s.setData);
-  const setMobileActions = useDialogStore((s) => s.setMobileActions);
+  const closeDialog = useDialogStore((s) => s.closeDialog);
   const authUser = useAuthStore((s) => s.user);
   const registradoPorUser = authUser?.displayName ?? authUser?.username ?? null;
   const isModal = variant === "modal";
@@ -216,34 +214,6 @@ export default function CustomerFormBase({
     onNew?.();
     focusFirstInput(containerRef.current);
   }, [onNew, reset]);
-
-  useEffect(() => {
-    if (!isModal) return;
-
-    const previousConfirmText = useDialogStore.getState().confirmText;
-    useDialogStore.setState({ confirmText: "Guardar" });
-
-    if (mode !== "edit") {
-      setMobileActions(
-        <button
-          type="button"
-          onClick={handleNew}
-          aria-label="Nuevo"
-          title="Nuevo"
-          className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-slate-300 bg-white text-slate-700 hover:bg-slate-50"
-        >
-          <Plus className="h-4 w-4" />
-        </button>,
-      );
-    } else {
-      setMobileActions(<></>);
-    }
-
-    return () => {
-      setMobileActions(null);
-      useDialogStore.setState({ confirmText: previousConfirmText });
-    };
-  }, [handleNew, isModal, mode, setMobileActions]);
 
   const handleConsultarDocumento = async () => {
     const tipoDocumento: "ruc" | "dni" =
@@ -428,23 +398,36 @@ export default function CustomerFormBase({
   return (
     <div
       ref={containerRef}
-      className={`h-auto py-8 px-4 sm:px-6 lg:px-8 ${
-        isModal ? "" : "from-blue-50 via-indigo-50 to-purple-50"
-      }`}
+      className={isModal ? "" : "h-auto py-8 px-4 sm:px-6 lg:px-8 from-blue-50 via-indigo-50 to-purple-50"}
     >
       <div className="max-w-5xl mx-auto">
         <div
           className={`bg-white ${
             isModal
-              ? "overflow-hidden"
+              ? "overflow-hidden rounded-2xl shadow-xl"
               : "overflow-visible rounded-2xl shadow-xl"
           }`}
         >
           <HookForm methods={formMethods} onSubmit={handleSave}>
-            {!isModal && (
-              <div className="sticky top-20 sm:top-2 z-30 bg-[#B23636] text-white px-4 py-3 rounded-t-2xl flex items-center justify-between shadow-lg shadow-black/10">
+            <div
+              className={`z-30 bg-[#B23636] text-white px-4 py-3 rounded-t-2xl flex items-center justify-between shadow-lg shadow-black/10 ${
+                isModal ? "" : "sticky top-20 sm:top-2"
+              }`}
+            >
                 <div className="flex items-center gap-3">
-                  <BackArrowButton />
+                  {isModal ? (
+                    <button
+                      type="button"
+                      onClick={closeDialog}
+                      title="Volver"
+                      aria-label="Volver"
+                      className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-white/30 bg-white/10 text-white hover:bg-white/20 transition-colors"
+                    >
+                      <ArrowLeft className="h-5 w-5" />
+                    </button>
+                  ) : (
+                    <BackArrowButton />
+                  )}
                   <h1 className="text-base font-semibold">
                     {mode === "create"
                       ? "Registrar Nuevo Cliente"
@@ -485,7 +468,6 @@ export default function CustomerFormBase({
                   </button>
                 </div>
               </div>
-            )}
 
             <div className="p-6 sm:p-8">
               <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -656,29 +638,6 @@ export default function CustomerFormBase({
                   </div>
                 </div>
               </div>
-
-              {isModal && showModalActions && (
-                <div className="mt-6 flex justify-end gap-2 border-t border-slate-200 pt-4">
-                  {mode !== "edit" && (
-                    <button
-                      type="button"
-                      onClick={handleNew}
-                      className="inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
-                    >
-                      <Plus className="h-4 w-4" />
-                      Nuevo
-                    </button>
-                  )}
-                  <button
-                    type="submit"
-                    disabled={isSubmitting}
-                    className="inline-flex items-center gap-2 rounded-lg bg-slate-700 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-800 disabled:opacity-70"
-                  >
-                    <Save className="h-4 w-4" />
-                    {isSubmitting ? "Guardando..." : "Guardar"}
-                  </button>
-                </div>
-              )}
             </div>
           </HookForm>
         </div>

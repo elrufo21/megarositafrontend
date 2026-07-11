@@ -292,13 +292,18 @@ export default function BillingSettingsPage() {
               Clave del certificado
             </label>
             <input
-              type="password"
+              type="text"
+              autoComplete="one-time-code"
+              data-lpignore="true"
+              data-1p-ignore="true"
+              data-bwignore="true"
+              data-form-type="other"
               value={effectiveCertificatePassword}
               onChange={(event) => {
                 setCertificatePasswordTouched(true);
                 setCertificatePassword(event.target.value);
               }}
-              className="h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-700 outline-none focus:border-[#B23636] focus:ring-2 focus:ring-[#B23636]/20"
+              className="h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-700 outline-none [-webkit-text-security:disc] focus:border-[#B23636] focus:ring-2 focus:ring-[#B23636]/20"
               placeholder="Ingrese clave del certificado"
             />
           </div>
@@ -320,13 +325,18 @@ export default function BillingSettingsPage() {
           <div className="space-y-2">
             <label className="text-sm font-medium text-slate-700">Clave SOL</label>
             <input
-              type="password"
+              type="text"
+              autoComplete="one-time-code"
+              data-lpignore="true"
+              data-1p-ignore="true"
+              data-bwignore="true"
+              data-form-type="other"
               value={effectiveSolPassword}
               onChange={(event) => {
                 setSolPasswordTouched(true);
                 setSolPassword(event.target.value);
               }}
-              className="h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-700 outline-none focus:border-[#B23636] focus:ring-2 focus:ring-[#B23636]/20"
+              className="h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-700 outline-none [-webkit-text-security:disc] focus:border-[#B23636] focus:ring-2 focus:ring-[#B23636]/20"
               placeholder="Ingrese clave SOL"
             />
           </div>

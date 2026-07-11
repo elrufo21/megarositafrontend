@@ -85,8 +85,9 @@ const NavigableNumberInput = forwardRef<
       <input
         {...rest}
         ref={inputRef}
-        type="number"
+        type="text"
         inputMode="decimal"
+        pattern="[0-9]*[.]?[0-9]*"
         data-nav-group={navGroup}
         value={value}
         onChange={handleChange}

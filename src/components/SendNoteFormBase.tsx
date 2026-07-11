@@ -306,10 +306,10 @@ export default function SendNoteFormBase({
 
   const openCreateClient = useCallback(() => {
     openDialog({
-      title: "Registrar cliente",
+      title: "",
       maxWidth: "lg",
       fullWidth: true,
-      cancelText: "Cerrar",
+      hideCancelButton: true,
       content: (
         <CustomerFormBase
           mode="create"
@@ -342,10 +342,6 @@ export default function SendNoteFormBase({
           onNew={() => {}}
         />
       ),
-      onConfirm: async (data) => {
-        const form = await data;
-        console.log("Data", form);
-      },
     });
   }, [addClient, fetchClients, setValue, openDialog, closeDialog]);
 

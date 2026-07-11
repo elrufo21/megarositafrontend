@@ -59,6 +59,7 @@ interface HookFormAutocompleteProps<
   disabled?: boolean;
   syncInputToValue?: boolean;
   selectOnFocus?: boolean;
+  numericOnly?: boolean;
 
   allowCreate?: boolean;
   showCreateOption?: boolean;
@@ -94,6 +95,7 @@ export function HookFormAutocomplete<
   disabled = false,
   syncInputToValue = false,
   selectOnFocus,
+  numericOnly = false,
 
   allowCreate = false,
   showCreateOption = true,
@@ -363,16 +365,19 @@ export function HookFormAutocomplete<
                   return;
                 }
 
-                setInputValue(newInputValue);
+                const cleanInputValue = numericOnly
+                  ? newInputValue.replace(/\D/g, "")
+                  : newInputValue;
+                setInputValue(cleanInputValue);
 
-                if (reason === "input" && syncInputToValue) {
-                  field.onChange(newInputValue);
+                if (reason === "input" && (syncInputToValue || allowCreate)) {
+                  field.onChange(cleanInputValue);
                   return;
                 }
 
                 if (reason === "input" && selectedOption) {
                   const selectedLabel = defaultGetOptionLabel(selectedOption);
-                  if (newInputValue !== selectedLabel) {
+                  if (cleanInputValue !== selectedLabel) {
                     field.onChange(null);
                   }
                 }
@@ -499,6 +504,8 @@ export function HookFormAutocomplete<
                     name: historySafeFieldName,
                     "data-auto-next": "true",
                     "data-no-uppercase": "true",
+                    inputMode: numericOnly ? "numeric" : undefined,
+                    pattern: numericOnly ? "[0-9]*" : undefined,
                     autoComplete: resolvedAutoComplete,
                     autoCorrect: "off",
                     autoCapitalize: "off",

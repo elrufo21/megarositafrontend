@@ -115,10 +115,15 @@ const PersonalCodeField = ({ onInputRef, onEnter }: PersonalCodeFieldProps) => {
     <div className="relative">
       <input
         ref={onInputRef}
-        type={isCodeVisible ? "text" : "password"}
+        type="text"
         autoFocus
+        autoComplete="one-time-code"
+        data-lpignore="true"
+        data-1p-ignore="true"
+        data-bwignore="true"
+        data-form-type="other"
         placeholder="Codigo de usuario"
-        className="h-10 w-full rounded-lg border border-slate-300 px-3 pr-10 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+        className={`h-10 w-full rounded-lg border border-slate-300 px-3 pr-10 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100 ${isCodeVisible ? "" : "[-webkit-text-security:disc]"}`}
         onKeyDown={(event) => {
           if (event.key !== "Enter") return;
           event.preventDefault();
@@ -156,6 +161,13 @@ const hasInvalidQuantityOrStockForPayment = (item: PosCartItem) => {
   const quantity = Number(item.cantidad ?? 0);
   if (!Number.isFinite(quantity) || quantity <= 0) return true;
   return false;
+};
+const getMinAllowedPrice = (item: PosCartItem) => {
+  const record = item as PosCartItem & Record<string, unknown>;
+  return Math.max(
+    0,
+    Number(record.precioCosto ?? item.costo ?? item.precioMinimo ?? 0) || 0,
+  );
 };
 
 const UNITS = [
@@ -1307,7 +1319,7 @@ const PaymentPage = () => {
 
     const parsed = Number(value);
     if (!Number.isNaN(parsed)) {
-      const minPrice = Math.max(0, Number(item.precioMinimo ?? 0) || 0);
+      const minPrice = getMinAllowedPrice(item);
       const safePrice = roundCurrency(Math.max(parsed, minPrice));
       applyPriceToItem(item, safePrice);
     }
@@ -1333,7 +1345,7 @@ const PaymentPage = () => {
       }));
       return;
     }
-    const minPrice = Math.max(0, Number(item.precioMinimo ?? 0) || 0);
+    const minPrice = getMinAllowedPrice(item);
     const safePrice = roundCurrency(Math.max(parsed, minPrice));
 
     setPriceDrafts((prev) => ({
@@ -2472,89 +2484,88 @@ const PaymentPage = () => {
     if (formLocked) return;
 
     openDialog({
-      title: "Registrar cliente",
+      title: "",
       maxWidth: "lg",
       fullWidth: true,
-      confirmText: "Guardar",
-      cancelText: "Cancelar",
+      hideCancelButton: true,
       content: (
         <CustomerFormBase
           mode="create"
           variant="modal"
-          onSave={async () => false}
+          onSave={async (data) => {
+            const payload: Omit<Client, "id"> = {
+              nombreRazon: safeTrim(data.nombreRazon).toUpperCase(),
+              ruc: safeTrim(data.ruc),
+              dni: safeTrim(data.dni),
+              direccionFiscal: safeTrim(data.direccionFiscal),
+              direccionDespacho: safeTrim(data.direccionDespacho),
+              telefonoMovil: safeTrim(data.telefonoMovil),
+              email: safeTrim(data.email),
+              registradoPor: safeTrim(data.registradoPor) || resolvedNotaUsuario,
+              estado: safeTrim(data.estado) || "ACTIVO",
+              fecha: data.fecha ?? null,
+            };
+
+            if (!payload.nombreRazon) {
+              toast.error("El nombre o razon social es obligatorio.");
+              return false;
+            }
+
+            const result = await addClient(payload);
+            if (!result.ok) {
+              toast.error(result.error ?? "No se pudo crear el cliente.");
+              return false;
+            }
+
+            await fetchClients("");
+            const refreshedClients = useClientsStore.getState().clients;
+            const normalizedName = safeTrim(payload.nombreRazon).toLowerCase();
+            const normalizedRuc = safeTrim(payload.ruc);
+            const normalizedDni = safeTrim(payload.dni);
+
+            const createdClient =
+              refreshedClients.find((client) => {
+                const clientRuc = safeTrim(client.ruc);
+                const clientDni = safeTrim(client.dni);
+                const clientName = safeTrim(client.nombreRazon).toLowerCase();
+                return (
+                  (normalizedRuc && clientRuc === normalizedRuc) ||
+                  (normalizedDni && clientDni === normalizedDni) ||
+                  (!!normalizedName && clientName === normalizedName)
+                );
+              }) ?? null;
+
+            const selectedName =
+              safeTrim(createdClient?.nombreRazon) || payload.nombreRazon;
+            const selectedDoc =
+              docTypeCode === "01"
+                ? safeTrim(createdClient?.ruc) ||
+                  safeTrim(createdClient?.dni) ||
+                  payload.ruc ||
+                  payload.dni
+                : safeTrim(createdClient?.dni) ||
+                  safeTrim(createdClient?.ruc) ||
+                  payload.dni ||
+                  payload.ruc;
+
+            setValue("customerName", selectedName, { shouldDirty: true });
+            setValue("customerId", selectedDoc, { shouldDirty: true });
+            fillCustomerContactFields(createdClient ?? payload, true);
+            setClienteIdFromOption({
+              id: createdClient?.id ?? null,
+              clienteId: createdClient?.id ?? null,
+            });
+            toast.success("Cliente creado correctamente.");
+            closeDialog();
+            return true;
+          }}
           onNew={() => {}}
         />
       ),
-      onConfirm: async (rawData) => {
-        const data = (rawData ?? {}) as Partial<Client>;
-        const payload: Omit<Client, "id"> = {
-          nombreRazon: safeTrim(data.nombreRazon).toUpperCase(),
-          ruc: safeTrim(data.ruc),
-          dni: safeTrim(data.dni),
-          direccionFiscal: safeTrim(data.direccionFiscal),
-          direccionDespacho: safeTrim(data.direccionDespacho),
-          telefonoMovil: safeTrim(data.telefonoMovil),
-          email: safeTrim(data.email),
-          registradoPor: safeTrim(data.registradoPor) || resolvedNotaUsuario,
-          estado: safeTrim(data.estado) || "ACTIVO",
-          fecha: data.fecha ?? null,
-        };
-
-        if (!payload.nombreRazon) {
-          toast.error("El nombre o razon social es obligatorio.");
-          return false;
-        }
-
-        const result = await addClient(payload);
-        if (!result.ok) {
-          toast.error(result.error ?? "No se pudo crear el cliente.");
-          return false;
-        }
-
-        await fetchClients("");
-        const refreshedClients = useClientsStore.getState().clients;
-        const normalizedName = safeTrim(payload.nombreRazon).toLowerCase();
-        const normalizedRuc = safeTrim(payload.ruc);
-        const normalizedDni = safeTrim(payload.dni);
-
-        const createdClient =
-          refreshedClients.find((client) => {
-            const clientRuc = safeTrim(client.ruc);
-            const clientDni = safeTrim(client.dni);
-            const clientName = safeTrim(client.nombreRazon).toLowerCase();
-            return (
-              (normalizedRuc && clientRuc === normalizedRuc) ||
-              (normalizedDni && clientDni === normalizedDni) ||
-              (!!normalizedName && clientName === normalizedName)
-            );
-          }) ?? null;
-
-        const selectedName =
-          safeTrim(createdClient?.nombreRazon) || payload.nombreRazon;
-        const selectedDoc =
-          docTypeCode === "01"
-            ? safeTrim(createdClient?.ruc) ||
-              safeTrim(createdClient?.dni) ||
-              payload.ruc ||
-              payload.dni
-            : safeTrim(createdClient?.dni) ||
-              safeTrim(createdClient?.ruc) ||
-              payload.dni ||
-              payload.ruc;
-
-        setValue("customerName", selectedName, { shouldDirty: true });
-        setValue("customerId", selectedDoc, { shouldDirty: true });
-        fillCustomerContactFields(createdClient ?? payload, true);
-        setClienteIdFromOption({
-          id: createdClient?.id ?? null,
-          clienteId: createdClient?.id ?? null,
-        });
-        toast.success("Cliente creado correctamente.");
-        return true;
-      },
     });
   }, [
     addClient,
+    closeDialog,
     docTypeCode,
     fetchClients,
     fillCustomerContactFields,
@@ -2679,35 +2690,51 @@ const PaymentPage = () => {
         resolve(nombreApellido);
         return true;
       };
+      const submitPersonalCode = async () => {
+        setDialogLoading(true);
+        try {
+          const isValid = await validatePersonalCode();
+          if (isValid) {
+            closeDialog();
+          }
+        } finally {
+          setDialogLoading(false);
+        }
+      };
 
       openDialog({
         title: "Validar usuario",
         confirmText: "Validar",
-        cancelText: "Cancelar",
+        cancelText: "Cerrar",
         disableBackdropClose: true,
+        hideMobileConfirmButton: true,
+        mobileActions: <></>,
         content: (
           <div className="space-y-3">
             <p className="text-sm text-slate-700">
               Ingrese su codigo de usuario para confirmar el pago.
             </p>
-            <PersonalCodeField
-              onInputRef={(node) => {
-                codeInputRef = node;
-              }}
-              onEnter={() => {
-                void (async () => {
-                  setDialogLoading(true);
-                  try {
-                    const isValid = await validatePersonalCode();
-                    if (isValid) {
-                      closeDialog();
-                    }
-                  } finally {
-                    setDialogLoading(false);
-                  }
-                })();
-              }}
-            />
+            <div className="flex items-start gap-2">
+              <div className="min-w-0 flex-1">
+                <PersonalCodeField
+                  onInputRef={(node) => {
+                    codeInputRef = node;
+                  }}
+                  onEnter={() => {
+                    void submitPersonalCode();
+                  }}
+                />
+              </div>
+              <button
+                type="button"
+                className="h-10 shrink-0 rounded-md bg-blue-600 px-4 text-sm font-semibold uppercase text-white shadow-sm hover:bg-blue-700 sm:hidden"
+                onClick={() => {
+                  void submitPersonalCode();
+                }}
+              >
+                Validar
+              </button>
+            </div>
             <p className="text-xs text-slate-500">
               Si el codigo no existe o esta inactivo, no se permitira confirmar.
             </p>
@@ -2937,6 +2964,7 @@ const PaymentPage = () => {
 
       setValue("customerName", selectedName, { shouldDirty: true });
       setValue("customerId", docValue || "", { shouldDirty: true });
+      fillCustomerContactFields(matchedOption, true);
       setClienteIdFromOption(matchedOption, { shouldDirty: true });
       return true;
     },
@@ -2949,6 +2977,7 @@ const PaymentPage = () => {
       setValue,
       setFocus,
       setClienteIdFromOption,
+      fillCustomerContactFields,
       normalizeSearchText,
     ],
   );
@@ -2976,9 +3005,7 @@ const PaymentPage = () => {
       normalizedCurrentName !== "" &&
       normalizedCurrentName !== nameFromId;
     const isManualDocEdition =
-      Boolean(dirtyFields?.customerId) &&
-      normalizedCurrentDoc !== "" &&
-      normalizedCurrentDoc !== docFromId;
+      normalizedCurrentDoc !== "" && normalizedCurrentDoc !== docFromId;
 
     // Si el usuario está escribiendo manualmente, no rehidratar desde clienteId.
     if (isManualNameEdition || isManualDocEdition) return;
@@ -3038,7 +3065,11 @@ const PaymentPage = () => {
     if (typedName === canonicalName) return;
 
     setClienteIdFromOption(null, { shouldDirty: true });
-  }, [clienteId, uniqueClients, customerName, setClienteIdFromOption]);
+    setValue("customerId", "", { shouldDirty: true });
+    setValue("fiscalAddress", "", { shouldDirty: true });
+    setValue("shippingAddress", "", { shouldDirty: true });
+    setValue("phone", "", { shouldDirty: true });
+  }, [clienteId, uniqueClients, customerName, setClienteIdFromOption, setValue]);
 
   const resolveDocumentValue = useCallback(
     (value: any, type: "dni" | "ruc") => {
@@ -3722,7 +3753,7 @@ const PaymentPage = () => {
     }
 
     const invalidPriceItems = sourceItems.filter((item) => {
-      const minPrice = Math.max(0, Number(item.precioMinimo ?? 0) || 0);
+      const minPrice = getMinAllowedPrice(item);
       const draftValue = priceDrafts[getCartItemKey(item)];
       if (draftValue === undefined) {
         const storedPrice = Number(item.precio ?? 0);
@@ -3752,6 +3783,7 @@ const PaymentPage = () => {
       toFirstNameForNotaUsuario(authorizedPersonalName) ||
       toFirstNameForNotaUsuario(resolvedNotaUsuario) ||
       "USUARIO";
+    const editTimestamp = new Date();
     const baseNota = { ...notaPayload.nota, notaId: notaId ?? 0 };
     const editNota = isEditing
       ? {
@@ -3781,7 +3813,8 @@ const PaymentPage = () => {
           notaGanancia: baseNota.notaGanancia,
           notaConcepto: baseNota.notaConcepto,
           notaEstado: baseNota.notaEstado,
-          modificadoPor: resolvedNotaUsuario,
+          modificadoPor: resolvedPaymentUsername,
+          fechaEdita: editTimestamp.toISOString(),
           nroOperacion: baseNota.nroOperacion ?? "",
         }
       : baseNota;
@@ -3891,6 +3924,8 @@ const PaymentPage = () => {
           Condicion:
             safeTrim(editNota.notaCondicion ?? "ALCONTADO") || "ALCONTADO",
           NotaEstado: "PENDIENTE",
+          ModificadoPor: resolvedPaymentUsername,
+          FechaEdita: editTimestamp.toISOString(),
           requestDetalle: requestDetallePayload ?? [],
         }
       : basePayload;
@@ -5735,11 +5770,25 @@ const PaymentPage = () => {
         result && typeof result === "object" && (result as any).ok,
       );
       if (!printOk) {
+        const resultRecord = parseRecordLikeValue(result);
+        const responseData = parseRecordLikeValue(
+          resultRecord?.response &&
+            typeof resultRecord.response === "object" &&
+            resultRecord.response !== null
+            ? (resultRecord.response as Record<string, unknown>).data
+            : null,
+        );
         const printMessage =
-          result && typeof result === "object"
-            ? safeTrim((result as any).message ?? (result as any).Message ?? "")
-            : "";
-        throw new Error(printMessage || "No se pudo imprimir el comprobante.");
+          safeTrim(
+            responseData?.message ??
+              responseData?.Message ??
+              responseData?.mensaje ??
+              responseData?.Mensaje ??
+              resultRecord?.message ??
+              resultRecord?.Message ??
+              "",
+          ) || "Error al imprimir";
+        throw new Error(printMessage);
       }
       return true;
     } catch (error) {
@@ -5768,7 +5817,7 @@ const PaymentPage = () => {
 
     autoPrintTriggeredRef.current = true;
     void (async () => {
-      await handlePrint({ skipConfirmedCheck: true, silent: true });
+      await handlePrint({ skipConfirmedCheck: true });
     })();
   }, [
     hasLoadedNotaMeta,
@@ -5879,7 +5928,7 @@ const PaymentPage = () => {
         {itemsToRender.map((item, rowIndex) => {
           const isZeroOrNegative = (item.cantidad ?? 0) <= 0;
           const isStockNegative = Number(item.stock ?? 0) < 0;
-          const minPrice = Math.max(0, Number(item.precioMinimo ?? 0) || 0);
+          const minPrice = getMinAllowedPrice(item);
           const displayLine = getDisplayLineAmounts(item, rowIndex);
 
           return (
@@ -6013,7 +6062,7 @@ const PaymentPage = () => {
             {itemsToRender.map((item, rowIndex) => {
               const isZeroOrNegative = (item.cantidad ?? 0) <= 0;
               const isStockNegative = Number(item.stock ?? 0) < 0;
-              const minPrice = Math.max(0, Number(item.precioMinimo ?? 0) || 0);
+              const minPrice = getMinAllowedPrice(item);
               const displayLine = getDisplayLineAmounts(item, rowIndex);
 
               return (
@@ -6488,6 +6537,7 @@ const PaymentPage = () => {
             disableClearable={formLocked}
             disabled={formLocked}
             allowCreate
+            numericOnly
             createLabel={(value: string) => `Usar RUC: ${value}`}
             filterOptions={documentFilterOptions as any}
             isOptionEqualToValue={(option: any, value: any) =>
@@ -6525,6 +6575,7 @@ const PaymentPage = () => {
             disableClearable={formLocked}
             disabled={formLocked}
             allowCreate
+            numericOnly
             createLabel={(value: string) => `Usar DNI: ${value}`}
             filterOptions={documentFilterOptions as any}
             isOptionEqualToValue={(option: any, value: any) =>

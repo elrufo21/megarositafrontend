@@ -533,13 +533,18 @@ const OrderNotesList = () => {
               disabled={openingNoteId !== null}
               onPointerEnter={() => void loadOrderNoteView(Number(noteId))}
               onFocus={() => void loadOrderNoteView(Number(noteId))}
-              onClick={() => {
+              onClick={async () => {
                 setOpeningNoteId(noteId);
-                window.requestAnimationFrame(() =>
+                try {
+                  await loadOrderNoteView(Number(noteId));
                   navigate(`/sales/order_notes/${noteId}/view`, {
                     state: { fromOrderNotesViewButton: true },
-                  }),
-                );
+                  });
+                } catch (error) {
+                  console.error("Error al cargar nota de pedido", error);
+                  toast.error("No se pudo cargar el registro.");
+                  setOpeningNoteId(null);
+                }
               }}
             >
               {isOpening ? (
@@ -651,6 +656,14 @@ const OrderNotesList = () => {
 
   return (
     <div className="p-3 sm:p-4">
+      {openingNoteId && (
+        <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-slate-950/55 backdrop-blur-[2px]">
+          <div className="flex min-w-[220px] flex-col items-center gap-3 rounded-xl bg-white px-6 py-5 text-slate-800 shadow-2xl">
+            <Loader2 className="h-7 w-7 animate-spin text-[#B23636]" />
+            <span className="text-sm font-semibold">Cargando registro...</span>
+          </div>
+        </div>
+      )}
       <div className="mb-3">
         <h1 className="text-2xl font-semibold text-[#0f2748]">Nota Pedidos</h1>
       </div>
