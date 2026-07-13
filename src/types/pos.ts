@@ -7,6 +7,8 @@ export interface PosCartItem {
   unidadMedida?: string;
   costo?: number;
   precio: number;
+  precioA?: number;
+  precioB?: number;
   precioMinimo?: number;
   cantidad: number;
   valorUM?: number;

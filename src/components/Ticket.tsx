@@ -37,6 +37,7 @@ type TicketDocumentProps = {
     cardAdditional?: number;
     cardPercentage?: number;
     showCardAdditional?: boolean;
+    movilidad?: number;
     descuento?: number;
     showDiscount?: boolean;
     subtotal?: number;
@@ -726,6 +727,7 @@ const TicketDocument = ({
     const operacionGravadaValue = Number(summary?.operacionGravada);
     const cardAdditionalValue = Number(summary?.cardAdditional);
     const cardPercentageValue = Number(summary?.cardPercentage);
+    const movilidadValue = Number(summary?.movilidad);
     const descuentoValue = Number(summary?.descuento);
     const subtotalValue = Number(summary?.subtotal);
     const igvValue = Number(summary?.igv);
@@ -743,9 +745,13 @@ const TicketDocument = ({
     const safeCardPercentage = Number.isFinite(cardPercentageValue)
       ? Math.max(0, cardPercentageValue)
       : 0;
+    const safeMovilidad = Number.isFinite(movilidadValue)
+      ? Math.max(0, movilidadValue)
+      : 0;
     const showCardAdditional =
       Boolean(summary?.showCardAdditional) && safeCardAdditional > 0;
-    const showDiscount = Boolean(summary?.showDiscount);
+    const showMovement = safeMovilidad > 0;
+    const showDiscount = Boolean(summary?.showDiscount) || safeDescuento > 0;
     const safeSubtotal = Number.isFinite(subtotalValue)
       ? Math.max(0, subtotalValue)
       : fallbackSubtotal;
@@ -846,6 +852,8 @@ const TicketDocument = ({
       cardAdditional: safeCardAdditional,
       cardPercentage: safeCardPercentage,
       showCardAdditional,
+      movilidad: safeMovilidad,
+      showMovement,
       descuento: safeDescuento,
       showDiscount,
       subtotal: safeSubtotal,
@@ -949,9 +957,11 @@ const TicketDocument = ({
     const ITEMS_COUNT = 8 + 6 + 6; // fontSize + marginTop + marginBottom
     const DIVIDER2 = 1 + 8 * 2;
 
-    const summaryRows = ticketData.isProforma
-      ? 0
-      : (3 + (ticketData.showDiscount ? 1 : 0)) * (9 + 3); // rows * (fontSize + marginBottom)
+    const summaryRows =
+      (ticketData.isProforma ? 0 : 3) +
+      (ticketData.showMovement ? 1 : 0) +
+      (ticketData.showDiscount ? 1 : 0);
+    const summaryRowsHeight = summaryRows * (9 + 3);
 
     const TOTAL_ROW = 12 + 6 + 6 + 1; // fontSize + marginTop + paddingTop + border
 
@@ -976,7 +986,7 @@ const TicketDocument = ({
       cardAdditionalDetailRowHeight +
       ITEMS_COUNT +
       DIVIDER2 +
-      summaryRows +
+      summaryRowsHeight +
       TOTAL_ROW +
       FOOTER +
       QR +
@@ -1121,8 +1131,9 @@ const TicketDocument = ({
           <Text style={styles.itemsCount}>
             items: {ticketData.items.length}
           </Text>
-          {!ticketData.isProforma && (
-            <>
+          <>
+            {!ticketData.isProforma && (
+              <>
               <View style={styles.summaryRow}>
                 <Text style={styles.summaryLabel}>OP.GRAVADA :</Text>
                 <Text style={styles.summaryCurrency}>S/</Text>
@@ -1153,8 +1164,27 @@ const TicketDocument = ({
                   {ticketData.igv.toFixed(2)}
                 </Text>
               </View>
-            </>
-          )}
+              </>
+            )}
+            {ticketData.isProforma && ticketData.showDiscount && (
+              <View style={styles.summaryRow}>
+                <Text style={styles.summaryLabel}>DESCUENTO :</Text>
+                <Text style={styles.summaryCurrency}>S/</Text>
+                <Text style={styles.summaryAmount}>
+                  {ticketData.descuento.toFixed(2)}
+                </Text>
+              </View>
+            )}
+            {ticketData.showMovement && (
+              <View style={styles.summaryRow}>
+                <Text style={styles.summaryLabel}>MOVILIDAD :</Text>
+                <Text style={styles.summaryCurrency}>S/</Text>
+                <Text style={styles.summaryAmount}>
+                  {ticketData.movilidad.toFixed(2)}
+                </Text>
+              </View>
+            )}
+          </>
           {/* Totals are still shown for all document types */}
           <View style={styles.totalRow}>
             <Text style={styles.totalLabel}>TOTAL :</Text>

@@ -7,13 +7,13 @@ import path from "path";
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), "");
   const apiBaseUrl =
-    String(env.VITE_API_BASE_URL ?? "http://localhost:5000/api/v1").trim() ||
-    "http://localhost:5000/api/v1";
+    String(env.VITE_API_BASE_URL ?? "http://127.0.0.1:5000/api/v1").trim() ||
+    "http://127.0.0.1:5000/api/v1";
   const apiOrigin = (() => {
     try {
       return new URL(apiBaseUrl).origin;
     } catch {
-      return "http://localhost:5000";
+      return "http://127.0.0.1:5000";
     }
   })();
 

@@ -56,6 +56,8 @@ type PosCatalogProduct = Product & {
   valorUM?: number;
 };
 
+type PosPriceMode = "A" | "B";
+
 type StockWarehouseRow = {
   almacenNombre: string;
   cantidad: number;
@@ -255,6 +257,21 @@ const formatPrice = (value: unknown) => {
   if (!Number.isFinite(numeric)) return "0.00";
   return roundPrice(numeric).toFixed(2);
 };
+const numericPrice = (value: unknown) => {
+  const numeric = Number(String(value ?? "").replace(",", "."));
+  return Number.isFinite(numeric) && numeric > 0 ? numeric : 0;
+};
+const priceAValue = (record: { precioA?: unknown; preVenta?: unknown }) =>
+  numericPrice(record.precioA ?? record.preVenta);
+const priceBValue = (record: { precioB?: unknown; preVentaB?: unknown }) =>
+  numericPrice(record.precioB ?? record.preVentaB);
+const productPrice = (product: Product, mode: PosPriceMode) => {
+  const priceA = priceAValue(product) || priceBValue(product);
+  const priceB = priceBValue(product);
+  return mode === "B" && priceB > 0 ? priceB : priceA;
+};
+const samePrice = (left: unknown, right: unknown) =>
+  Math.abs(numericPrice(left) - numericPrice(right)) < 0.005;
 const parsePercentageLikeValue = (value: unknown, fallback = 0): number => {
   const normalized = String(value ?? "")
     .trim()
@@ -275,8 +292,8 @@ const normalizePosDocumentText = (value: unknown) =>
   String(value ?? "").replace(/\D/g, "");
 const tokenizePosSearchText = (value: unknown) =>
   normalizePosSearchText(value).split(/\s+/).filter(Boolean);
-const priceLabel = (product: Product) =>
-  formatPrice(product.preVenta ?? product.preVentaB ?? 0);
+const priceLabel = (product: Product, mode: PosPriceMode = "A") =>
+  formatPrice(productPrice(product, mode));
 const composeProductDisplayName = (name: unknown, brand?: unknown): string =>
   [name, brand]
     .map((value) => String(value ?? "").trim())
@@ -428,29 +445,32 @@ const SaleCustomerDialogContent = ({
 
   return (
     <div className="space-y-4">
-      <div className="grid grid-cols-2 rounded-lg border border-slate-200 bg-slate-100 p-1">
-        <button
-          type="button"
-          className={`rounded-md px-3 py-2 text-sm font-semibold transition-colors ${
-            activeTab === "list"
-              ? "bg-[#B23636] text-white shadow-sm"
-              : "text-slate-600 hover:bg-red-50 hover:text-[#B23636]"
-          }`}
-          onClick={() => setActiveTab("list")}
-        >
-          Clientes
-        </button>
-        <button
-          type="button"
-          className={`rounded-md px-3 py-2 text-sm font-semibold transition-colors ${
-            activeTab === "form"
-              ? "bg-[#B23636] text-white shadow-sm"
-              : "text-slate-600 hover:bg-red-50 hover:text-[#B23636]"
-          }`}
-          onClick={() => setActiveTab("form")}
-        >
-          Formulario
-        </button>
+      <div className="flex flex-col gap-3 border-b border-slate-200 pb-3 sm:flex-row sm:items-center sm:justify-between">
+        <h2 className="text-xl font-semibold text-slate-800">Clientes</h2>
+        <div className="grid w-full grid-cols-2 rounded-lg border border-slate-200 bg-slate-100 p-1 sm:w-[28rem]">
+          <button
+            type="button"
+            className={`rounded-md px-3 py-2 text-sm font-semibold transition-colors ${
+              activeTab === "list"
+                ? "bg-[#B23636] text-white shadow-sm"
+                : "text-slate-600 hover:bg-red-50 hover:text-[#B23636]"
+            }`}
+            onClick={() => setActiveTab("list")}
+          >
+            Clientes
+          </button>
+          <button
+            type="button"
+            className={`rounded-md px-3 py-2 text-sm font-semibold transition-colors ${
+              activeTab === "form"
+                ? "bg-[#B23636] text-white shadow-sm"
+                : "text-slate-600 hover:bg-red-50 hover:text-[#B23636]"
+            }`}
+            onClick={() => setActiveTab("form")}
+          >
+            Formulario
+          </button>
+        </div>
       </div>
 
       {activeTab === "list" ? (
@@ -601,6 +621,7 @@ const POSPage = () => {
   const saleMovementCostInputRef = useRef<SaleFocusableElement | null>(null);
   const saleDiscountInputRef = useRef<SaleFocusableElement | null>(null);
   const [priceDrafts, setPriceDrafts] = useState<Record<number, string>>({});
+  const [priceMode, setPriceMode] = useState<PosPriceMode>("A");
   const [quantityDrafts, setQuantityDrafts] = useState<Record<number, string>>(
     {},
   );
@@ -957,8 +978,6 @@ const POSPage = () => {
       event.preventDefault();
       focusSaleField(nextRef, selectNext);
     };
-  const shouldRequireBoletaCustomerData =
-    saleSettings.docTypeCode === "03" && saleTotalAmount >= 500;
   const saleClientOptions = useMemo(
     () =>
       isSaleFactura
@@ -1079,7 +1098,6 @@ const POSPage = () => {
 
   const openSaleCustomerDialog = useCallback(() => {
     openDialog({
-      title: "Clientes",
       maxWidth: "lg",
       fullWidth: true,
       cancelText: "Cerrar",
@@ -1254,7 +1272,6 @@ const POSPage = () => {
     [customerFieldsFromClient, saleClientOptions],
   );
   const ensureExistingSaleCustomer = (rawName: string) => {
-    if (!isSaleFactura && !shouldRequireBoletaCustomerData) return;
     const typedName = safeTrim(rawName);
     if (!typedName) return;
     const matchedClient = saleClientOptions.find(
@@ -1286,6 +1303,43 @@ const POSPage = () => {
       fiscalAddress: "",
       shippingAddress: "",
       phone: "",
+    }));
+  };
+  const ensureExistingSaleDocument = (type: "dni" | "ruc", rawValue: string) => {
+    const typedDocument = normalizePosDocumentText(rawValue);
+    if (!typedDocument) return;
+    const options = type === "ruc" ? saleRucOptions : saleDniOptions;
+    const matchedOption = options.find(
+      (option) => normalizePosDocumentText(option.value) === typedDocument,
+    );
+    if (matchedOption) {
+      setSaleCustomerInput(matchedOption.client.label);
+      setSaleSettings((prev) => ({
+        ...prev,
+        clienteId: matchedOption.client.id,
+        customerName: matchedOption.client.label,
+        ...customerFieldsFromClient(matchedOption.client, prev.docTypeCode),
+        ...(type === "ruc"
+          ? { customerRuc: matchedOption.value }
+          : { customerDni: matchedOption.value }),
+      }));
+      return;
+    }
+    toast.error(
+      `El ${type === "ruc" ? "RUC" : "DNI"} no existe. Agrega el cliente y seleccionalo.`,
+    );
+    setSaleSettings((prev) => ({
+      ...prev,
+      clienteId: null,
+      ...(type === "ruc"
+        ? {
+            customerRuc: "",
+            customerId: prev.docTypeCode === "01" ? "" : prev.customerDni,
+          }
+        : {
+            customerDni: "",
+            customerId: prev.docTypeCode === "03" ? "" : prev.customerRuc,
+          }),
     }));
   };
 
@@ -1392,11 +1446,6 @@ const POSPage = () => {
           Number(discountMaxFromSession ?? 0),
         ).toFixed(2)}.`,
       );
-      return false;
-    }
-
-    if (shouldShowSaleBankFields && !safeTrim(saleSettings.nroOperacion)) {
-      toast.error("Ingresa el numero de operacion.");
       return false;
     }
 
@@ -2022,13 +2071,19 @@ const POSPage = () => {
   };
 
   const handleAddProduct = (product: PosCatalogProduct) => {
+    const productForCart = {
+      ...product,
+      preVenta: productPrice(product, priceMode),
+      precioA: productPrice(product, "A") || undefined,
+      precioB: priceBValue(product) || undefined,
+    };
     const available = Number(product.cantidad ?? 0);
     if (!Number.isFinite(available) || available <= 0) {
-      confirmStockInquiry(product, 1, () => addProduct(product, 1));
+      confirmStockInquiry(product, 1, () => addProduct(productForCart, 1));
       return;
     }
 
-    addProduct(product, 1);
+    addProduct(productForCart, 1);
     if (1 > available) confirmStockInquiry(product, 1);
 
     focusSearchInput();
@@ -2173,6 +2228,26 @@ const POSPage = () => {
     catalogPagination.totalRegistros > 0
       ? catalogPagination.totalRegistros
       : filteredProducts.length;
+  const getCartItemPriceB = (item: PosCartItem) => {
+    const savedPriceB = priceBValue(item);
+    if (savedPriceB > 0) return savedPriceB;
+    const itemKey = getCartItemKey(item);
+    const catalogProduct = catalogProducts.find(
+      (product) =>
+        (Number(product.detalleId ?? 0) || Number(product.id ?? 0)) === itemKey,
+    );
+    return catalogProduct ? priceBValue(catalogProduct) : 0;
+  };
+  const getCartItemPriceA = (item: PosCartItem) => {
+    const savedPriceA = priceAValue(item);
+    if (savedPriceA > 0) return savedPriceA;
+    const itemKey = getCartItemKey(item);
+    const catalogProduct = catalogProducts.find(
+      (product) =>
+        (Number(product.detalleId ?? 0) || Number(product.id ?? 0)) === itemKey,
+    );
+    return catalogProduct ? productPrice(catalogProduct, "A") : 0;
+  };
 
   useEffect(() => {
     if (!isCardsView || !hasMoreProducts || loading) return;
@@ -2354,6 +2429,17 @@ const POSPage = () => {
     updatePrice(itemKey, safePrice);
   };
 
+  const handleToggleCartPrice = (item: PosCartItem) => {
+    const priceA = getCartItemPriceA(item);
+    const priceB = getCartItemPriceB(item);
+    const nextPrice = samePrice(item.precio, priceB) ? priceA : priceB;
+    if (nextPrice <= 0) return;
+    const itemKey = getCartItemKey(item);
+    const safePrice = roundPrice(Math.max(nextPrice, getMinAllowedPrice(item)));
+    updatePrice(itemKey, safePrice);
+    setPriceDrafts((prev) => ({ ...prev, [itemKey]: safePrice.toFixed(2) }));
+  };
+
   useEffect(() => {
     setPriceDrafts((prev) => {
       const next: Record<number, string> = {};
@@ -2371,6 +2457,10 @@ const POSPage = () => {
       content: <p>¿Seguro que deseas eliminar todos los ítems del carrito?</p>,
       onConfirm: () => {
         clearCart();
+        setCartTab("products");
+        setMobileCartOpen(false);
+        setViewMode("cards");
+        window.setTimeout(focusSearchInput, 0);
         toast.success("Carrito limpiado");
       },
       confirmText: "Vaciar",
@@ -2400,10 +2490,12 @@ const POSPage = () => {
     }),
     columnHelper.display({
       id: "precio",
-      header: () => <span className="whitespace-nowrap">P. Venta S/</span>,
+      header: () => (
+        <span className="whitespace-nowrap">P. Venta {priceMode} S/</span>
+      ),
       cell: ({ row }) => (
         <span className="font-semibold text-right block">
-          {priceLabel(row.original)}
+          {priceLabel(row.original, priceMode)}
         </span>
       ),
       meta: {
@@ -2528,6 +2620,15 @@ const POSPage = () => {
           const isStockNegative =
             stockValue < 0 || Number(item.cantidad ?? 0) > stockValue;
           const minPrice = getMinAllowedPrice(item);
+          const itemPriceA = getCartItemPriceA(item);
+          const itemPriceB = getCartItemPriceB(item);
+          const currentPriceMode = samePrice(item.precio, itemPriceB)
+            ? "B"
+            : samePrice(item.precio, itemPriceA)
+              ? "A"
+              : "Manual";
+          const nextPriceMode = currentPriceMode === "B" ? "A" : "B";
+          const nextModePrice = nextPriceMode === "A" ? itemPriceA : itemPriceB;
           const highlightClass =
             isZeroOrNegative || isStockNegative
               ? "border-red-200 bg-red-50"
@@ -2603,6 +2704,23 @@ const POSPage = () => {
                       className="w-full rounded-md border px-2 py-1 text-right text-sm md:py-2 md:text-lg xl:py-1 xl:text-sm"
                     />
                   </div>
+                  {(itemPriceA > 0 || itemPriceB > 0) && (
+                    <div className="mt-1 space-y-1 text-left">
+                      <p className="text-[11px] font-medium text-slate-500">
+                        Actual: {currentPriceMode}
+                      </p>
+                      {nextModePrice > 0 && (
+                        <button
+                          type="button"
+                          className="w-full rounded-md border border-blue-200 bg-blue-50 px-2 py-1 text-xs font-semibold text-blue-700 hover:bg-blue-100"
+                          onClick={() => handleToggleCartPrice(item)}
+                        >
+                          Cambiar a {nextPriceMode} S/{" "}
+                          {formatPrice(nextModePrice)}
+                        </button>
+                      )}
+                    </div>
+                  )}
                 </div>
               </div>
 
@@ -2846,7 +2964,6 @@ const POSPage = () => {
           <Autocomplete
             fullWidth
             size="small"
-            freeSolo
             options={saleDniOptions}
             value={
               saleDniOptions.find(
@@ -2875,7 +2992,7 @@ const POSPage = () => {
               }));
             }}
             onChange={(_, option) => {
-              if (!option || typeof option === "string") return;
+              if (!option) return;
               setSaleCustomerInput(option.client.label);
               setSaleSettings((prev) => ({
                 ...prev,
@@ -2890,6 +3007,7 @@ const POSPage = () => {
               }));
               focusSaleField(saleRucInputRef, true);
             }}
+            onBlur={() => ensureExistingSaleDocument("dni", saleSettings.customerDni)}
             renderInput={(params) => {
               const inputProps =
                 params.inputProps as InputHTMLAttributes<HTMLInputElement>;
@@ -2926,7 +3044,6 @@ const POSPage = () => {
           <Autocomplete
             fullWidth
             size="small"
-            freeSolo
             options={saleRucOptions}
             value={
               saleRucOptions.find(
@@ -2955,7 +3072,7 @@ const POSPage = () => {
               }));
             }}
             onChange={(_, option) => {
-              if (!option || typeof option === "string") return;
+              if (!option) return;
               setSaleCustomerInput(option.client.label);
               setSaleSettings((prev) => ({
                 ...prev,
@@ -2970,6 +3087,7 @@ const POSPage = () => {
               }));
               focusSaleField(saleFiscalAddressInputRef);
             }}
+            onBlur={() => ensureExistingSaleDocument("ruc", saleSettings.customerRuc)}
             renderInput={(params) => {
               const inputProps =
                 params.inputProps as InputHTMLAttributes<HTMLInputElement>;
@@ -3334,6 +3452,20 @@ const POSPage = () => {
                 <Warehouse className="w-4 h-4" />
                 Almacén
               </button>
+              <button
+                type="button"
+                className={`inline-flex items-center rounded-lg border px-3 py-1 text-sm font-semibold transition-colors ${
+                  priceMode === "B"
+                    ? "border-emerald-300 bg-emerald-50 text-emerald-700 hover:bg-emerald-100"
+                    : "border-slate-300 bg-white text-slate-700 hover:bg-slate-50"
+                }`}
+                onClick={() =>
+                  setPriceMode((current) => (current === "A" ? "B" : "A"))
+                }
+                title={`Cambiar a precio ${priceMode === "A" ? "B" : "A"}`}
+              >
+                Precio {priceMode}
+              </button>
             </div>
             <button
               type="button"
@@ -3456,7 +3588,7 @@ const POSPage = () => {
                                 Stock: {stockValue} {product.unidadMedida}
                               </span>
                               <span className="font-semibold text-slate-800">
-                                S/ {priceLabel(product)}
+                                S/ {priceLabel(product, priceMode)}
                               </span>
                             </div>
                           </div>

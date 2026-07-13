@@ -133,6 +133,12 @@ export const usePosStore = create<PosState>()(
             toNumber((product as any).preVenta ?? 0) ||
             toNumber((product as any).preVentaB ?? 0) ||
             0;
+          const priceA = toNonNegative(
+            (product as any).precioA ?? (product as any).preVenta ?? 0
+          );
+          const priceB = toNonNegative(
+            (product as any).precioB ?? (product as any).preVentaB ?? 0
+          );
           const baseCost = toNonNegative(
             (product as any).preCosto ??
               (product as any).precioCosto ??
@@ -176,6 +182,8 @@ export const usePosStore = create<PosState>()(
             existing &&
             nextQty === existing.cantidad &&
             existing.precio === nextPrice &&
+            toNonNegative(existing.precioA ?? 0) === priceA &&
+            toNonNegative(existing.precioB ?? 0) === priceB &&
             toNonNegative(existing.precioMinimo ?? 0) === minPrice
           ) {
             return state;
@@ -192,6 +200,8 @@ export const usePosStore = create<PosState>()(
                       productoMarca: item.productoMarca || productMarca || undefined,
                       cantidad: nextQty,
                       precio: nextPrice,
+                      precioA: priceA || item.precioA,
+                      precioB: priceB || item.precioB,
                       costo: baseCost,
                       precioMinimo: minPrice,
                       valorUM: reductionValue,
@@ -211,6 +221,8 @@ export const usePosStore = create<PosState>()(
                   detalleId: normalizedDetailId,
                   costo: baseCost,
                   precio: Math.max(toNonNegative(basePrice), minPrice),
+                  precioA: priceA || undefined,
+                  precioB: priceB || undefined,
                   precioMinimo: minPrice,
                   cantidad: nextQty,
                   valorUM: reductionValue,

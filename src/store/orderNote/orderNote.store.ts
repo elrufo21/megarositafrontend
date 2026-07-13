@@ -195,6 +195,22 @@ const mapApiToOrderNote = (item: OrderNoteApiItem, index: number): OrderNote => 
     "",
   );
   const clienteFallbackId = normalizeText(item?.clienteId ?? item?.ClienteId, "");
+  const clienteRuc = normalizeText(item?.clienteRuc ?? item?.ClienteRuc, "");
+  const clienteDni = normalizeText(item?.clienteDni ?? item?.ClienteDni, "");
+  const clienteDireccion = normalizeText(
+    item?.clienteDireccion ?? item?.ClienteDireccion,
+    "",
+  );
+  const clienteDespacho = normalizeText(
+    item?.clienteDespacho ?? item?.ClienteDespacho,
+    "",
+  );
+  const clienteTelefono = normalizeText(
+    item?.clienteTelefono ?? item?.ClienteTelefono,
+    "",
+  );
+  const notaDireccion = normalizeText(item?.notaDireccion ?? item?.NotaDireccion, "");
+  const notaTelefono = normalizeText(item?.notaTelefono ?? item?.NotaTelefono, "");
 
   // Compatibilidad: algunos backends aún mapean con offsets antiguos y la fila llega corrida.
   const isShiftedResponse =
@@ -226,6 +242,14 @@ const mapApiToOrderNote = (item: OrderNoteApiItem, index: number): OrderNote => 
     documento: documento || normalizeText(item?.documento),
     fecha,
     cliente,
+    clienteId: clienteFallbackId,
+    clienteRuc,
+    clienteDni,
+    clienteDireccion,
+    clienteDespacho,
+    clienteTelefono,
+    notaDireccion,
+    notaTelefono,
     formaPago,
     total,
     acuenta: rawAcuenta || "0.00",
@@ -254,9 +278,16 @@ const parseDelimitedOrderNotes = (rawValue: string): OrderNote[] => {
       const notaDocu = at(1);
       const clienteId = at(2);
       const clienteRazon = at(3);
+      const clienteRuc = at(4);
+      const clienteDni = at(5);
+      const clienteDireccion = at(6);
+      const clienteTelefono = at(7);
+      const clienteDespacho = at(10);
       const notaFecha = at(13);
       const notaUsuario = at(14);
       const notaFormaPago = at(15);
+      const notaDireccion = at(18);
+      const notaTelefono = at(19);
       const notaTotal = at(23);
       const notaAcuenta = at(24);
       const notaSaldo = at(25);
@@ -279,6 +310,14 @@ const parseDelimitedOrderNotes = (rawValue: string): OrderNote[] => {
         documento: documento || "-",
         fecha: formatDateForList(notaFecha),
         cliente,
+        clienteId,
+        clienteRuc,
+        clienteDni,
+        clienteDireccion,
+        clienteDespacho,
+        clienteTelefono,
+        notaDireccion,
+        notaTelefono,
         formaPago: notaFormaPago || "-",
         total: notaTotal || "0.00",
         acuenta: notaAcuenta || "0.00",

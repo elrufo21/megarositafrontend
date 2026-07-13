@@ -161,6 +161,7 @@ const OrderNotesList = () => {
   }, [initialDate, resetRangeFromMainLayout]);
   const [fechaInicio, setFechaInicio] = useState(initialRange.from);
   const [fechaFin, setFechaFin] = useState(initialRange.to);
+  const [tableSearch, setTableSearch] = useState("");
   const fechaInicioRef = useRef(fechaInicio);
   const fechaFinRef = useRef(fechaFin);
   const endDateAcceptedRef = useRef(false);
@@ -538,7 +539,10 @@ const OrderNotesList = () => {
                 try {
                   await loadOrderNoteView(Number(noteId));
                   navigate(`/sales/order_notes/${noteId}/view`, {
-                    state: { fromOrderNotesViewButton: true },
+                    state: {
+                      fromOrderNotesViewButton: true,
+                      orderNote: row.original,
+                    },
                   });
                 } catch (error) {
                   console.error("Error al cargar nota de pedido", error);
@@ -682,6 +686,8 @@ const OrderNotesList = () => {
           "formaPago",
           "usuario",
         ]}
+        globalFilterValue={tableSearch}
+        onGlobalFilterValueChange={setTableSearch}
         manualPagination
         page={page}
         pageSize={sanitizePageSize(pageSize)}
