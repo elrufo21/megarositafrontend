@@ -34,6 +34,7 @@ export interface AuthUser {
 export interface AuthSession {
   token: string;
   user: AuthUser;
+  originalUser?: AuthUser;
   expiresAt: number;
   passwordExpiresAt: string | null;
   loginPayload?: LoginResponse;
@@ -57,6 +58,8 @@ interface AuthState {
   login: (payload: LoginPayload) => Promise<boolean>;
   logout: () => void;
   hydrate: () => void;
+  setSessionCompany: (company: Partial<AuthUser> & Pick<AuthUser, "companyId" | "companyName">) => void;
+  resetSessionCompany: () => void;
   setPasswordExpiration: (value: string | null) => void;
 }
 
@@ -131,6 +134,7 @@ const clearSession = () => {
   if (typeof window === "undefined") return;
   window.localStorage.removeItem(STORAGE_KEY);
   window.localStorage.removeItem(LOGIN_RESPONSE_STORAGE_KEY);
+  window.localStorage.removeItem("companiaId");
 };
 
 const scheduleSessionExpiration = (expiresAt: number, onExpire: () => void) => {
@@ -357,6 +361,53 @@ export const useAuthStore = create<AuthState>((set, get) => {
     error: null,
 
     hydrate,
+
+    setSessionCompany: (company) => {
+      const state = get();
+      if (!state.user || !state.token || !state.isAuthenticated) return;
+
+      const currentSession = readSessionFromStorage();
+      const originalUser = normalizeAuthUser(
+        currentSession?.originalUser ?? state.user,
+      );
+      const nextUser = normalizeAuthUser({
+        ...state.user,
+        ...company,
+      });
+      const session: AuthSession = {
+        ...(currentSession ?? {}),
+        token: state.token,
+        user: nextUser,
+        originalUser,
+        expiresAt: currentSession?.expiresAt ?? Date.now() + 5 * 60 * 1000,
+        passwordExpiresAt: state.passwordExpiresAt,
+      };
+
+      persistSession(session);
+      window.localStorage.setItem("companiaId", nextUser.companyId);
+      set({ user: nextUser });
+    },
+
+    resetSessionCompany: () => {
+      const state = get();
+      const currentSession = readSessionFromStorage();
+      const originalUser = currentSession?.originalUser;
+      if (!state.token || !originalUser) return;
+
+      const restoredUser = normalizeAuthUser(originalUser);
+      const session: AuthSession = {
+        ...(currentSession ?? {}),
+        token: state.token,
+        user: restoredUser,
+        originalUser: restoredUser,
+        expiresAt: currentSession?.expiresAt ?? Date.now() + 5 * 60 * 1000,
+        passwordExpiresAt: state.passwordExpiresAt,
+      };
+
+      persistSession(session);
+      window.localStorage.setItem("companiaId", restoredUser.companyId);
+      set({ user: restoredUser });
+    },
 
     setPasswordExpiration: (value) => {
       const normalized = value?.trim() ? value.trim() : null;

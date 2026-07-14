@@ -1,16 +1,11 @@
 import { Outlet, Link, useLocation, useNavigate } from "react-router";
 import {
-  Package,
   UserCheck,
   DollarSign,
   Menu,
   X,
-  Settings2,
-  SlidersHorizontal,
-  StoreIcon,
   ChevronDown,
   CopySlashIcon,
-  Landmark,
   Loader2,
 } from "lucide-react";
 import {
@@ -22,20 +17,108 @@ import {
   useSyncExternalStore,
 } from "react";
 import { toast } from "@/shared/ui/toast";
-import UserFormBase from "@/components/UserFormBase";
-import { PASSWORD_EXPIRATION_LOCK_ENABLED } from "@/config";
-import { useDialogStore } from "@/store/app/dialog.store";
-import { useAuthStore } from "@/store/auth/auth.store";
-import { useUsersStore } from "@/store/users/users.store";
-import type { User } from "@/store/users/users.store";
+import { buildApiUrl } from "@/config";
+import { useAuthStore, type AuthUser } from "@/store/auth/auth.store";
+import { apiRequest } from "@/shared/helpers/apiRequest";
 import {
   getPendingRequests,
   subscribeToPendingRequests,
 } from "@/shared/helpers/apiRequest";
 
-const PASSWORD_POLICY_REGEX = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d).{6,}$/;
-const PASSWORD_POLICY_MESSAGE =
-  "La contrasena debe tener minimo 6 caracteres, una mayuscula, una minuscula y un numero";
+interface CompanyOption {
+  id: string;
+  name: string;
+}
+
+const normalizeText = (value: unknown): string => String(value ?? "").trim();
+
+const normalizeCompanyItems = (payload: unknown): CompanyOption[] => {
+  const items = Array.isArray(payload)
+    ? payload
+    : Array.isArray((payload as { data?: unknown[] } | null)?.data)
+      ? ((payload as { data: unknown[] }).data)
+      : [];
+
+  return items
+    .map((item) => {
+      const record = item as Record<string, unknown>;
+      const id = normalizeText(record.Id ?? record.id ?? record.CompaniaId);
+      const name = normalizeText(
+        record.Nombre ?? record.nombre ?? record.CompaniaRazonSocial,
+      );
+      return id && name ? { id, name } : null;
+    })
+    .filter((item): item is CompanyOption => item !== null);
+};
+
+const toCompanyUserPatch = (
+  payload: unknown,
+  fallback: CompanyOption,
+): Partial<AuthUser> & Pick<AuthUser, "companyId" | "companyName"> => {
+  const record =
+    ((payload as { data?: unknown } | null)?.data ?? payload) as Record<
+      string,
+      unknown
+    >;
+  const numberOrZero = (value: unknown) => {
+    const numeric = Number(value ?? 0);
+    return Number.isFinite(numeric) && numeric > 0 ? numeric : 0;
+  };
+  const boolValue = (value: unknown) =>
+    value === true ||
+    value === 1 ||
+    ["1", "true", "si", "sí", "s"].includes(normalizeText(value).toLowerCase());
+
+  return {
+    companyId: normalizeText(
+      record.CompaniaId ?? record.companiaId ?? record.companyId ?? fallback.id,
+    ),
+    companyName:
+      normalizeText(
+        record.CompaniaRazonSocial ??
+          record.companiaRazonSocial ??
+          record.razonSocial,
+      ) || fallback.name,
+    companyRuc: normalizeText(
+      record.CompaniaRUC ?? record.CompaniaRuc ?? record.companiaRuc,
+    ),
+    companyUbigeoName: normalizeText(
+      record.CompaniaNomUBG ??
+        record.CompaniaNomUbg ??
+        record.companiaNomUbg ??
+        record.CompaniaDistrito,
+    ),
+    companyCommercialName: normalizeText(
+      record.CompaniaComercial ?? record.companiaComercial,
+    ),
+    companySunatAddress: normalizeText(
+      record.CompaniaDirecSunat ??
+        record.companiaDirecSunat ??
+        record.CompaniaDireccion,
+    ),
+    companyPhone: normalizeText(
+      record.CompaniaTelefono ?? record.companiaTelefono,
+    ),
+    companyLogo: normalizeText(record.LogoCompania ?? record.logoCompania),
+    usuarioSol: normalizeText(
+      record.UsuarioSol ?? record.usuarioSol ?? record.CompaniaUserSecun,
+    ),
+    claveSol: normalizeText(
+      record.ClaveSol ?? record.claveSol ?? record.ComapaniaPWD,
+    ),
+    certificadoBase64: normalizeText(
+      record.CertificadoBase64 ?? record.certificadoBase64 ?? record.CompaniaPFX,
+    ),
+    claveCertificado: normalizeText(
+      record.ClaveCertificado ??
+        record.claveCertificado ??
+        record.CompaniaClave,
+    ),
+    entorno: normalizeText(record.Entorno ?? record.entorno),
+    maxDiscount: numberOrZero(record.DescuentoMax ?? record.descuentoMax),
+    boletaPorLote: boolValue(record.BoletaPorLote ?? record.boletaPorLote),
+  };
+};
 
 export default function MainLayout() {
   const navigate = useNavigate();
@@ -54,118 +137,16 @@ export default function MainLayout() {
     pendingRequests > 0 &&
     (pathname.startsWith("/sales/order_notes") ||
       pathname.startsWith("/customers"));
-  const openDialog = useDialogStore((state) => state.openDialog);
 
   const user = useAuthStore((state) => state.user);
-  const passwordExpiresAt = useAuthStore((state) => state.passwordExpiresAt);
-  const isPasswordExpired = useAuthStore((state) => state.isPasswordExpired);
   const logout = useAuthStore((state) => state.logout);
+  const setSessionCompany = useAuthStore((state) => state.setSessionCompany);
+  const resetSessionCompany = useAuthStore((state) => state.resetSessionCompany);
 
-  const users = useUsersStore((state) => state.users);
-  const fetchUsers = useUsersStore((state) => state.fetchUsers);
-  const updateUser = useUsersStore((state) => state.updateUser);
+  const [companies, setCompanies] = useState<CompanyOption[]>([]);
+  const [companiesLoading, setCompaniesLoading] = useState(false);
+  const [selectedCompanyId, setSelectedCompanyId] = useState("");
 
-  const passwordDialogOpenedRef = useRef(false);
-  const resolvingUserRef = useRef(false);
-  const userLoadErrorNotifiedRef = useRef(false);
-  const authSessionUserIdentity = useMemo(() => {
-    const toPositiveNumber = (value: unknown) => {
-      const n = Number(value);
-      return Number.isFinite(n) && n > 0 ? n : 0;
-    };
-    const normalizeId = (value: unknown) => String(value ?? "").trim();
-
-    const normalizeAlias = (value: unknown) =>
-      String(value ?? "")
-        .trim()
-        .toLowerCase();
-
-    const stateUserIdRaw = normalizeId(user?.id);
-    const statePersonalIdRaw = normalizeId(user?.personalId);
-    const stateUserId = toPositiveNumber(user?.id);
-    const statePersonalId = toPositiveNumber(user?.personalId);
-    const stateAlias = normalizeAlias(user?.username);
-
-    if (typeof window === "undefined") {
-      return {
-        userIdRaw: stateUserIdRaw,
-        personalIdRaw: statePersonalIdRaw,
-        userId: stateUserId,
-        personalId: statePersonalId,
-        alias: stateAlias,
-      };
-    }
-
-    try {
-      const raw = window.localStorage.getItem("sgo.auth.session");
-      if (!raw) {
-        return {
-          userIdRaw: stateUserIdRaw,
-          personalIdRaw: statePersonalIdRaw,
-          userId: stateUserId,
-          personalId: statePersonalId,
-          alias: stateAlias,
-        };
-      }
-      const parsed = JSON.parse(raw) as {
-        id?: unknown;
-        usuarioID?: unknown;
-        user?: {
-          id?: unknown;
-          userId?: unknown;
-          usuarioID?: unknown;
-          personalId?: unknown;
-          username?: unknown;
-          UsuarioAlias?: unknown;
-        };
-      } | null;
-
-      const storageUserId =
-        toPositiveNumber(parsed?.user?.id) ||
-        toPositiveNumber(parsed?.user?.userId) ||
-        toPositiveNumber(parsed?.user?.usuarioID) ||
-        toPositiveNumber(parsed?.usuarioID) ||
-        toPositiveNumber(parsed?.id);
-      const storageUserIdRaw =
-        normalizeId(parsed?.user?.id) ||
-        normalizeId(parsed?.user?.userId) ||
-        normalizeId(parsed?.user?.usuarioID) ||
-        normalizeId(parsed?.usuarioID) ||
-        normalizeId(parsed?.id);
-      const storagePersonalId = toPositiveNumber(parsed?.user?.personalId);
-      const storagePersonalIdRaw = normalizeId(parsed?.user?.personalId);
-      const storageAlias =
-        normalizeAlias(parsed?.user?.username) ||
-        normalizeAlias(parsed?.user?.UsuarioAlias);
-
-      return {
-        userIdRaw: stateUserIdRaw || storageUserIdRaw,
-        personalIdRaw: statePersonalIdRaw || storagePersonalIdRaw,
-        userId: stateUserId || storageUserId,
-        personalId: statePersonalId || storagePersonalId,
-        alias: stateAlias || storageAlias,
-      };
-    } catch {
-      return {
-        userIdRaw: stateUserIdRaw,
-        personalIdRaw: statePersonalIdRaw,
-        userId: stateUserId,
-        personalId: statePersonalId,
-        alias: stateAlias,
-      };
-    }
-  }, [user?.id, user?.personalId, user?.username]);
-
-  const hasSessionIdentity = useMemo(() => {
-    const identity = authSessionUserIdentity;
-    return Boolean(
-      identity.userId ||
-      identity.personalId ||
-      identity.userIdRaw ||
-      identity.personalIdRaw ||
-      identity.alias,
-    );
-  }, [authSessionUserIdentity]);
   const userInitial =
     user?.displayName?.charAt(0)?.toUpperCase() ||
     user?.username?.charAt(0)?.toUpperCase() ||
@@ -175,6 +156,10 @@ export default function MainLayout() {
     const role = String(record?.role ?? "").trim();
     return role || "Sesión activa";
   }, [user]);
+  const selectedCompany = useMemo(
+    () => companies.find((company) => company.id === selectedCompanyId) ?? null,
+    [companies, selectedCompanyId],
+  );
   const headerTitle = useMemo(() => {
     const fromState = String(user?.companyName ?? "").trim();
     if (fromState) return fromState;
@@ -196,234 +181,12 @@ export default function MainLayout() {
     }
   }, [user?.companyName]);
 
-  const passwordExpirationDateLabel = useMemo(() => {
-    if (!passwordExpiresAt) return "fecha no disponible";
-    const parsed = Date.parse(passwordExpiresAt);
-    if (Number.isNaN(parsed)) return passwordExpiresAt;
-    return new Date(parsed).toLocaleDateString("es-PE");
-  }, [passwordExpiresAt]);
-
-  const currentUserForPasswordUpdate = useMemo<User | null>(() => {
-    const { userId, personalId, alias } = authSessionUserIdentity;
-    if (!userId && !personalId && !alias) return null;
-
-    return (
-      users.find((item) => Number(item.UsuarioID) === userId) ??
-      users.find((item) => Number(item.PersonalId) === personalId) ??
-      users.find(
-        (item) =>
-          String(item.UsuarioAlias ?? "")
-            .trim()
-            .toLowerCase() === alias,
-      ) ??
-      null
-    );
-  }, [authSessionUserIdentity, users]);
-
-  const resolveCurrentUserFromStore = useCallback((): User | null => {
-    const { userId, personalId, alias, userIdRaw, personalIdRaw } =
-      authSessionUserIdentity;
-    if (!userId && !personalId && !alias && !userIdRaw && !personalIdRaw)
-      return null;
-
-    const rows = useUsersStore.getState().users;
-    const normalizeId = (value: unknown) => String(value ?? "").trim();
-    const rowMatchesRawId = (row: User) =>
-      normalizeId(row.UsuarioID) === userIdRaw ||
-      normalizeId(row.PersonalId) === personalIdRaw ||
-      normalizeId(row.UsuarioID) === personalIdRaw ||
-      normalizeId(row.PersonalId) === userIdRaw;
-
-    return (
-      rows.find((item) => Number(item.UsuarioID) === userId) ??
-      rows.find((item) => Number(item.PersonalId) === personalId) ??
-      rows.find((item) => Number(item.UsuarioID) === personalId) ??
-      rows.find((item) => Number(item.PersonalId) === userId) ??
-      rows.find((item) => rowMatchesRawId(item)) ??
-      rows.find(
-        (item) =>
-          String(item.UsuarioAlias ?? "")
-            .trim()
-            .toLowerCase() === alias,
-      ) ??
-      null
-    );
-  }, [authSessionUserIdentity]);
-
-  const ensureCurrentUserLoaded =
-    useCallback(async (): Promise<User | null> => {
-      const inMemory = resolveCurrentUserFromStore();
-      if (inMemory) return inMemory;
-
-      const attempts: Array<"" | "ACTIVO" | "INACTIVO"> = [
-        "",
-        "ACTIVO",
-        "INACTIVO",
-      ];
-      for (const estado of attempts) {
-        await fetchUsers(estado);
-        const found = resolveCurrentUserFromStore();
-        if (found) return found;
-      }
-
-      return null;
-    }, [fetchUsers, resolveCurrentUserFromStore]);
-
-  const openPasswordExpiredDialog = useCallback(
-    (row: User) => {
-      openDialog({
-        title: "Cambiar la contraseña",
-        content: (
-          <div className="space-y-3">
-            <p className="text-sm text-slate-700">
-              Tu clave ha vencido. Debes cambiar la contraseña para continuar
-              usando el sistema.
-            </p>
-            <p className="text-sm text-slate-700">
-              Fecha de vencimiento:{" "}
-              <span className="font-semibold">
-                {passwordExpirationDateLabel}
-              </span>
-            </p>
-            <UserFormBase
-              variant="modal"
-              mode="edit"
-              fieldsMode="password-only"
-              initialData={row}
-              onSave={() => true}
-            />
-          </div>
-        ),
-        confirmText: "Guardar contraseña",
-        cancelText: "Cerrar sesión",
-        maxWidth: "sm",
-        fullWidth: true,
-        disableBackdropClose: true,
-        onCancel: () => {
-          logout();
-          navigate("/login", { replace: true });
-        },
-        onConfirm: async (rawData) => {
-          const data = (rawData ?? {}) as Partial<User> & {
-            ConfirmClave?: string;
-          };
-
-          const password = data.UsuarioClave ?? "";
-          const confirmPassword = data.ConfirmClave ?? "";
-
-          if (!password || !confirmPassword || password !== confirmPassword) {
-            toast.error("Las contrasenas no coinciden");
-            return false;
-          }
-
-          if (!PASSWORD_POLICY_REGEX.test(password)) {
-            toast.error(PASSWORD_POLICY_MESSAGE);
-            return false;
-          }
-
-          const updated = await updateUser(row.UsuarioID, {
-            PersonalId: Number(data.PersonalId ?? row.PersonalId ?? 0),
-            UsuarioAlias: (
-              data.UsuarioAlias ??
-              row.UsuarioAlias ??
-              user?.username ??
-              ""
-            ).trim(),
-            UsuarioClave: password,
-            UsuarioFechaReg:
-              data.UsuarioFechaReg ??
-              row.UsuarioFechaReg ??
-              new Date().toISOString(),
-            UsuarioEstado: data.UsuarioEstado ?? row.UsuarioEstado ?? "ACTIVO",
-            UsuarioSerie: data.UsuarioSerie ?? row.UsuarioSerie ?? "B001",
-            EnviaBoleta: data.EnviaBoleta ?? row.EnviaBoleta ?? 0,
-            EnviarFactura: data.EnviarFactura ?? row.EnviarFactura ?? 0,
-            EnviaNC: data.EnviaNC ?? row.EnviaNC ?? 0,
-            EnviaND: data.EnviaND ?? row.EnviaND ?? 0,
-            Administrador: data.Administrador ?? row.Administrador ?? 0,
-            area: row.area,
-          });
-
-          if (!updated) {
-            toast.error("No se pudo actualizar la contraseña.");
-            return false;
-          }
-
-          await fetchUsers("ACTIVO");
-          toast.success("Contrasena actualizada correctamente");
-          logout();
-          navigate("/login", { replace: true });
-          return true;
-        },
-      });
-    },
-    [
-      fetchUsers,
-      openDialog,
-      logout,
-      navigate,
-      passwordExpirationDateLabel,
-      updateUser,
-      user?.username,
-    ],
-  );
-
-  /** useEffect(() => {
-    if (!PASSWORD_EXPIRATION_LOCK_ENABLED || !isPasswordExpired) {
-      passwordDialogOpenedRef.current = false;
-      resolvingUserRef.current = false;
-      userLoadErrorNotifiedRef.current = false;
-      return;
-    }
-
-    if (!hasSessionIdentity) return;
-    if (passwordDialogOpenedRef.current) return;
-    if (resolvingUserRef.current) return;
-
-    let cancelled = false;
-    resolvingUserRef.current = true;
-
-    const run = async () => {
-      const row =
-        currentUserForPasswordUpdate ?? (await ensureCurrentUserLoaded());
-      if (cancelled) return;
-
-      if (!row) {
-        if (!userLoadErrorNotifiedRef.current) {
-          userLoadErrorNotifiedRef.current = true;
-          toast.error(
-            "No se pudo cargar el usuario completo para cambiar la contraseña.",
-          );
-        }
-        return;
-      }
-
-      userLoadErrorNotifiedRef.current = false;
-      passwordDialogOpenedRef.current = true;
-      openPasswordExpiredDialog(row);
-    };
-
-    void run().finally(() => {
-      if (!cancelled) {
-        resolvingUserRef.current = false;
-      }
-    });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [
-    currentUserForPasswordUpdate,
-    ensureCurrentUserLoaded,
-    hasSessionIdentity,
-    isPasswordExpired,
-    openPasswordExpiredDialog,
-  ]); */
-
   useEffect(() => {
-    setOpen(false);
-    setMobileOpen(false);
-    setUserMenuOpen(false);
+    queueMicrotask(() => {
+      setOpen(false);
+      setMobileOpen(false);
+      setUserMenuOpen(false);
+    });
   }, [pathname]);
 
   useEffect(() => {
@@ -463,6 +226,52 @@ export default function MainLayout() {
     };
   }, [userMenuOpen]);
 
+  const loadCompanies = useCallback(() => {
+    if (companies.length > 0 || companiesLoading) return;
+
+    setCompaniesLoading(true);
+    void apiRequest<unknown>({
+      url: buildApiUrl("/Compania/combo"),
+      blockUi: false,
+      fallback: [],
+    })
+      .then((response) => {
+        setCompanies(normalizeCompanyItems(response));
+      })
+      .finally(() => {
+        setCompaniesLoading(false);
+      });
+  }, [companies.length, companiesLoading]);
+
+  const reloadCurrentSession = useCallback(() => {
+    window.location.reload();
+  }, []);
+
+  const handleConfirmCompany = useCallback(async () => {
+    if (!selectedCompany) {
+      toast.error("Selecciona una compañía.");
+      return;
+    }
+
+    const response = await apiRequest<unknown>({
+      url: buildApiUrl(`/Compania/${selectedCompany.id}`),
+      blockUi: false,
+      fallback: null,
+    });
+
+    setSessionCompany(toCompanyUserPatch(response, selectedCompany));
+    toast.success("Compañía de sesión actualizada.");
+    setUserMenuOpen(false);
+    reloadCurrentSession();
+  }, [reloadCurrentSession, selectedCompany, setSessionCompany]);
+
+  const handleResetCompany = useCallback(() => {
+    resetSessionCompany();
+    toast.success("Compañía restablecida.");
+    setUserMenuOpen(false);
+    reloadCurrentSession();
+  }, [reloadCurrentSession, resetSessionCompany]);
+
   const navItems = useMemo(() => {
     const items = [
       {
@@ -481,7 +290,7 @@ export default function MainLayout() {
     ];
 
     return items;
-  }, [user?.boletaPorLote]);
+  }, []);
 
   const filteredItems = navItems.filter((item) =>
     item.label.toUpperCase().includes(search.toUpperCase()),
@@ -640,7 +449,14 @@ export default function MainLayout() {
 
             <div ref={userMenuContainerRef} className="relative shrink-0">
               <button
-                onClick={() => setUserMenuOpen((prev) => !prev)}
+                onClick={() => {
+                  const nextOpen = !userMenuOpen;
+                  setUserMenuOpen(nextOpen);
+                  if (nextOpen) {
+                    setSelectedCompanyId(String(user?.companyId ?? ""));
+                    loadCompanies();
+                  }
+                }}
                 className="flex items-center gap-2 rounded-xl border border-white/20 bg-white/10 px-2 py-1.5 shadow-sm backdrop-blur-sm transition-colors hover:bg-white/20 sm:gap-3 sm:px-3 sm:py-2"
                 aria-expanded={userMenuOpen}
                 aria-haspopup="menu"
@@ -660,9 +476,61 @@ export default function MainLayout() {
               </button>
 
               {userMenuOpen && (
-                <div className="absolute right-0 z-[220] mt-2 w-44 rounded-lg border border-slate-100 bg-white text-slate-800 shadow-lg">
+                <div className="absolute right-0 z-[220] mt-2 w-72 overflow-hidden rounded-lg border border-slate-100 bg-white text-slate-800 shadow-lg">
+                  <div className="max-h-56 overflow-y-auto py-1">
+                    {companiesLoading ? (
+                      <div className="flex items-center gap-2 px-3 py-3 text-sm text-slate-500">
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                        Cargando compañías...
+                      </div>
+                    ) : companies.length === 0 ? (
+                      <div className="px-3 py-3 text-sm text-slate-500">
+                        No hay compañías disponibles.
+                      </div>
+                    ) : (
+                      companies.map((company) => {
+                        const checked = selectedCompanyId === company.id;
+                        return (
+                          <label
+                            key={company.id}
+                            className={`flex cursor-pointer items-center gap-3 px-3 py-2 text-sm transition-colors ${
+                              checked
+                                ? "bg-[#96312a]/10 text-[#96312a]"
+                                : "hover:bg-slate-50"
+                            }`}
+                          >
+                            <input
+                              type="checkbox"
+                              className="h-4 w-4 accent-[#96312a]"
+                              checked={checked}
+                              onChange={() => setSelectedCompanyId(company.id)}
+                            />
+                            <span className="truncate">{company.name}</span>
+                          </label>
+                        );
+                      })
+                    )}
+                  </div>
+                  <div className="flex gap-2 border-t border-slate-100 p-3">
+                    <button
+                      type="button"
+                      className="flex-1 rounded-md bg-[#96312a] px-3 py-2 text-sm font-semibold text-white transition-colors hover:bg-[#7f2924] disabled:cursor-not-allowed disabled:opacity-60"
+                      disabled={!selectedCompany || companiesLoading}
+                      onClick={handleConfirmCompany}
+                    >
+                      Confirmar
+                    </button>
+                    <button
+                      type="button"
+                      className="flex-1 rounded-md bg-[#96312a] px-3 py-2 text-sm font-semibold text-white transition-colors hover:bg-[#7f2924]"
+                      onClick={handleResetCompany}
+                    >
+                      Restablecer
+                    </button>
+                  </div>
                   <button
-                    className="w-full rounded-lg px-3 py-2 text-left text-sm transition-colors hover:bg-slate-50"
+                    type="button"
+                    className="w-full border-t border-slate-100 px-3 py-2 text-left text-sm transition-colors hover:bg-slate-50"
                     onClick={() => {
                       setUserMenuOpen(false);
                       logout();
