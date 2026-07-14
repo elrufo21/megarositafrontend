@@ -150,7 +150,6 @@ export default function MainLayout() {
   const user = useAuthStore((state) => state.user);
   const logout = useAuthStore((state) => state.logout);
   const setSessionCompany = useAuthStore((state) => state.setSessionCompany);
-  const resetSessionCompany = useAuthStore((state) => state.resetSessionCompany);
 
   const [companies, setCompanies] = useState<CompanyOption[]>([]);
   const [companiesLoading, setCompaniesLoading] = useState(false);
@@ -165,10 +164,6 @@ export default function MainLayout() {
     const role = String(record?.role ?? "").trim();
     return role || "Sesión activa";
   }, [user]);
-  const selectedCompany = useMemo(
-    () => companies.find((company) => company.id === selectedCompanyId) ?? null,
-    [companies, selectedCompanyId],
-  );
   const headerTitle = useMemo(() => {
     const fromState = String(user?.companyName ?? "").trim();
     if (fromState) return fromState;
@@ -256,30 +251,20 @@ export default function MainLayout() {
     window.location.reload();
   }, []);
 
-  const handleConfirmCompany = useCallback(async () => {
-    if (!selectedCompany) {
-      toast.error("Selecciona una compañía.");
-      return;
-    }
+  const handleSelectCompany = useCallback(async (company: CompanyOption) => {
+    setSelectedCompanyId(company.id);
 
     const response = await apiRequest<unknown>({
-      url: buildApiUrl(`/Compania/${selectedCompany.id}`),
+      url: buildApiUrl(`/Compania/${company.id}`),
       blockUi: false,
       fallback: null,
     });
 
-    setSessionCompany(toCompanyUserPatch(response, selectedCompany));
+    setSessionCompany(toCompanyUserPatch(response, company));
     toast.success("Compañía de sesión actualizada.");
     setUserMenuOpen(false);
     reloadCurrentSession();
-  }, [reloadCurrentSession, selectedCompany, setSessionCompany]);
-
-  const handleResetCompany = useCallback(() => {
-    resetSessionCompany();
-    toast.success("Compañía restablecida.");
-    setUserMenuOpen(false);
-    reloadCurrentSession();
-  }, [reloadCurrentSession, resetSessionCompany]);
+  }, [reloadCurrentSession, setSessionCompany]);
 
   const navItems = useMemo(() => {
     const items = [
@@ -526,7 +511,9 @@ export default function MainLayout() {
                           <ListItemButton
                             key={company.id}
                             selected={checked}
-                            onClick={() => setSelectedCompanyId(company.id)}
+                            onClick={() => {
+                              void handleSelectCompany(company);
+                            }}
                             sx={{
                               mx: 1,
                               borderRadius: 1.5,
@@ -560,28 +547,6 @@ export default function MainLayout() {
                         );
                       })
                     )}
-                  </Box>
-                  <Divider />
-                  <Box sx={{ display: "flex", gap: 1, p: 1.5 }}>
-                    <Button
-                      variant="contained"
-                      fullWidth
-                      size="small"
-                      disabled={!selectedCompany || companiesLoading}
-                      onClick={handleConfirmCompany}
-                      sx={{ bgcolor: "#96312a", fontWeight: 700, "&:hover": { bgcolor: "#7f2924" } }}
-                    >
-                      Confirmar
-                    </Button>
-                    <Button
-                      variant="outlined"
-                      fullWidth
-                      size="small"
-                      onClick={handleResetCompany}
-                      sx={{ borderColor: "#96312a", color: "#96312a", fontWeight: 700 }}
-                    >
-                      Restablecer
-                    </Button>
                   </Box>
                   <Divider />
                   <Box sx={{ p: 1 }}>
