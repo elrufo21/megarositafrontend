@@ -638,7 +638,8 @@ const POSPage = () => {
   const saleMovementCostInputRef = useRef<SaleFocusableElement | null>(null);
   const saleDiscountInputRef = useRef<SaleFocusableElement | null>(null);
   const [priceDrafts, setPriceDrafts] = useState<Record<number, string>>({});
-  const [priceMode, setPriceMode] = useState<PosPriceMode>("A");
+  const priceMode: PosPriceMode = "A";
+  const [cartPriceMode, setCartPriceMode] = useState<PosPriceMode>("A");
   const [quantityDrafts, setQuantityDrafts] = useState<Record<number, string>>(
     {},
   );
@@ -1907,6 +1908,7 @@ const POSPage = () => {
           clearCart();
           clearEditingNota();
           setPriceDrafts({});
+          setCartPriceMode("A");
           setQuantityDrafts({});
           void resetDraftForNewSale();
         }, 0);
@@ -1915,6 +1917,7 @@ const POSPage = () => {
       clearCart();
       clearEditingNota();
       setPriceDrafts({});
+      setCartPriceMode("A");
       setQuantityDrafts({});
       setMobileCartOpen(false);
       await resetDraftForNewSale();
@@ -2425,6 +2428,32 @@ const POSPage = () => {
     setPriceDrafts((prev) => ({ ...prev, [itemKey]: safePrice.toFixed(2) }));
   };
 
+  const applyCartPriceMode = (mode: PosPriceMode) => {
+    if (!items.length) return;
+    let changed = 0;
+    const nextDrafts: Record<number, string> = {};
+
+    items.forEach((item) => {
+      const nextPrice =
+        mode === "A" ? getCartItemPriceA(item) : getCartItemPriceB(item);
+      if (nextPrice <= 0) return;
+      const itemKey = getCartItemKey(item);
+      const safePrice = roundPrice(
+        Math.max(nextPrice, getMinAllowedPrice(item)),
+      );
+      updatePrice(itemKey, safePrice);
+      nextDrafts[itemKey] = safePrice.toFixed(2);
+      changed += 1;
+    });
+
+    setCartPriceMode(mode);
+    setCartTab("products");
+    if (window.matchMedia("(max-width: 1279px)").matches) {
+      setMobileCartOpen(true);
+    }
+    if (changed) setPriceDrafts((prev) => ({ ...prev, ...nextDrafts }));
+  };
+
   useEffect(() => {
     setPriceDrafts((prev) => {
       const next: Record<number, string> = {};
@@ -2444,6 +2473,7 @@ const POSPage = () => {
         clearCart();
         setSaleSettings(DEFAULT_POS_SALE_SETTINGS);
         setSaleCustomerInput(DEFAULT_POS_SALE_SETTINGS.customerName);
+        setCartPriceMode("A");
         setCartTab("products");
         setMobileCartOpen(false);
         setViewMode("cards");
@@ -3443,17 +3473,20 @@ const POSPage = () => {
               </button>
               <button
                 type="button"
-                className={`inline-flex items-center rounded-lg border px-3 py-1 text-sm font-semibold transition-colors ${
-                  priceMode === "B"
+                className={`inline-flex items-center rounded-lg border px-3 py-1 text-sm font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
+                  cartPriceMode === "B"
                     ? "border-emerald-300 bg-emerald-50 text-emerald-700 hover:bg-emerald-100"
                     : "border-slate-300 bg-white text-slate-700 hover:bg-slate-50"
                 }`}
                 onClick={() =>
-                  setPriceMode((current) => (current === "A" ? "B" : "A"))
+                  applyCartPriceMode(cartPriceMode === "A" ? "B" : "A")
                 }
-                title={`Cambiar de precio ${priceMode === "A" ? "B" : "A"}`}
+                disabled={!items.length}
+                title={`Cambiar carrito a precio ${
+                  cartPriceMode === "A" ? "B" : "A"
+                }`}
               >
-                Cambiar de precio {priceMode === "A" ? "B" : "A"}
+                Carrito a precio {cartPriceMode === "A" ? "B" : "A"}
               </button>
             </div>
             <button

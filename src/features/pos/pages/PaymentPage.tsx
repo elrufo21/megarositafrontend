@@ -90,6 +90,11 @@ type CompanyDataPayload = {
   LogoCompania?: string;
 };
 
+const localCompanyLogo = (companyId: unknown) => {
+  const id = Number(companyId);
+  return [1, 4, 5].includes(id) ? `/logo-ticket-${id}.png` : "";
+};
+
 type PersonalByCodeResponse = {
   personalId?: number;
   personalEstado?: string;
@@ -867,6 +872,7 @@ const PaymentPage = () => {
     companyUbigeoNameFromSession,
     companyAddressSunatFromSession,
     companyUbigeoCodeFromSession,
+    companyLogoFromSession,
     usuarioSolFromSession,
     claveSolFromSession,
     claveCertificadoFromSession,
@@ -886,6 +892,7 @@ const PaymentPage = () => {
         companyUbigeoNameFromSession: "",
         companyAddressSunatFromSession: "",
         companyUbigeoCodeFromSession: "",
+        companyLogoFromSession: "",
         usuarioSolFromSession: "",
         claveSolFromSession: "",
         claveCertificadoFromSession: "",
@@ -948,6 +955,14 @@ const PaymentPage = () => {
     const companySunatAddress = safeTrim(
       parsedSession?.user?.companySunatAddress ??
         parsedSession?.companiaDirecSunat ??
+        "",
+    );
+    const companyLogo = safeTrim(
+      parsedSession?.user?.companyLogo ??
+        parsedSession?.logoCompania ??
+        parsedSession?.LogoCompania ??
+        parsedSession?.loginPayload?.logoCompania ??
+        parsedSession?.loginPayload?.LogoCompania ??
         "",
     );
     const usuarioSol = safeTrim(
@@ -1038,6 +1053,7 @@ const PaymentPage = () => {
       companyUbigeoNameFromSession: companyUbigeoName,
       companyAddressSunatFromSession: companySunatAddress,
       companyUbigeoCodeFromSession: companyUbigeoCode,
+      companyLogoFromSession: companyLogo,
       usuarioSolFromSession: usuarioSol,
       claveSolFromSession: claveSol,
       claveCertificadoFromSession: claveCertificado,
@@ -3456,23 +3472,26 @@ const PaymentPage = () => {
   const companyLogoFromNota = safeTrim(
     notaCompaniaActual?.logoCompania ?? notaCompaniaActual?.LogoCompania ?? "",
   );
-  const effectiveCompanyNameForDocument =
-    companyCommercialFromNota ||
-    companyNameFromNota ||
-    companyCommercialFromSession ||
-    companyNameFromSession ||
-    "CONSORCIO FERRETERO ROSITA E.I.R.L.";
-  const effectiveCompanyRucForDocument =
-    companyRucFromNota || companyRucFromSession || "20601070155";
-  const effectiveCompanyAddressForDocument =
-    companyAddressFromNota ||
-    companyAddressSunatFromSession ||
-    "Calle 2 Mz B Lote 1";
-  const effectiveCompanyDistrictForDocument =
-    companyDistrictFromNota || companyUbigeoNameFromSession || "LIMA";
-  const effectiveCompanyLogoForDocument = notaId
-    ? companyLogoFromNota
-    : undefined;
+  const isExistingNota = Boolean(notaId);
+  const effectiveCompanyNameForDocument = isExistingNota
+    ? companyCommercialFromNota ||
+      companyNameFromNota ||
+      "CONSORCIO FERRETERO ROSITA E.I.R.L."
+    : companyCommercialFromSession ||
+      companyNameFromSession ||
+      "CONSORCIO FERRETERO ROSITA E.I.R.L.";
+  const effectiveCompanyRucForDocument = isExistingNota
+    ? companyRucFromNota || "20601070155"
+    : companyRucFromSession || "20601070155";
+  const effectiveCompanyAddressForDocument = isExistingNota
+    ? companyAddressFromNota || "Calle 2 Mz B Lote 1"
+    : companyAddressSunatFromSession || "Calle 2 Mz B Lote 1";
+  const effectiveCompanyDistrictForDocument = isExistingNota
+    ? companyDistrictFromNota || "LIMA"
+    : companyUbigeoNameFromSession || "LIMA";
+  const effectiveCompanyLogoForDocument = isExistingNota
+    ? localCompanyLogo(loadedNotaCompanyId) || companyLogoFromNota
+    : localCompanyLogo(companyId) || companyLogoFromSession;
 
   const ticketPreviewProps = useMemo(() => {
     const safeItems = itemsToRender.length ? itemsToRender : purchasedItems;
@@ -4024,6 +4043,7 @@ const PaymentPage = () => {
           Usuario: resolvedPaymentUsername,
           FormaPago:
             safeTrim(editNota.notaFormaPago ?? paymentMethod) || "EFECTIVO",
+          CompaniaId: Number(editNota.companiaId ?? companyId) || 1,
           Condicion:
             safeTrim(editNota.notaCondicion ?? "ALCONTADO") || "ALCONTADO",
           NotaEstado: "PENDIENTE",

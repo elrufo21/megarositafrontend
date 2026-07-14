@@ -146,6 +146,9 @@ export default function MainLayout() {
     pendingRequests > 0 &&
     (pathname.startsWith("/sales/order_notes") ||
       pathname.startsWith("/customers"));
+  const isPaymentViewCompanyLocked = /^\/sales\/order_notes\/[^/]+\/view$/i.test(
+    pathname,
+  );
 
   const user = useAuthStore((state) => state.user);
   const logout = useAuthStore((state) => state.logout);
@@ -494,14 +497,26 @@ export default function MainLayout() {
                   <Divider />
                   <Box sx={{ maxHeight: 224, overflowY: "auto", py: 0.5 }}>
                     {companiesLoading ? (
-                      <Box sx={{ display: "flex", alignItems: "center", gap: 1.25, px: 2, py: 2 }}>
+                      <Box
+                        sx={{
+                          display: "flex",
+                          alignItems: "center",
+                          gap: 1.25,
+                          px: 2,
+                          py: 2,
+                        }}
+                      >
                         <CircularProgress size={18} />
                         <Typography variant="body2" color="text.secondary">
                           Cargando compañías...
                         </Typography>
                       </Box>
                     ) : companies.length === 0 ? (
-                      <Typography variant="body2" color="text.secondary" sx={{ px: 2, py: 2 }}>
+                      <Typography
+                        variant="body2"
+                        color="text.secondary"
+                        sx={{ px: 2, py: 2 }}
+                      >
                         No hay compañías disponibles.
                       </Typography>
                     ) : (
@@ -511,8 +526,11 @@ export default function MainLayout() {
                           <ListItemButton
                             key={company.id}
                             selected={checked}
+                            disabled={isPaymentViewCompanyLocked}
                             onClick={() => {
-                              void handleSelectCompany(company);
+                              if (!isPaymentViewCompanyLocked) {
+                                void handleSelectCompany(company);
+                              }
                             }}
                             sx={{
                               mx: 1,
@@ -533,7 +551,11 @@ export default function MainLayout() {
                               checked={checked}
                               tabIndex={-1}
                               disableRipple
-                              sx={{ color: "#96312a", "&.Mui-checked": { color: "#96312a" } }}
+                              disabled={isPaymentViewCompanyLocked}
+                              sx={{
+                                color: "#96312a",
+                                "&.Mui-checked": { color: "#96312a" },
+                              }}
                             />
                             <ListItemText
                               primary={company.name}
