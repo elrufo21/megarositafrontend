@@ -199,6 +199,23 @@ const columnHelper = createColumnHelper<PosCatalogProduct>();
 const CATALOG_PAGE_SIZE = 50;
 const TABLE_PAGE_SIZE_OPTIONS = [20, 50, 100];
 const PROFORMA_DEFAULT_CONTACT_ID = 47;
+const DEFAULT_POS_SALE_SETTINGS: PosSaleSettings = {
+  docTypeCode: "SELECCIONAR",
+  paymentMethod: "EFECTIVO",
+  clienteId: PROFORMA_DEFAULT_CONTACT_ID,
+  customerName: "VARIOS",
+  customerId: "",
+  customerRuc: "",
+  customerDni: "",
+  fiscalAddress: "",
+  shippingAddress: "",
+  phone: "",
+  movementCost: "",
+  bankEntity: "-",
+  nroOperacion: "",
+  applyDiscount: false,
+  discount: "",
+};
 const POS_DOC_TYPE_CONFIG: Record<
   PosDocTypeCode,
   { docu: string; serie: string; label: string }
@@ -629,23 +646,9 @@ const POSPage = () => {
     null,
   );
   const [isSubmittingQuickSale, setIsSubmittingQuickSale] = useState(false);
-  const [saleSettings, setSaleSettings] = useState<PosSaleSettings>({
-    docTypeCode: "SELECCIONAR",
-    paymentMethod: "EFECTIVO",
-    clienteId: PROFORMA_DEFAULT_CONTACT_ID,
-    customerName: "VARIOS",
-    customerId: "",
-    customerRuc: "",
-    customerDni: "",
-    fiscalAddress: "",
-    shippingAddress: "",
-    phone: "",
-    movementCost: "",
-    bankEntity: "-",
-    nroOperacion: "",
-    applyDiscount: false,
-    discount: "",
-  });
+  const [saleSettings, setSaleSettings] = useState<PosSaleSettings>(
+    DEFAULT_POS_SALE_SETTINGS,
+  );
   const [saleCustomerInput, setSaleCustomerInput] = useState("VARIOS");
 
   const safeTrim = (value: unknown) => String(value ?? "").trim();
@@ -1328,18 +1331,14 @@ const POSPage = () => {
     toast.error(
       `El ${type === "ruc" ? "RUC" : "DNI"} no existe. Agrega el cliente y seleccionalo.`,
     );
+    setSaleCustomerInput("");
     setSaleSettings((prev) => ({
       ...prev,
       clienteId: null,
-      ...(type === "ruc"
-        ? {
-            customerRuc: "",
-            customerId: prev.docTypeCode === "01" ? "" : prev.customerDni,
-          }
-        : {
-            customerDni: "",
-            customerId: prev.docTypeCode === "03" ? "" : prev.customerRuc,
-          }),
+      customerName: "",
+      customerId: "",
+      customerRuc: "",
+      customerDni: "",
     }));
   };
 
@@ -1482,20 +1481,6 @@ const POSPage = () => {
 
   const handleSearchTermInput = (event: FormEvent<HTMLInputElement>) => {
     setSearchTerm(event.currentTarget.value);
-  };
-
-  const switchToCardsView = () => {
-    if (viewMode === "cards") return;
-    setViewMode("cards");
-    setCatalogPage(1);
-    loadMoreArmedRef.current = true;
-    appendScrollTopRef.current = null;
-  };
-
-  const switchToTableView = () => {
-    if (viewMode === "table") return;
-    setViewMode("table");
-    setTablePage(1);
   };
 
   const handleTablePageChange = (nextPage: number) => {
@@ -2457,6 +2442,8 @@ const POSPage = () => {
       content: <p>¿Seguro que deseas eliminar todos los ítems del carrito?</p>,
       onConfirm: () => {
         clearCart();
+        setSaleSettings(DEFAULT_POS_SALE_SETTINGS);
+        setSaleCustomerInput(DEFAULT_POS_SALE_SETTINGS.customerName);
         setCartTab("products");
         setMobileCartOpen(false);
         setViewMode("cards");
@@ -3236,13 +3223,15 @@ const POSPage = () => {
               type="checkbox"
               className="h-4 w-4 rounded accent-slate-700"
               checked={saleSettings.applyDiscount}
-              onChange={(event) =>
+              onChange={(event) => {
+                const checked = event.target.checked;
                 setSaleSettings((prev) => ({
                   ...prev,
-                  applyDiscount: event.target.checked,
-                  discount: event.target.checked ? prev.discount : "",
-                }))
-              }
+                  applyDiscount: checked,
+                  discount: checked ? prev.discount : "",
+                }));
+                if (checked) focusSaleField(saleDiscountInputRef, true);
+              }}
             />
             Aplica descuento
           </label>
@@ -3462,9 +3451,9 @@ const POSPage = () => {
                 onClick={() =>
                   setPriceMode((current) => (current === "A" ? "B" : "A"))
                 }
-                title={`Cambiar a precio ${priceMode === "A" ? "B" : "A"}`}
+                title={`Cambiar de precio ${priceMode === "A" ? "B" : "A"}`}
               >
-                Precio {priceMode}
+                Cambiar de precio {priceMode === "A" ? "B" : "A"}
               </button>
             </div>
             <button

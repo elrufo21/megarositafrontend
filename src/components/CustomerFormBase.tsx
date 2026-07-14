@@ -521,17 +521,21 @@ export default function CustomerFormBase({
                     }}
                   />
 
-                  <HookFormInput<CustomerFormValues>
-                    name="direccionFiscal"
-                    label="Direccion Fiscal"
-                    placeholder="Ingrese direccion fiscal"
-                  />
+                  <div className="md:col-span-2">
+                    <HookFormInput<CustomerFormValues>
+                      name="direccionFiscal"
+                      label="Direccion Fiscal"
+                      placeholder="Ingrese direccion fiscal"
+                    />
+                  </div>
 
-                  <HookFormInput<CustomerFormValues>
-                    name="direccionDespacho"
-                    label="Direccion de Despacho"
-                    placeholder="Ingrese direccion de despacho"
-                  />
+                  <div className="md:col-span-2">
+                    <HookFormInput<CustomerFormValues>
+                      name="direccionDespacho"
+                      label="Direccion de Despacho"
+                      placeholder="Ingrese direccion de despacho"
+                    />
+                  </div>
 
                   <HookFormInput<CustomerFormValues>
                     name="telefonoMovil"

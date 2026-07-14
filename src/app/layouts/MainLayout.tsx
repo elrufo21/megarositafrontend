@@ -7,6 +7,7 @@ import {
   ChevronDown,
   CopySlashIcon,
   Loader2,
+  LogOut,
 } from "lucide-react";
 import {
   useCallback,
@@ -16,6 +17,14 @@ import {
   useState,
   useSyncExternalStore,
 } from "react";
+import Box from "@mui/material/Box";
+import Button from "@mui/material/Button";
+import Checkbox from "@mui/material/Checkbox";
+import CircularProgress from "@mui/material/CircularProgress";
+import Divider from "@mui/material/Divider";
+import ListItemButton from "@mui/material/ListItemButton";
+import ListItemText from "@mui/material/ListItemText";
+import Typography from "@mui/material/Typography";
 import { toast } from "@/shared/ui/toast";
 import { buildApiUrl } from "@/config";
 import { useAuthStore, type AuthUser } from "@/store/auth/auth.store";
@@ -476,61 +485,121 @@ export default function MainLayout() {
               </button>
 
               {userMenuOpen && (
-                <div className="absolute right-0 z-[220] mt-2 w-72 overflow-hidden rounded-lg border border-slate-100 bg-white text-slate-800 shadow-lg">
-                  <div className="max-h-56 overflow-y-auto py-1">
+                <Box
+                  className="absolute right-0 z-[220] mt-2"
+                  sx={{
+                    width: 304,
+                    overflow: "hidden",
+                    borderRadius: 2,
+                    border: "1px solid",
+                    borderColor: "divider",
+                    bgcolor: "background.paper",
+                    color: "text.primary",
+                    boxShadow: "0 18px 45px rgba(15, 23, 42, 0.22)",
+                  }}
+                >
+                  <Box sx={{ px: 2, py: 1.5 }}>
+                    <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>
+                      Cambiar compañía
+                    </Typography>
+                    <Typography variant="caption" color="text.secondary">
+                      Selecciona la compañía activa
+                    </Typography>
+                  </Box>
+                  <Divider />
+                  <Box sx={{ maxHeight: 224, overflowY: "auto", py: 0.5 }}>
                     {companiesLoading ? (
-                      <div className="flex items-center gap-2 px-3 py-3 text-sm text-slate-500">
-                        <Loader2 className="h-4 w-4 animate-spin" />
-                        Cargando compañías...
-                      </div>
+                      <Box sx={{ display: "flex", alignItems: "center", gap: 1.25, px: 2, py: 2 }}>
+                        <CircularProgress size={18} />
+                        <Typography variant="body2" color="text.secondary">
+                          Cargando compañías...
+                        </Typography>
+                      </Box>
                     ) : companies.length === 0 ? (
-                      <div className="px-3 py-3 text-sm text-slate-500">
+                      <Typography variant="body2" color="text.secondary" sx={{ px: 2, py: 2 }}>
                         No hay compañías disponibles.
-                      </div>
+                      </Typography>
                     ) : (
                       companies.map((company) => {
                         const checked = selectedCompanyId === company.id;
                         return (
-                          <label
+                          <ListItemButton
                             key={company.id}
-                            className={`flex cursor-pointer items-center gap-3 px-3 py-2 text-sm transition-colors ${
-                              checked
-                                ? "bg-[#96312a]/10 text-[#96312a]"
-                                : "hover:bg-slate-50"
-                            }`}
+                            selected={checked}
+                            onClick={() => setSelectedCompanyId(company.id)}
+                            sx={{
+                              mx: 1,
+                              borderRadius: 1.5,
+                              py: 0.75,
+                              "&.Mui-selected": {
+                                bgcolor: "rgba(150, 49, 42, 0.10)",
+                                color: "#96312a",
+                              },
+                              "&.Mui-selected:hover": {
+                                bgcolor: "rgba(150, 49, 42, 0.16)",
+                              },
+                            }}
                           >
-                            <input
-                              type="checkbox"
-                              className="h-4 w-4 accent-[#96312a]"
+                            <Checkbox
+                              edge="start"
+                              size="small"
                               checked={checked}
-                              onChange={() => setSelectedCompanyId(company.id)}
+                              tabIndex={-1}
+                              disableRipple
+                              sx={{ color: "#96312a", "&.Mui-checked": { color: "#96312a" } }}
                             />
-                            <span className="truncate">{company.name}</span>
-                          </label>
+                            <ListItemText
+                              primary={company.name}
+                              primaryTypographyProps={{
+                                noWrap: true,
+                                fontSize: 14,
+                                fontWeight: checked ? 700 : 500,
+                              }}
+                            />
+                          </ListItemButton>
                         );
                       })
                     )}
-                  </div>
-                  <div className="flex gap-2 border-t border-slate-100 p-3">
-                    <button
-                      type="button"
-                      className="flex-1 rounded-md bg-[#96312a] px-3 py-2 text-sm font-semibold text-white transition-colors hover:bg-[#7f2924] disabled:cursor-not-allowed disabled:opacity-60"
+                  </Box>
+                  <Divider />
+                  <Box sx={{ display: "flex", gap: 1, p: 1.5 }}>
+                    <Button
+                      variant="contained"
+                      fullWidth
+                      size="small"
                       disabled={!selectedCompany || companiesLoading}
                       onClick={handleConfirmCompany}
+                      sx={{ bgcolor: "#96312a", fontWeight: 700, "&:hover": { bgcolor: "#7f2924" } }}
                     >
                       Confirmar
-                    </button>
-                    <button
-                      type="button"
-                      className="flex-1 rounded-md bg-[#96312a] px-3 py-2 text-sm font-semibold text-white transition-colors hover:bg-[#7f2924]"
+                    </Button>
+                    <Button
+                      variant="outlined"
+                      fullWidth
+                      size="small"
                       onClick={handleResetCompany}
+                      sx={{ borderColor: "#96312a", color: "#96312a", fontWeight: 700 }}
                     >
                       Restablecer
-                    </button>
-                  </div>
-                  <button
-                    type="button"
-                    className="w-full border-t border-slate-100 px-3 py-2 text-left text-sm transition-colors hover:bg-slate-50"
+                    </Button>
+                  </Box>
+                  <Divider />
+                  <Box sx={{ p: 1 }}>
+                    <Button
+                      fullWidth
+                      startIcon={<LogOut size={17} />}
+                      sx={{
+                        justifyContent: "flex-start",
+                        color: "text.secondary",
+                        textTransform: "none",
+                        fontWeight: 600,
+                        borderRadius: 1.5,
+                        px: 1.5,
+                        "&:hover": {
+                          bgcolor: "rgba(150, 49, 42, 0.08)",
+                          color: "#96312a",
+                        },
+                      }}
                     onClick={() => {
                       setUserMenuOpen(false);
                       logout();
@@ -538,8 +607,9 @@ export default function MainLayout() {
                     }}
                   >
                     Cerrar sesión
-                  </button>
-                </div>
+                    </Button>
+                  </Box>
+                </Box>
               )}
             </div>
           </div>

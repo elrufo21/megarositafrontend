@@ -169,6 +169,11 @@ const getMinAllowedPrice = (item: PosCartItem) => {
     Number(record.precioCosto ?? item.costo ?? item.precioMinimo ?? 0) || 0,
   );
 };
+const showPriceBelowMinimumToast = (minPrice: number) => {
+  toast.error(`El precio no debe ser menor a: S/ ${formatCurrency(minPrice)}`, {
+    id: "payment-price-below-minimum",
+  });
+};
 
 const UNITS = [
   "",
@@ -752,6 +757,9 @@ const PaymentPage = () => {
     return window.matchMedia("(max-width: 1023px)").matches;
   });
   const [priceDrafts, setPriceDrafts] = useState<Record<number, string>>({});
+  const [correctedPriceKeys, setCorrectedPriceKeys] = useState<
+    Record<number, boolean>
+  >({});
   const [quantityDrafts, setQuantityDrafts] = useState<Record<number, string>>(
     {},
   );
@@ -1328,18 +1336,54 @@ const PaymentPage = () => {
     );
   };
 
+  const focusPriceInput = (itemKey: number) => {
+    window.setTimeout(() => {
+      const inputs = Array.from(
+        document.querySelectorAll<HTMLInputElement>(
+          `[data-payment-price-key="${itemKey}"]`,
+        ),
+      );
+      const input =
+        inputs.find((element) => element.offsetParent !== null) ?? inputs[0];
+      input?.focus();
+      input?.select();
+    }, 0);
+  };
+
+  const clearCorrectedPriceKey = (itemKey: number) => {
+    setCorrectedPriceKeys((prev) => {
+      if (!prev[itemKey]) return prev;
+      const next = { ...prev };
+      delete next[itemKey];
+      return next;
+    });
+  };
+
+  const correctPriceToMinimum = (item: PosCartItem, itemKey: number) => {
+    const minPrice = getMinAllowedPrice(item);
+    const formattedMinPrice = formatCurrency(minPrice);
+    setPriceDrafts((prev) => ({ ...prev, [itemKey]: formattedMinPrice }));
+    setCorrectedPriceKeys((prev) => ({ ...prev, [itemKey]: true }));
+    applyPriceToItem(item, minPrice);
+    showPriceBelowMinimumToast(minPrice);
+    focusPriceInput(itemKey);
+  };
+
   const handlePriceChange = (item: PosCartItem, value: string) => {
     if (!canEditItems) return;
     if (!/^\d*\.?\d*$/.test(value)) return;
 
     const itemKey = getCartItemKey(item);
+    clearCorrectedPriceKey(itemKey);
     setPriceDrafts((prev) => ({ ...prev, [itemKey]: value }));
 
     const parsed = Number(value);
-    if (!Number.isNaN(parsed)) {
+    if (!Number.isNaN(parsed) && value.trim() !== "") {
       const minPrice = getMinAllowedPrice(item);
-      const safePrice = roundCurrency(Math.max(parsed, minPrice));
-      applyPriceToItem(item, safePrice);
+      const roundedPrice = roundCurrency(parsed);
+      if (roundedPrice >= minPrice) {
+        applyPriceToItem(item, roundedPrice);
+      }
     }
   };
 
@@ -1364,13 +1408,18 @@ const PaymentPage = () => {
       return;
     }
     const minPrice = getMinAllowedPrice(item);
-    const safePrice = roundCurrency(Math.max(parsed, minPrice));
+    const roundedPrice = roundCurrency(parsed);
+    if (roundedPrice < minPrice) {
+      correctPriceToMinimum(item, itemKey);
+      return;
+    }
 
+    clearCorrectedPriceKey(itemKey);
     setPriceDrafts((prev) => ({
       ...prev,
-      [itemKey]: formatCurrency(safePrice),
+      [itemKey]: formatCurrency(roundedPrice),
     }));
-    applyPriceToItem(item, safePrice);
+    applyPriceToItem(item, roundedPrice);
   };
 
   const formMethods = useForm({
@@ -3799,9 +3848,12 @@ const PaymentPage = () => {
       return;
     }
 
-    const invalidPriceItems = sourceItems.filter((item) => {
+    const invalidPriceItem = sourceItems.find((item) => {
       const minPrice = getMinAllowedPrice(item);
-      const draftValue = priceDrafts[getCartItemKey(item)];
+      const itemKey = getCartItemKey(item);
+      if (correctedPriceKeys[itemKey]) return true;
+
+      const draftValue = priceDrafts[itemKey];
       if (draftValue === undefined) {
         const storedPrice = Number(item.precio ?? 0);
         return !Number.isFinite(storedPrice) || storedPrice < minPrice;
@@ -3810,10 +3862,14 @@ const PaymentPage = () => {
       const normalizedDraft = draftValue.trim();
       if (!normalizedDraft) return true;
       const draftPrice = Number(normalizedDraft);
-      return !Number.isFinite(draftPrice) || draftPrice < minPrice;
+      return (
+        !Number.isFinite(draftPrice) || roundCurrency(draftPrice) < minPrice
+      );
     });
-    if (invalidPriceItems.length) {
-      toast.error("El precio no debe ser menor al precio base.");
+    if (invalidPriceItem) {
+      const itemKey = getCartItemKey(invalidPriceItem);
+      correctPriceToMinimum(invalidPriceItem, itemKey);
+      clearCorrectedPriceKey(itemKey);
       return;
     }
 
@@ -6051,6 +6107,7 @@ const PaymentPage = () => {
                       <input
                         type="text"
                         inputMode="decimal"
+                        data-payment-price-key={getCartItemKey(item)}
                         className="w-full border-0 bg-transparent text-right text-sm outline-none appearance-none [appearance:textfield] disabled:text-slate-500 [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
                         value={
                           priceDrafts[getCartItemKey(item)] ??
@@ -6178,6 +6235,7 @@ const PaymentPage = () => {
                           inputMode="decimal"
                           data-payment-column="price"
                           data-payment-row-index={rowIndex}
+                          data-payment-price-key={getCartItemKey(item)}
                           className="w-16 border-0 bg-transparent text-right text-sm outline-none appearance-none [appearance:textfield] disabled:text-slate-500 [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
                           value={
                             priceDrafts[getCartItemKey(item)] ??

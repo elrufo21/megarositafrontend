@@ -631,29 +631,6 @@ const OrderNotesList = () => {
           );
         },
       }),
-      columnHelper.accessor("estadoSunat", {
-        header: "Estado Sunat",
-        cell: ({ row, getValue }) => {
-          const value = isProformaVDocument(row.original.documento)
-            ? "-"
-            : String(getValue() ?? "").toUpperCase() || "-";
-          const stateClass =
-            value === "RECHAZADO" || isAnnulledStatus(value)
-              ? "bg-red-100 text-red-700 border-red-200"
-              : value === "PENDIENTE"
-                ? "bg-amber-100 text-amber-700 border-amber-200"
-                : value === "-"
-                  ? "bg-slate-100 text-slate-600 border-slate-200"
-                  : "bg-emerald-100 text-emerald-700 border-emerald-200";
-          return (
-            <span
-              className={`inline-flex rounded-full border px-2 py-1 text-xs font-semibold ${stateClass}`}
-            >
-              {value}
-            </span>
-          );
-        },
-      }),
     ],
     [navigate, openingNoteId],
   );
