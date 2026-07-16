@@ -376,7 +376,7 @@ const TicketHTML = ({
       showMovement,
       descuento: safeDescuento,
       showDiscount,
-      detailAdjustmentsLabel: detailAdjustments.join("/") || "MV/CT/OT",
+      detailAdjustmentsLabel: "MV/CT/OT",
       detailAdjustmentAmount,
       showDetailAdjustments: detailAdjustments.length > 0,
       subtotal: safeSubtotal,

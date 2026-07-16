@@ -25,7 +25,6 @@ import Divider from "@mui/material/Divider";
 import ListItemButton from "@mui/material/ListItemButton";
 import ListItemText from "@mui/material/ListItemText";
 import Typography from "@mui/material/Typography";
-import { toast } from "@/shared/ui/toast";
 import { buildApiUrl } from "@/config";
 import { useAuthStore, type AuthUser } from "@/store/auth/auth.store";
 import { apiRequest } from "@/shared/helpers/apiRequest";
@@ -260,7 +259,6 @@ export default function MainLayout() {
     });
 
     setSessionCompany(toCompanyUserPatch(response, company));
-    toast.success("Compañía de sesión actualizada.");
     setUserMenuOpen(false);
     if (!pathname.startsWith("/sales/pos") && !pathname.startsWith("/pos")) {
       window.location.reload();

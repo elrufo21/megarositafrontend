@@ -773,6 +773,7 @@ const PaymentPage = () => {
       : "Volver al POS";
   const showPosShortcutInOrderNoteEdit =
     isOrderNotesFlow && isEditingMode && Boolean(notaId);
+  const showMainBackShortcut = !isConfirmed;
   const [notaNumero, setNotaNumero] = useState<string>("");
   const [notaSerieOverride, setNotaSerieOverride] = useState<string | null>(
     null,
@@ -1529,11 +1530,13 @@ const PaymentPage = () => {
   }, [notaSerie, paddedNotaNumero]);
   const docTypeName = docConfig?.docu ?? "BOLETA";
   const isFactura = docTypeCode === "01";
+  const isBoleta = docTypeCode === "03";
   const isProforma = docTypeCode === "101" || docTypeCode === "001";
   const shouldPrintOrderNoteAsProforma =
     isOrderNotesFlow &&
     Boolean(notaId) &&
     (docTypeCode === "03" || docTypeCode === "01");
+  const showNewSaleShortcut = isEditingMode || (isConfirmed && isBoleta);
   const loadedNoteDocTypeCodeForEdit = (() => {
     const fromHeader = safeTrim(
       notaCabeceraActual?.codTipoDocumento ??
@@ -4913,7 +4916,7 @@ const PaymentPage = () => {
   };
   const handleNewSaleShortcut = useCallback(() => {
     if (isPersistingToDb) return;
-    if (isEditingMode) {
+    if (isEditingMode || (isConfirmed && docTypeCode === "03")) {
       runConfirmedSaleCleanup();
       clearCart();
       clearEditingNota();
@@ -4942,6 +4945,8 @@ const PaymentPage = () => {
     cameFromOrderNotesViewButton,
     clearCart,
     clearEditingNota,
+    docTypeCode,
+    isConfirmed,
     isEditingMode,
     isOrderNotesFlow,
     isPersistingToDb,
@@ -6505,13 +6510,15 @@ const PaymentPage = () => {
     <div className="fixed inset-x-0 top-[calc(var(--app-shell-header-h)+0.35rem)] z-[90] px-3 pt-2 md:hidden">
       <div className="overflow-hidden rounded-xl border border-slate-200 bg-white/95 p-2 shadow-lg backdrop-blur">
         <div className="flex gap-2 overflow-x-auto pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-          <Link
-            to={backToPosRoute}
-            className="inline-flex items-center justify-center gap-2 py-2 text-sm text-slate-700 transition-colors hover:bg-slate-50 hover:text-slate-900 md:hidden"
-            onClick={(e) => handleBackToPos(e)}
-          >
-            <ArrowLeft className="w-4 h-4" />
-          </Link>
+          {showMainBackShortcut && (
+            <Link
+              to={backToPosRoute}
+              className="inline-flex items-center justify-center gap-2 py-2 text-sm text-slate-700 transition-colors hover:bg-slate-50 hover:text-slate-900 md:hidden"
+              onClick={(e) => handleBackToPos(e)}
+            >
+              <ArrowLeft className="w-4 h-4" />
+            </Link>
+          )}
           {showPosShortcutInOrderNoteEdit && (
             <Link
               to={POS_ROUTE}
@@ -6536,6 +6543,16 @@ const PaymentPage = () => {
                 <CheckCircle2 className="h-4 w-4" />
               )}
               {isSubmitting ? "Guardando..." : "Confirmar"}
+            </button>
+          )}
+          {showNewSaleShortcut && (
+            <button
+              type="button"
+              className="inline-flex shrink-0 items-center justify-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-medium text-slate-700 transition-colors hover:bg-slate-50 hover:text-slate-900 disabled:opacity-50"
+              onClick={handleNewSaleShortcut}
+              disabled={isPersistingToDb}
+            >
+              Nuevo registro
             </button>
           )}
           {shouldShowOrderNotesDocumentAction && (
@@ -7206,19 +7223,21 @@ const PaymentPage = () => {
           </h1>
         </div>
         <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-center">
-          <Link
-            to={backToPosRoute}
-            className="hidden h-10 w-10 items-center justify-center rounded-lg bg-slate-700 text-white shadow-sm transition-colors hover:bg-slate-800 md:inline-flex"
-            onClick={(e) => handleBackToPos(e)}
-            title={backLabel}
-            aria-label={backLabel}
-          >
-            {shouldBackToOrderNotesList ? (
-              <ArrowLeft className="w-4 h-4" />
-            ) : (
-              <ShoppingCart className="w-4 h-4" />
-            )}
-          </Link>
+          {showMainBackShortcut && (
+            <Link
+              to={backToPosRoute}
+              className="hidden h-10 w-10 items-center justify-center rounded-lg bg-slate-700 text-white shadow-sm transition-colors hover:bg-slate-800 md:inline-flex"
+              onClick={(e) => handleBackToPos(e)}
+              title={backLabel}
+              aria-label={backLabel}
+            >
+              {shouldBackToOrderNotesList ? (
+                <ArrowLeft className="w-4 h-4" />
+              ) : (
+                <ShoppingCart className="w-4 h-4" />
+              )}
+            </Link>
+          )}
           {showPosShortcutInOrderNoteEdit && (
             <Link
               to={POS_ROUTE}
@@ -7245,7 +7264,7 @@ const PaymentPage = () => {
               {isSubmitting ? "Guardando..." : "Confirmar"}
             </button>
           )}
-          {isEditingMode && (
+          {showNewSaleShortcut && (
             <button
               type="button"
               className="hidden w-fit items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 transition-colors hover:bg-slate-50 hover:text-slate-900 md:inline-flex"
