@@ -44,6 +44,7 @@ import { toast } from "@/shared/ui/toast";
 import { apiRequest } from "@/shared/helpers/apiRequest";
 import { buildApiUrl } from "@/config";
 import {
+  IGV_FACTOR,
   buildSaleMonetarySummary,
   roundCurrency,
 } from "@/shared/helpers/saleMonetary";
@@ -96,6 +97,7 @@ type PersonalByCodeResponse = {
 type AuthSessionPayload = {
   user?: {
     companyId?: unknown;
+    companyName?: unknown;
     displayName?: unknown;
     username?: unknown;
     maxDiscount?: unknown;
@@ -104,6 +106,7 @@ type AuthSessionPayload = {
     TarjetaPorcentaje?: unknown;
   };
   descuentoMax?: unknown;
+  razonSocial?: unknown;
   tarjetaPorcentaje?: unknown;
   TarjetaPorcentaje?: unknown;
   loginPayload?: {
@@ -653,6 +656,15 @@ const POSPage = () => {
   const [saleCustomerInput, setSaleCustomerInput] = useState("VARIOS");
 
   const safeTrim = (value: unknown) => String(value ?? "").trim();
+  const isPaymentMethodAllowedForCompany = (methodValue: unknown) => {
+    const method = safeTrim(methodValue).toUpperCase();
+    if (!method || method === "SELECCIONE" || method === "EFECTIVO") return true;
+    const allowed =
+      Number(companyId) === 4
+        ? ["DEPO. CONTINENTAL", "DEPO. BCP", "TARJETA"]
+        : ["DEPO. BCP", "DEPO. SCOTIABANK"];
+    return allowed.includes(method);
+  };
   const parseRecordLikeValue = (
     value: unknown,
   ): Record<string, unknown> | null => {
@@ -773,6 +785,7 @@ const POSPage = () => {
   };
   const {
     companyId,
+    companyNameFromSession,
     usernameFromSession,
     discountMaxFromSession,
     cardPercentageFromSession,
@@ -780,6 +793,7 @@ const POSPage = () => {
     if (typeof window === "undefined") {
       return {
         companyId: 1,
+        companyNameFromSession: "",
         usernameFromSession: "USUARIO",
         discountMaxFromSession: 0,
         cardPercentageFromSession: 5,
@@ -801,6 +815,9 @@ const POSPage = () => {
     const companyIdNum = Number(companyIdRaw);
     const safeCompanyId =
       Number.isFinite(companyIdNum) && companyIdNum > 0 ? companyIdNum : 1;
+    const companyNameFromSession = safeTrim(
+      parsedSession?.user?.companyName ?? parsedSession?.razonSocial ?? "",
+    );
     const username =
       safeTrim(parsedSession?.user?.displayName) ||
       safeTrim(parsedSession?.user?.username) ||
@@ -826,6 +843,7 @@ const POSPage = () => {
 
     return {
       companyId: safeCompanyId,
+      companyNameFromSession,
       usernameFromSession: username,
       discountMaxFromSession,
       cardPercentageFromSession,
@@ -914,8 +932,29 @@ const POSPage = () => {
         ),
       )
     : 0;
+  const saleDiscountBase = isSaleProforma
+    ? saleDiscountAmount
+    : roundCurrency(saleDiscountAmount / IGV_FACTOR);
   const saleDiscountedTotal = roundCurrency(
     Math.max(0, Number(totals.total ?? 0) - saleDiscountAmount),
+  );
+  const saleGrossMonetarySummary = useMemo(
+    () =>
+      isSaleProforma
+        ? {
+            subtotalWithoutIgv: roundCurrency(Number(totals.total ?? 0)),
+            igv: 0,
+            totalWithIgv: roundCurrency(Number(totals.total ?? 0)),
+          }
+        : buildSaleMonetarySummary({
+            lines: items.map((item) => ({
+              quantity: Number(item.cantidad ?? 0),
+              unitPrice: Number(item.precio ?? 0),
+              unitMeasure: item.unidadMedida ?? "UND",
+            })),
+            pricesIncludeIgv: true,
+          }),
+    [isSaleProforma, items, totals.total],
   );
   const saleMonetarySummary = useMemo(
     () =>
@@ -932,26 +971,40 @@ const POSPage = () => {
               unitMeasure: item.unidadMedida ?? "UND",
             })),
             pricesIncludeIgv: true,
-            targetTotalWithIgv: saleDiscountedTotal,
+            discountWithoutIgv: saleDiscountBase,
           }),
-    [isSaleProforma, items, saleDiscountedTotal],
+    [isSaleProforma, items, saleDiscountBase, saleDiscountedTotal],
   );
-  const saleGravada = roundCurrency(saleMonetarySummary.subtotalWithoutIgv);
-  const saleIgvAmount = roundCurrency(saleMonetarySummary.igv);
+  const saleOperacionGravada = roundCurrency(
+    saleGrossMonetarySummary.subtotalWithoutIgv,
+  );
+  const saleDocumentGravada = roundCurrency(saleMonetarySummary.subtotalWithoutIgv);
   const saleDocumentTotal = roundCurrency(saleMonetarySummary.totalWithIgv);
   const saleMovementAmount = roundCurrency(
     Math.max(0, toDecimal(saleSettings.movementCost)),
   );
+  const saleCardChargeBase = roundCurrency(
+    Math.max(0, Number(totals.total ?? 0) + saleMovementAmount - saleDiscountAmount),
+  );
   const saleCardAdditional =
     saleSettings.paymentMethod === "TARJETA"
       ? roundCurrency(
-          saleDocumentTotal *
+          saleCardChargeBase *
             (Math.max(0, Number(cardPercentageFromSession ?? 0)) / 100),
         )
       : 0;
   const saleTotalAmount = roundCurrency(
     saleDocumentTotal + saleMovementAmount + saleCardAdditional,
   );
+  const saleAdjustmentBase = isSaleProforma
+    ? 0
+    : roundCurrency((saleMovementAmount + saleCardAdditional) / IGV_FACTOR);
+  const saleGravada = isSaleProforma
+    ? saleDocumentGravada
+    : roundCurrency(saleDocumentGravada + saleAdjustmentBase);
+  const saleIgvAmount = isSaleProforma
+    ? 0
+    : roundCurrency(saleTotalAmount - saleGravada);
   const focusSaleField = (
     ref: RefObject<SaleFocusableElement | null>,
     select = false,
@@ -964,6 +1017,9 @@ const POSPage = () => {
   };
   const nextSaleDocumentFieldRef =
     saleSettings.docTypeCode === "01" ? saleRucInputRef : saleDniInputRef;
+  const nextSaleAfterCustomerRef = isSaleProforma
+    ? saleFiscalAddressInputRef
+    : nextSaleDocumentFieldRef;
   const nextSaleAfterPhoneRef = shouldShowSaleBankFields
     ? saleBankEntityInputRef
     : saleMovementCostInputRef;
@@ -1293,6 +1349,7 @@ const POSPage = () => {
       }));
       return;
     }
+    if (isSaleProforma) return;
     toast.error(
       "Intentaste seleccionar un cliente que no existe, por favor agrega el cliente y seleccionalo.",
     );
@@ -1416,6 +1473,31 @@ const POSPage = () => {
       return false;
     }
 
+    if (
+      !isSaleProforma &&
+      !isPaymentMethodAllowedForCompany(saleSettings.paymentMethod)
+    ) {
+      const method = safeTrim(saleSettings.paymentMethod).toUpperCase();
+      const company =
+        safeTrim(companyNameFromSession) || `COMPANIA ${companyId}`;
+      openDialog({
+        title: "AVISO",
+        content: (
+          <p className="text-sm text-slate-700 uppercase leading-relaxed">
+            LA FORMA DE PAGO EN {method} NO TIENE RELACION CON {company}.
+            IMPRIMIR O GUARDAR COMO PROFORMA V Y EMITIR LA BOLETA EN LA
+            COMPANIA CORRESPONDIENTE.
+          </p>
+        ),
+        confirmText: "Aceptar",
+        hideCancelButton: true,
+        disableBackdropClose: true,
+        onConfirm: () => true,
+      });
+      setCartTab("payment");
+      return false;
+    }
+
     if (isSaleFactura) {
       if (!customerName || customerName.toUpperCase() === "VARIOS") {
         toast.error("Para factura selecciona un cliente valido.");
@@ -1431,7 +1513,12 @@ const POSPage = () => {
       }
     }
 
-    if (!isSaleFactura && customerDocument && customerDocument.length !== 8) {
+    if (
+      !isSaleFactura &&
+      !isSaleProforma &&
+      customerDocument &&
+      customerDocument.length !== 8
+    ) {
       toast.error("El DNI debe tener 8 digitos.");
       return false;
     }
@@ -1791,7 +1878,6 @@ const POSPage = () => {
       "USUARIO";
     const safeSubtotal = saleGravada;
     const safeDiscount = saleDiscountAmount;
-    const safeDocumentTotal = saleDocumentTotal;
     const safePayTotal = saleTotalAmount;
     const isCashPayment = saleSettings.paymentMethod === "EFECTIVO";
     const isCardPayment = saleSettings.paymentMethod === "TARJETA";
@@ -1824,7 +1910,7 @@ const POSPage = () => {
         notaSubtotal: safeSubtotal,
         notaMovilidad: saleMovementAmount,
         notaDescuento: safeDiscount,
-        notaTotal: roundCurrency(safeDocumentTotal + saleMovementAmount),
+        notaTotal: safePayTotal,
         notaAcuenta: 0,
         notaSaldo: safePayTotal,
         notaAdicional: saleCardAdditional,
@@ -2067,11 +2153,15 @@ const POSPage = () => {
     };
     const available = Number(product.cantidad ?? 0);
     if (!Number.isFinite(available) || available <= 0) {
-      confirmStockInquiry(product, 1, () => addProduct(productForCart, 1));
+      confirmStockInquiry(product, 1, () => {
+        addProduct(productForCart, 1);
+        setCartTab("products");
+      });
       return;
     }
 
     addProduct(productForCart, 1);
+    setCartTab("products");
     if (1 > available) confirmStockInquiry(product, 1);
 
     focusSearchInput();
@@ -2930,7 +3020,7 @@ const POSPage = () => {
                 customerName: client.label,
                 ...customerFieldsFromClient(client, prev.docTypeCode),
               }));
-              focusSaleField(nextSaleDocumentFieldRef, true);
+              focusSaleField(nextSaleAfterCustomerRef, true);
             }}
             renderInput={(params) => {
               const inputProps =
@@ -2967,7 +3057,7 @@ const POSPage = () => {
                       inputProps.onKeyDown?.(event);
                       if (!event.defaultPrevented) {
                         handleSaleEnterFocus(
-                          nextSaleDocumentFieldRef,
+                          nextSaleAfterCustomerRef,
                           true,
                         )(event);
                       }
@@ -2978,165 +3068,189 @@ const POSPage = () => {
             }}
           />
 
-          <Autocomplete
-            fullWidth
-            size="small"
-            options={saleDniOptions}
-            value={
-              saleDniOptions.find(
-                (option) => option.value === saleSettings.customerDni,
-              ) ?? null
-            }
-            inputValue={saleSettings.customerDni}
-            getOptionLabel={(option) =>
-              typeof option === "string" ? option : option.label
-            }
-            isOptionEqualToValue={(option, value) =>
-              option.value === value.value
-            }
-            filterOptions={(options, state) =>
-              filterSaleDocumentOptions(options, state.inputValue)
-            }
-            onInputChange={(_, value, reason) => {
-              if (reason === "reset") return;
-              const numericValue = value.replace(/\D/g, "");
-              setSaleSettings((prev) => ({
-                ...prev,
-                customerDni: numericValue,
-                customerId:
-                  prev.docTypeCode === "01" ? prev.customerRuc : numericValue,
-                clienteId: null,
-              }));
-            }}
-            onChange={(_, option) => {
-              if (!option) return;
-              setSaleCustomerInput(option.client.label);
-              setSaleSettings((prev) => ({
-                ...prev,
-                clienteId: option.client.id,
-                customerName: option.client.label,
-                ...customerFieldsFromClient(option.client, prev.docTypeCode),
-                customerDni: option.value,
-                customerId:
-                  prev.docTypeCode === "01"
-                    ? safeTrim(option.client.ruc)
-                    : option.value,
-              }));
-              focusSaleField(saleRucInputRef, true);
-            }}
-            onBlur={() => ensureExistingSaleDocument("dni", saleSettings.customerDni)}
-            renderInput={(params) => {
-              const inputProps =
-                params.inputProps as InputHTMLAttributes<HTMLInputElement>;
-              return (
-                <TextField
-                  {...params}
-                  variant="outlined"
-                  label="DNI"
-                  placeholder="Número de DNI"
-                  sx={POS_PAYMENT_TEXT_FIELD_SX}
-                  inputRef={saleDniInputRef}
-                  inputProps={{
-                    ...params.inputProps,
-                    "data-no-uppercase": "true",
-                    "data-auto-next": "true",
-                    inputMode: "numeric",
-                    pattern: "[0-9]*",
-                    autoComplete: "one-time-code",
-                    autoCorrect: "off",
-                    autoCapitalize: "off",
-                    spellCheck: false,
-                    onKeyDown: (event: KeyboardEvent<HTMLInputElement>) => {
-                      inputProps.onKeyDown?.(event);
-                      if (!event.defaultPrevented) {
-                        handleSaleEnterFocus(saleRucInputRef, true)(event);
-                      }
-                    },
-                  }}
-                />
-              );
-            }}
-          />
+          {!isSaleProforma && (
+            <>
+              <Autocomplete
+                fullWidth
+                size="small"
+                options={saleDniOptions}
+                value={
+                  saleDniOptions.find(
+                    (option) => option.value === saleSettings.customerDni,
+                  ) ?? null
+                }
+                inputValue={saleSettings.customerDni}
+                getOptionLabel={(option) =>
+                  typeof option === "string" ? option : option.label
+                }
+                isOptionEqualToValue={(option, value) =>
+                  option.value === value.value
+                }
+                filterOptions={(options, state) =>
+                  filterSaleDocumentOptions(options, state.inputValue)
+                }
+                onInputChange={(_, value, reason) => {
+                  if (reason === "reset") return;
+                  const numericValue = value.replace(/\D/g, "");
+                  setSaleSettings((prev) => ({
+                    ...prev,
+                    customerDni: numericValue,
+                    customerId:
+                      prev.docTypeCode === "01"
+                        ? prev.customerRuc
+                        : numericValue,
+                    clienteId: null,
+                  }));
+                }}
+                onChange={(_, option) => {
+                  if (!option) return;
+                  setSaleCustomerInput(option.client.label);
+                  setSaleSettings((prev) => ({
+                    ...prev,
+                    clienteId: option.client.id,
+                    customerName: option.client.label,
+                    ...customerFieldsFromClient(
+                      option.client,
+                      prev.docTypeCode,
+                    ),
+                    customerDni: option.value,
+                    customerId:
+                      prev.docTypeCode === "01"
+                        ? safeTrim(option.client.ruc)
+                        : option.value,
+                  }));
+                  focusSaleField(saleRucInputRef, true);
+                }}
+                onBlur={() =>
+                  ensureExistingSaleDocument("dni", saleSettings.customerDni)
+                }
+                renderInput={(params) => {
+                  const inputProps =
+                    params.inputProps as InputHTMLAttributes<HTMLInputElement>;
+                  return (
+                    <TextField
+                      {...params}
+                      variant="outlined"
+                      label="DNI"
+                      placeholder="Número de DNI"
+                      sx={POS_PAYMENT_TEXT_FIELD_SX}
+                      inputRef={saleDniInputRef}
+                      inputProps={{
+                        ...params.inputProps,
+                        "data-no-uppercase": "true",
+                        "data-auto-next": "true",
+                        inputMode: "numeric",
+                        pattern: "[0-9]*",
+                        autoComplete: "one-time-code",
+                        autoCorrect: "off",
+                        autoCapitalize: "off",
+                        spellCheck: false,
+                        onKeyDown: (
+                          event: KeyboardEvent<HTMLInputElement>,
+                        ) => {
+                          inputProps.onKeyDown?.(event);
+                          if (!event.defaultPrevented) {
+                            handleSaleEnterFocus(saleRucInputRef, true)(event);
+                          }
+                        },
+                      }}
+                    />
+                  );
+                }}
+              />
 
-          <Autocomplete
-            fullWidth
-            size="small"
-            options={saleRucOptions}
-            value={
-              saleRucOptions.find(
-                (option) => option.value === saleSettings.customerRuc,
-              ) ?? null
-            }
-            inputValue={saleSettings.customerRuc}
-            getOptionLabel={(option) =>
-              typeof option === "string" ? option : option.label
-            }
-            isOptionEqualToValue={(option, value) =>
-              option.value === value.value
-            }
-            filterOptions={(options, state) =>
-              filterSaleDocumentOptions(options, state.inputValue)
-            }
-            onInputChange={(_, value, reason) => {
-              if (reason === "reset") return;
-              const numericValue = value.replace(/\D/g, "");
-              setSaleSettings((prev) => ({
-                ...prev,
-                customerRuc: numericValue,
-                customerId:
-                  prev.docTypeCode === "01" ? numericValue : prev.customerDni,
-                clienteId: null,
-              }));
-            }}
-            onChange={(_, option) => {
-              if (!option) return;
-              setSaleCustomerInput(option.client.label);
-              setSaleSettings((prev) => ({
-                ...prev,
-                clienteId: option.client.id,
-                customerName: option.client.label,
-                ...customerFieldsFromClient(option.client, prev.docTypeCode),
-                customerRuc: option.value,
-                customerId:
-                  prev.docTypeCode === "01"
-                    ? option.value
-                    : safeTrim(option.client.dni),
-              }));
-              focusSaleField(saleFiscalAddressInputRef);
-            }}
-            onBlur={() => ensureExistingSaleDocument("ruc", saleSettings.customerRuc)}
-            renderInput={(params) => {
-              const inputProps =
-                params.inputProps as InputHTMLAttributes<HTMLInputElement>;
-              return (
-                <TextField
-                  {...params}
-                  variant="outlined"
-                  label="RUC"
-                  placeholder="Número de RUC"
-                  sx={POS_PAYMENT_TEXT_FIELD_SX}
-                  inputRef={saleRucInputRef}
-                  inputProps={{
-                    ...params.inputProps,
-                    "data-no-uppercase": "true",
-                    "data-auto-next": "true",
-                    inputMode: "numeric",
-                    pattern: "[0-9]*",
-                    autoComplete: "one-time-code",
-                    autoCorrect: "off",
-                    autoCapitalize: "off",
-                    spellCheck: false,
-                    onKeyDown: (event: KeyboardEvent<HTMLInputElement>) => {
-                      inputProps.onKeyDown?.(event);
-                      if (!event.defaultPrevented) {
-                        handleSaleEnterFocus(saleFiscalAddressInputRef)(event);
-                      }
-                    },
-                  }}
-                />
-              );
-            }}
-          />
+              <Autocomplete
+                fullWidth
+                size="small"
+                options={saleRucOptions}
+                value={
+                  saleRucOptions.find(
+                    (option) => option.value === saleSettings.customerRuc,
+                  ) ?? null
+                }
+                inputValue={saleSettings.customerRuc}
+                getOptionLabel={(option) =>
+                  typeof option === "string" ? option : option.label
+                }
+                isOptionEqualToValue={(option, value) =>
+                  option.value === value.value
+                }
+                filterOptions={(options, state) =>
+                  filterSaleDocumentOptions(options, state.inputValue)
+                }
+                onInputChange={(_, value, reason) => {
+                  if (reason === "reset") return;
+                  const numericValue = value.replace(/\D/g, "");
+                  setSaleSettings((prev) => ({
+                    ...prev,
+                    customerRuc: numericValue,
+                    customerId:
+                      prev.docTypeCode === "01"
+                        ? numericValue
+                        : prev.customerDni,
+                    clienteId: null,
+                  }));
+                }}
+                onChange={(_, option) => {
+                  if (!option) return;
+                  setSaleCustomerInput(option.client.label);
+                  setSaleSettings((prev) => ({
+                    ...prev,
+                    clienteId: option.client.id,
+                    customerName: option.client.label,
+                    ...customerFieldsFromClient(
+                      option.client,
+                      prev.docTypeCode,
+                    ),
+                    customerRuc: option.value,
+                    customerId:
+                      prev.docTypeCode === "01"
+                        ? option.value
+                        : safeTrim(option.client.dni),
+                  }));
+                  focusSaleField(saleFiscalAddressInputRef);
+                }}
+                onBlur={() =>
+                  ensureExistingSaleDocument("ruc", saleSettings.customerRuc)
+                }
+                renderInput={(params) => {
+                  const inputProps =
+                    params.inputProps as InputHTMLAttributes<HTMLInputElement>;
+                  return (
+                    <TextField
+                      {...params}
+                      variant="outlined"
+                      label="RUC"
+                      placeholder="Número de RUC"
+                      sx={POS_PAYMENT_TEXT_FIELD_SX}
+                      inputRef={saleRucInputRef}
+                      inputProps={{
+                        ...params.inputProps,
+                        "data-no-uppercase": "true",
+                        "data-auto-next": "true",
+                        inputMode: "numeric",
+                        pattern: "[0-9]*",
+                        autoComplete: "one-time-code",
+                        autoCorrect: "off",
+                        autoCapitalize: "off",
+                        spellCheck: false,
+                        onKeyDown: (
+                          event: KeyboardEvent<HTMLInputElement>,
+                        ) => {
+                          inputProps.onKeyDown?.(event);
+                          if (!event.defaultPrevented) {
+                            handleSaleEnterFocus(saleFiscalAddressInputRef)(
+                              event,
+                            );
+                          }
+                        },
+                      }}
+                    />
+                  );
+                }}
+              />
+            </>
+          )}
 
           <TextField
             className="col-span-full"
@@ -3386,7 +3500,9 @@ const POSPage = () => {
       >
         <div className="flex justify-between text-sm text-gray-700 md:text-lg xl:text-sm">
           <span>Op. gravada</span>
-          <span className="font-semibold">S/ {saleGravada.toFixed(2)}</span>
+          <span className="font-semibold">
+            S/ {saleOperacionGravada.toFixed(2)}
+          </span>
         </div>
         {saleSettings.paymentMethod === "TARJETA" && (
           <div className="flex justify-between text-sm text-gray-700 md:text-lg xl:text-sm">

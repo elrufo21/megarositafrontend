@@ -278,6 +278,11 @@ const TicketHTML = ({
       Boolean(summary?.showCardAdditional) && safeCardAdditional > 0;
     const showMovement = safeMovilidad > 0;
     const showDiscount = Boolean(summary?.showDiscount) || safeDescuento > 0;
+    const detailAdjustments = docType === "proforma" ? [] : [
+      showMovement ? "MV" : "",
+      showCardAdditional ? "CT" : "",
+    ].filter(Boolean);
+    const detailAdjustmentAmount = safeMovilidad + safeCardAdditional;
     const safeSubtotal = Number.isFinite(subtotalValue)
       ? Math.max(0, subtotalValue)
       : fallbackSubtotal;
@@ -371,6 +376,9 @@ const TicketHTML = ({
       showMovement,
       descuento: safeDescuento,
       showDiscount,
+      detailAdjustmentsLabel: detailAdjustments.join("/") || "MV/CT/OT",
+      detailAdjustmentAmount,
+      showDetailAdjustments: detailAdjustments.length > 0,
       subtotal: safeSubtotal,
       igv: safeIgv,
       total: safeTotal,
@@ -557,6 +565,11 @@ const TicketHTML = ({
       width: "35%",
       textAlign: "right" as const,
     } as React.CSSProperties,
+    summaryDivider: {
+      borderTop: "1px solid #000",
+      marginTop: 4,
+      marginBottom: 6,
+    } as React.CSSProperties,
 
     totalRow: {
       display: "flex" as const,
@@ -679,6 +692,16 @@ const TicketHTML = ({
           <span style={s.colImporte}>{item.total.toFixed(2)}</span>
         </div>
       ))}
+      {ticketData.showDetailAdjustments && (
+        <div style={s.tableRow}>
+          <span style={s.colCant}></span>
+          <span style={s.colDesc}>{ticketData.detailAdjustmentsLabel}</span>
+          <span style={s.colPUni}></span>
+          <span style={s.colImporte}>
+            {ticketData.detailAdjustmentAmount.toFixed(2)}
+          </span>
+        </div>
+      )}
 
       <span style={s.itemsCount}>items: {ticketData.items.length}</span>
 
@@ -686,9 +709,68 @@ const TicketHTML = ({
       <div style={s.divider} />
 
       {/* ── SUMMARY ── */}
-      <>
-        {!ticketData.isProforma && (
-          <>
+      {ticketData.isProforma ? (
+        <>
+          <div style={s.summaryRow}>
+            <span style={s.summaryLabel}>Sub Total S/.</span>
+            <span style={s.summaryCurrency}></span>
+            <span style={s.summaryAmount}>
+              {ticketData.operacionGravada.toFixed(2)}
+            </span>
+          </div>
+          <div style={s.summaryRow}>
+            <span style={s.summaryLabel}>Movilidad S/.</span>
+            <span style={s.summaryCurrency}></span>
+            <span style={s.summaryAmount}>
+              {ticketData.movilidad.toFixed(2)}
+            </span>
+          </div>
+          <div style={s.summaryRow}>
+            <span style={s.summaryLabel}>Descuento S/.</span>
+            <span style={s.summaryCurrency}></span>
+            <span style={s.summaryAmount}>
+              {ticketData.descuento.toFixed(2)}
+            </span>
+          </div>
+          <div style={s.summaryRow}>
+            <span style={s.summaryLabel}>Op Gravada S/.</span>
+            <span style={s.summaryCurrency}></span>
+            <span style={s.summaryAmount}>{ticketData.total.toFixed(2)}</span>
+          </div>
+          <div style={s.summaryDivider} />
+          <div style={s.summaryRow}>
+            <span style={s.summaryLabel}>Acuenta S/.</span>
+            <span style={s.summaryCurrency}></span>
+            <span style={s.summaryAmount}>0.00</span>
+          </div>
+          <div style={s.summaryRow}>
+            <span style={s.summaryLabel}>Saldo S/.</span>
+            <span style={s.summaryCurrency}></span>
+            <span style={s.summaryAmount}>{ticketData.total.toFixed(2)}</span>
+          </div>
+          <div style={s.summaryDivider} />
+          <div style={s.summaryRow}>
+            <span style={s.summaryLabel}>
+              Adic. {ticketData.cardPercentage.toFixed(1)}%:
+            </span>
+            <span style={s.summaryCurrency}></span>
+            <span style={s.summaryAmount}>
+              {ticketData.cardAdditional.toFixed(2)}
+            </span>
+          </div>
+          <div style={s.summaryRow}>
+            <span style={s.summaryLabel}>ICBPER S/.</span>
+            <span style={s.summaryCurrency}></span>
+            <span style={s.summaryAmount}>0.00</span>
+          </div>
+          <div style={s.totalRow}>
+            <span style={s.totalLabel}>Total A Pagar S/.</span>
+            <span style={s.totalCurrency}></span>
+            <span style={s.totalAmount}>{ticketData.total.toFixed(2)}</span>
+          </div>
+        </>
+      ) : (
+        <>
           <div style={s.summaryRow}>
             <span style={s.summaryLabel}>OP.GRAVADA :</span>
             <span style={s.summaryCurrency}>S/</span>
@@ -705,17 +787,6 @@ const TicketHTML = ({
               </span>
             </div>
           )}
-          {ticketData.showCardAdditional && (
-            <div style={s.summaryRow}>
-              <span style={s.summaryLabel}>
-                ADICIONAL {ticketData.cardPercentage.toFixed(2)}% :
-              </span>
-              <span style={s.summaryCurrency}>S/</span>
-              <span style={s.summaryAmount}>
-                {ticketData.cardAdditional.toFixed(2)}
-              </span>
-            </div>
-          )}
           <div style={s.summaryRow}>
             <span style={s.summaryLabel}>SUBTOTAL :</span>
             <span style={s.summaryCurrency}>S/</span>
@@ -728,34 +799,13 @@ const TicketHTML = ({
             <span style={s.summaryCurrency}>S/</span>
             <span style={s.summaryAmount}>{ticketData.igv.toFixed(2)}</span>
           </div>
-          </>
-        )}
-        {ticketData.isProforma && ticketData.showDiscount && (
-          <div style={s.summaryRow}>
-            <span style={s.summaryLabel}>DESCUENTO :</span>
-            <span style={s.summaryCurrency}>S/</span>
-            <span style={s.summaryAmount}>
-              {ticketData.descuento.toFixed(2)}
-            </span>
+          <div style={s.totalRow}>
+            <span style={s.totalLabel}>TOTAL :</span>
+            <span style={s.totalCurrency}>S/</span>
+            <span style={s.totalAmount}>{ticketData.total.toFixed(2)}</span>
           </div>
-        )}
-        {ticketData.showMovement && (
-          <div style={s.summaryRow}>
-            <span style={s.summaryLabel}>MOVILIDAD :</span>
-            <span style={s.summaryCurrency}>S/</span>
-            <span style={s.summaryAmount}>
-              {ticketData.movilidad.toFixed(2)}
-            </span>
-          </div>
-        )}
-      </>
-
-      {/* ── TOTAL ── */}
-      <div style={s.totalRow}>
-        <span style={s.totalLabel}>TOTAL :</span>
-        <span style={s.totalCurrency}>S/</span>
-        <span style={s.totalAmount}>{ticketData.total.toFixed(2)}</span>
-      </div>
+        </>
+      )}
 
       {/* ── FOOTER ── */}
       <div style={s.footer}>

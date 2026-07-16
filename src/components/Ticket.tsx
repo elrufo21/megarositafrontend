@@ -598,6 +598,12 @@ const styles = StyleSheet.create({
     fontWeight: "bold",
     textAlign: "right",
   },
+  summaryDivider: {
+    borderTopWidth: 1,
+    borderTopColor: "#201e1e",
+    marginTop: 4,
+    marginBottom: 6,
+  },
   totalRow: {
     flexDirection: "row",
     marginTop: 6,
@@ -752,6 +758,11 @@ const TicketDocument = ({
       Boolean(summary?.showCardAdditional) && safeCardAdditional > 0;
     const showMovement = safeMovilidad > 0;
     const showDiscount = Boolean(summary?.showDiscount) || safeDescuento > 0;
+    const detailAdjustments = docType === "proforma" ? [] : [
+      showMovement ? "MV" : "",
+      showCardAdditional ? "CT" : "",
+    ].filter(Boolean);
+    const detailAdjustmentAmount = safeMovilidad + safeCardAdditional;
     const safeSubtotal = Number.isFinite(subtotalValue)
       ? Math.max(0, subtotalValue)
       : fallbackSubtotal;
@@ -856,6 +867,9 @@ const TicketDocument = ({
       showMovement,
       descuento: safeDescuento,
       showDiscount,
+      detailAdjustmentsLabel: detailAdjustments.join("/") || "MV/CT/OT",
+      detailAdjustmentAmount,
+      showDetailAdjustments: detailAdjustments.length > 0,
       subtotal: safeSubtotal,
       igv: safeIgv,
       total: safeTotal,
@@ -950,18 +964,18 @@ const TicketDocument = ({
         acc + firstRowHeight + secondRowHeight + pvsHeight + separatorHeight
       );
     }, 0);
-    const cardAdditionalDetailRowHeight = ticketData.showCardAdditional
+    const detailAdjustmentsRowHeight = ticketData.showDetailAdjustments
       ? 8 + 6
       : 0;
 
     const ITEMS_COUNT = 8 + 6 + 6; // fontSize + marginTop + marginBottom
     const DIVIDER2 = 1 + 8 * 2;
 
-    const summaryRows =
-      (ticketData.isProforma ? 0 : 3) +
-      (ticketData.showMovement ? 1 : 0) +
-      (ticketData.showDiscount ? 1 : 0);
-    const summaryRowsHeight = summaryRows * (9 + 3);
+    const summaryRows = ticketData.isProforma
+      ? 10
+      : 3 + (ticketData.showDiscount ? 1 : 0);
+    const summaryRowsHeight =
+      summaryRows * (9 + 3) + (ticketData.isProforma ? 16 : 0);
 
     const TOTAL_ROW = 12 + 6 + 6 + 1; // fontSize + marginTop + paddingTop + border
 
@@ -983,7 +997,7 @@ const TicketDocument = ({
       infoSection +
       TABLE_HEADER +
       rowsHeight +
-      cardAdditionalDetailRowHeight +
+      detailAdjustmentsRowHeight +
       ITEMS_COUNT +
       DIVIDER2 +
       summaryRowsHeight +
@@ -1112,16 +1126,18 @@ const TicketDocument = ({
               <View style={styles.tableItemSeparator} />
             </View>
           ))}
-          {ticketData.showCardAdditional && (
+          {ticketData.showDetailAdjustments && (
             <View>
               <View style={styles.tableItemRow}>
-                <Text style={styles.tableItemDescription}>MV/CT/DS</Text>
+                <Text style={styles.tableItemDescription}>
+                  {ticketData.detailAdjustmentsLabel}
+                </Text>
                 <View style={styles.tableItemMetaRow}>
                   <Text style={styles.colCant}></Text>
                   <Text style={styles.colDesc}></Text>
                   <Text style={styles.colPUni}></Text>
                   <Text style={styles.colImporte}>
-                    {ticketData.cardAdditional.toFixed(2)}
+                    {ticketData.detailAdjustmentAmount.toFixed(2)}
                   </Text>
                 </View>
               </View>
@@ -1131,9 +1147,74 @@ const TicketDocument = ({
           <Text style={styles.itemsCount}>
             items: {ticketData.items.length}
           </Text>
-          <>
-            {!ticketData.isProforma && (
-              <>
+          {ticketData.isProforma ? (
+            <>
+              <View style={styles.summaryRow}>
+                <Text style={styles.summaryLabel}>Sub Total S/.</Text>
+                <Text style={styles.summaryCurrency}></Text>
+                <Text style={styles.summaryAmount}>
+                  {ticketData.operacionGravada.toFixed(2)}
+                </Text>
+              </View>
+              <View style={styles.summaryRow}>
+                <Text style={styles.summaryLabel}>Movilidad S/.</Text>
+                <Text style={styles.summaryCurrency}></Text>
+                <Text style={styles.summaryAmount}>
+                  {ticketData.movilidad.toFixed(2)}
+                </Text>
+              </View>
+              <View style={styles.summaryRow}>
+                <Text style={styles.summaryLabel}>Descuento S/.</Text>
+                <Text style={styles.summaryCurrency}></Text>
+                <Text style={styles.summaryAmount}>
+                  {ticketData.descuento.toFixed(2)}
+                </Text>
+              </View>
+              <View style={styles.summaryRow}>
+                <Text style={styles.summaryLabel}>Op Gravada S/.</Text>
+                <Text style={styles.summaryCurrency}></Text>
+                <Text style={styles.summaryAmount}>
+                  {ticketData.total.toFixed(2)}
+                </Text>
+              </View>
+              <View style={styles.summaryDivider} />
+              <View style={styles.summaryRow}>
+                <Text style={styles.summaryLabel}>Acuenta S/.</Text>
+                <Text style={styles.summaryCurrency}></Text>
+                <Text style={styles.summaryAmount}>0.00</Text>
+              </View>
+              <View style={styles.summaryRow}>
+                <Text style={styles.summaryLabel}>Saldo S/.</Text>
+                <Text style={styles.summaryCurrency}></Text>
+                <Text style={styles.summaryAmount}>
+                  {ticketData.total.toFixed(2)}
+                </Text>
+              </View>
+              <View style={styles.summaryDivider} />
+              <View style={styles.summaryRow}>
+                <Text style={styles.summaryLabel}>
+                  Adic. {ticketData.cardPercentage.toFixed(1)}%:
+                </Text>
+                <Text style={styles.summaryCurrency}></Text>
+                <Text style={styles.summaryAmount}>
+                  {ticketData.cardAdditional.toFixed(2)}
+                </Text>
+              </View>
+              <View style={styles.summaryRow}>
+                <Text style={styles.summaryLabel}>ICBPER S/.</Text>
+                <Text style={styles.summaryCurrency}></Text>
+                <Text style={styles.summaryAmount}>0.00</Text>
+              </View>
+              <View style={styles.totalRow}>
+                <Text style={styles.totalLabel}>Total A Pagar S/.</Text>
+                <Text style={styles.totalCurrency}></Text>
+                <Text style={styles.totalAmount}>
+                  {ticketData.total.toFixed(2)}
+                </Text>
+              </View>
+            </>
+          ) : (
+            <>
               <View style={styles.summaryRow}>
                 <Text style={styles.summaryLabel}>OP.GRAVADA :</Text>
                 <Text style={styles.summaryCurrency}>S/</Text>
@@ -1164,35 +1245,15 @@ const TicketDocument = ({
                   {ticketData.igv.toFixed(2)}
                 </Text>
               </View>
-              </>
-            )}
-            {ticketData.isProforma && ticketData.showDiscount && (
-              <View style={styles.summaryRow}>
-                <Text style={styles.summaryLabel}>DESCUENTO :</Text>
-                <Text style={styles.summaryCurrency}>S/</Text>
-                <Text style={styles.summaryAmount}>
-                  {ticketData.descuento.toFixed(2)}
+              <View style={styles.totalRow}>
+                <Text style={styles.totalLabel}>TOTAL :</Text>
+                <Text style={styles.totalCurrency}>S/</Text>
+                <Text style={styles.totalAmount}>
+                  {ticketData.total.toFixed(2)}
                 </Text>
               </View>
-            )}
-            {ticketData.showMovement && (
-              <View style={styles.summaryRow}>
-                <Text style={styles.summaryLabel}>MOVILIDAD :</Text>
-                <Text style={styles.summaryCurrency}>S/</Text>
-                <Text style={styles.summaryAmount}>
-                  {ticketData.movilidad.toFixed(2)}
-                </Text>
-              </View>
-            )}
-          </>
-          {/* Totals are still shown for all document types */}
-          <View style={styles.totalRow}>
-            <Text style={styles.totalLabel}>TOTAL :</Text>
-            <Text style={styles.totalCurrency}>S/</Text>
-            <Text style={styles.totalAmount}>
-              {ticketData.total.toFixed(2)}
-            </Text>
-          </View>
+            </>
+          )}
           <View style={styles.footer}>
             <Text style={styles.footerText}>SON: {ticketData.son}</Text>
             {ticketData.authorization ? (

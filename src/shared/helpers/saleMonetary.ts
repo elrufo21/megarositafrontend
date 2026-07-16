@@ -94,8 +94,14 @@ export const buildSaleMonetarySummary = (options: {
   lines: SaleMonetaryInputLine[];
   pricesIncludeIgv?: boolean;
   targetTotalWithIgv?: number | null;
+  discountWithoutIgv?: number;
 }): SaleMonetarySummary => {
-  const { lines, pricesIncludeIgv = true, targetTotalWithIgv = null } = options;
+  const {
+    lines,
+    pricesIncludeIgv = true,
+    targetTotalWithIgv = null,
+    discountWithoutIgv = 0,
+  } = options;
 
   const sanitizedLines = lines.map((line) => {
     const quantityRaw = Number(line.quantity ?? 0);
@@ -120,17 +126,25 @@ export const buildSaleMonetarySummary = (options: {
   });
 
   const baseTotalWithIgv = sumCurrency(baseGrossByLine);
-  const totalWithIgv =
+  const grossTotalWithIgv =
     targetTotalWithIgv === null || targetTotalWithIgv === undefined
       ? baseTotalWithIgv
       : roundCurrency(Math.max(Number(targetTotalWithIgv) || 0, 0));
+  const grossSubtotalWithoutIgv = roundCurrency(grossTotalWithIgv / IGV_FACTOR);
+  const safeDiscountWithoutIgv = Math.min(
+    Math.max(roundCurrency(Number(discountWithoutIgv) || 0), 0),
+    grossSubtotalWithoutIgv,
+  );
+  const targetSubtotalWithoutIgv = roundCurrency(
+    grossSubtotalWithoutIgv - safeDiscountWithoutIgv,
+  );
+  const totalWithIgv = roundCurrency(targetSubtotalWithoutIgv * IGV_FACTOR);
 
   const adjustedGrossByLine =
-    targetTotalWithIgv === null || targetTotalWithIgv === undefined
+    (targetTotalWithIgv === null || targetTotalWithIgv === undefined) &&
+    safeDiscountWithoutIgv === 0
       ? baseGrossByLine
       : allocateAmountProportionally(baseGrossByLine, totalWithIgv);
-
-  const targetSubtotalWithoutIgv = roundCurrency(totalWithIgv / IGV_FACTOR);
   const subtotalByLine = allocateAmountProportionally(
     adjustedGrossByLine,
     targetSubtotalWithoutIgv,

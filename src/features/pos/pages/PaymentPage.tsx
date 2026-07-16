@@ -4,6 +4,7 @@ import { useLocation, useNavigate, useParams, Link } from "react-router";
 import {
   CheckCircle2,
   ArrowLeft,
+  ShoppingCart,
   Printer,
   Download,
   MessageCircle,
@@ -150,7 +151,6 @@ const PersonalCodeField = ({ onInputRef, onEnter }: PersonalCodeFieldProps) => {
 
 const AUTO_SEND_TO_OSE_ON_CREATE = false;
 const PROFORMA_DEFAULT_CONTACT_ID = 47;
-const CARD_PAYMENT_ALLOWED_COMPANY = "INVERSIONES MEGAROSITA S.A.C.";
 const POS_ROUTE = "/sales/pos";
 
 const getCartItemKey = (item: Pick<PosCartItem, "productId" | "detalleId">) =>
@@ -358,6 +358,15 @@ const PaymentPage = () => {
   const sendBoletaSummary = useBoletasSummaryStore((s) => s.sendSummary);
   const consultBoletaSummary = useBoletasSummaryStore((s) => s.consultSummary);
   const safeTrim = (value: unknown) => String(value ?? "").trim();
+  const isPaymentMethodAllowedForCompany = (methodValue: unknown) => {
+    const method = safeTrim(methodValue).toUpperCase();
+    if (!method || method === "SELECCIONE" || method === "EFECTIVO") return true;
+    const allowed =
+      Number(companyId) === 4
+        ? ["DEPO. CONTINENTAL", "DEPO. BCP", "TARJETA"]
+        : ["DEPO. BCP", "DEPO. SCOTIABANK"];
+    return allowed.includes(method);
+  };
   const readRecordField = (
     record: Record<string, unknown> | null | undefined,
     ...keys: string[]
@@ -1719,9 +1728,37 @@ const PaymentPage = () => {
   const notaMovilidad = roundCurrency(
     Math.max(0, Number(movementInput ?? 0) || 0),
   );
+  const descuentoBase = isProforma
+    ? descuento
+    : roundCurrency(descuento / IGV_FACTOR);
   const discountedTotal = viewTotalsOverride
     ? viewTotalsOverride.totalWithIgv
     : roundCurrency(Math.max(0, totalAmount - descuento));
+  const grossMonetarySummary = useMemo(() => {
+    if (isProforma) {
+      return {
+        subtotalWithoutIgv: roundCurrency(totalAmount),
+        igv: 0,
+        totalWithIgv: roundCurrency(totalAmount),
+        lines: [],
+      };
+    }
+
+    return buildSaleMonetarySummary({
+      lines: safeItemsForFiscal.map((item) => ({
+        quantity: Number(item.cantidad ?? 0),
+        unitPrice: Number(item.precio ?? 0),
+        unitMeasure: item.unidadMedida ?? "UND",
+      })),
+      pricesIncludeIgv: isOrderNotesFlow ? loadedNotePricesIncludeIgv : true,
+    });
+  }, [
+    isOrderNotesFlow,
+    isProforma,
+    loadedNotePricesIncludeIgv,
+    safeItemsForFiscal,
+    totalAmount,
+  ]);
   const monetarySummary = useMemo(() => {
     if (isProforma) {
       const proformaLines = safeItemsForFiscal.map((item) => {
@@ -1760,33 +1797,29 @@ const PaymentPage = () => {
         unitMeasure: item.unidadMedida ?? "UND",
       })),
       pricesIncludeIgv: isOrderNotesFlow ? loadedNotePricesIncludeIgv : true,
-      targetTotalWithIgv: discountedTotal,
+      discountWithoutIgv: descuentoBase,
     });
   }, [
-    discountedTotal,
+    descuentoBase,
     isOrderNotesFlow,
     isProforma,
     loadedNotePricesIncludeIgv,
     safeItemsForFiscal,
   ]);
-  const gravada = viewTotalsOverride
-    ? viewTotalsOverride.subtotalWithoutIgv
+  const operacionGravada = viewTotalsOverride
+    ? roundCurrency(viewTotalsOverride.subtotalWithoutIgv + descuentoBase)
     : isProforma
-      ? discountedTotal
-      : roundCurrency(monetarySummary.subtotalWithoutIgv);
-  const igvAmount = viewTotalsOverride
-    ? roundCurrency(
-        viewTotalsOverride.totalWithIgv - viewTotalsOverride.subtotalWithoutIgv,
-      )
-    : isProforma
-      ? 0
-      : roundCurrency(monetarySummary.igv);
+      ? roundCurrency(totalAmount)
+      : roundCurrency(grossMonetarySummary.subtotalWithoutIgv);
   const documentTotalWithIgv = viewTotalsOverride
     ? viewTotalsOverride.totalWithIgv
     : isProforma
       ? discountedTotal
       : roundCurrency(monetarySummary.totalWithIgv);
   const cardChargeRate = Math.max(0, cardPercentageFromSession) / 100;
+  const cardChargeBase = roundCurrency(
+    Math.max(0, totalAmount + notaMovilidad - descuento),
+  );
 
   const notaAdicional = viewTotalsOverride
     ? roundCurrency(
@@ -1796,13 +1829,29 @@ const PaymentPage = () => {
         ),
       )
     : paymentMethod === "TARJETA"
-      ? roundCurrency(documentTotalWithIgv * cardChargeRate)
+      ? roundCurrency(cardChargeBase * cardChargeRate)
       : 0;
   const totalAPagar = viewTotalsOverride
     ? viewTotalsOverride.totalToPay
     : roundCurrency(documentTotalWithIgv + notaMovilidad + notaAdicional);
+  const ajusteGravado = roundCurrency(notaMovilidad + notaAdicional);
+  const ajusteGravadoBase = isProforma
+    ? 0
+    : roundCurrency(ajusteGravado / IGV_FACTOR);
+  const gravada = viewTotalsOverride
+    ? viewTotalsOverride.subtotalWithoutIgv
+    : isProforma
+      ? discountedTotal
+      : roundCurrency(monetarySummary.subtotalWithoutIgv + ajusteGravadoBase);
+  const igvAmount = viewTotalsOverride
+    ? roundCurrency(
+        viewTotalsOverride.totalWithIgv - viewTotalsOverride.subtotalWithoutIgv,
+      )
+    : isProforma
+      ? 0
+      : roundCurrency(totalAPagar - gravada);
   const shouldRequireBoletaCustomerData =
-    docTypeCode === "03" && Number(totalAPagar ?? 0) >= 500;
+    docTypeCode === "03" && Number(totalAPagar ?? 0) >= 700;
   const getDisplayLineAmounts = (item: PosCartItem, rowIndex?: number) => {
     void rowIndex;
     const unitPrice = roundCurrency(Number(item.precio ?? 0));
@@ -2707,16 +2756,18 @@ const PaymentPage = () => {
       }),
     [openDialog],
   );
-  const showCardPaymentRestrictionDialog = useCallback(
+  const showPaymentCompanyRestrictionDialog = useCallback(
     () =>
       new Promise<void>((resolve) => {
+        const method = safeTrim(paymentMethod).toUpperCase();
+        const company = safeTrim(companyNameFromSession) || `COMPANIA ${companyId}`;
         openDialog({
           title: "AVISO",
           content: (
             <p className="text-sm text-slate-700 uppercase leading-relaxed">
-              La forma de pago en tarjeta no tiene relacion con Consorcio
-              Ferretero Rosita E.I.R.L. Imprimir o guardar como proforma y
-              emitir la boleta en la compania correspondiente.
+              LA FORMA DE PAGO EN {method} NO TIENE RELACION CON {company}.
+              IMPRIMIR O GUARDAR COMO PROFORMA V Y EMITIR LA BOLETA EN LA
+              COMPANIA CORRESPONDIENTE.
             </p>
           ),
           confirmText: "Aceptar",
@@ -2730,7 +2781,7 @@ const PaymentPage = () => {
           },
         });
       }),
-    [openDialog],
+    [companyId, companyNameFromSession, openDialog, paymentMethod],
   );
 
   const requestPersonalAuthorizationForPayment = () =>
@@ -3029,6 +3080,7 @@ const PaymentPage = () => {
 
       const currentNameFromForm = safeTrim(getValues("customerName"));
       const typedName = safeTrim(rawName ?? currentNameFromForm);
+      if (isProforma) return true;
       if (!typedName) {
         if (!hasInvalidCustomerSelectionRef.current) return true;
         window.requestAnimationFrame(() => {
@@ -3073,6 +3125,7 @@ const PaymentPage = () => {
     },
     [
       formLocked,
+      isProforma,
       clientOptions,
       facturaClientOptions,
       docTypeCode,
@@ -3527,7 +3580,7 @@ const PaymentPage = () => {
       totals: safeTotals,
       noteId: notaId,
       summary: {
-        operacionGravada: roundCurrency(gravada),
+        operacionGravada: roundCurrency(operacionGravada),
         cardAdditional: roundCurrency(notaAdicional),
         cardPercentage:
           paymentMethod === "TARJETA"
@@ -3535,7 +3588,7 @@ const PaymentPage = () => {
             : 0,
         showCardAdditional: paymentMethod === "TARJETA" && notaAdicional > 0,
         movilidad: roundCurrency(notaMovilidad),
-        descuento: roundCurrency(descuento),
+        descuento: roundCurrency(descuentoBase),
         showDiscount: applyDiscount,
         subtotal: roundCurrency(gravada),
         igv: roundCurrency(igvAmount),
@@ -3566,8 +3619,10 @@ const PaymentPage = () => {
     totalsToRender,
     purchasedItems,
     paidTotals,
+    operacionGravada,
     gravada,
     descuento,
+    descuentoBase,
     notaMovilidad,
     applyDiscount,
     documentTotalWithIgv,
@@ -3590,6 +3645,7 @@ const PaymentPage = () => {
         ticketPreviewProps.clientName,
         ticketPreviewProps.clientId,
         ticketPreviewProps.documentNumber,
+        formatCurrency(operacionGravada),
         formatCurrency(totalAPagar),
         formatCurrency(notaMovilidad),
         formatCurrency(descuento),
@@ -3603,6 +3659,7 @@ const PaymentPage = () => {
       ticketPreviewProps.clientId,
       ticketPreviewProps.clientName,
       ticketPreviewProps.documentNumber,
+      operacionGravada,
       totalAPagar,
       descuento,
     ],
@@ -3673,7 +3730,7 @@ const PaymentPage = () => {
         notaSubtotal: roundCurrency(base),
         notaMovilidad: roundCurrency(notaMovilidad),
         notaDescuento: roundCurrency(descuento),
-        notaTotal: roundCurrency(documentTotalWithIgv + notaMovilidad),
+        notaTotal: roundCurrency(totalAPagar),
         notaAcuenta: 0,
         notaSaldo: roundCurrency(totalAPagar),
         notaAdicional: roundCurrency(notaAdicional),
@@ -3834,21 +3891,12 @@ const PaymentPage = () => {
 
   const confirmPayment = async () => {
     if (isReadOnlyNoteView) return;
-    const normalizedCompanyName = safeTrim(companyNameFromSession)
-      .replace(/\s+/g, " ")
-      .toUpperCase();
-    const normalizedAllowedCompanyName =
-      CARD_PAYMENT_ALLOWED_COMPANY.toUpperCase();
-    if (
-      paymentMethod === "TARJETA" &&
-      !isProforma &&
-      normalizedCompanyName !== normalizedAllowedCompanyName
-    ) {
-      await showCardPaymentRestrictionDialog();
+    if (!isProforma && !isPaymentMethodAllowedForCompany(paymentMethod)) {
+      await showPaymentCompanyRestrictionDialog();
       return;
     }
     const shouldSkipCustomerValidation =
-      docTypeCode === "03" && !shouldRequireBoletaCustomerData;
+      isProforma || (docTypeCode === "03" && !shouldRequireBoletaCustomerData);
     if (
       !shouldSkipCustomerValidation &&
       !ensureExistingCustomerByName(getValues("customerName"))
@@ -3979,8 +4027,17 @@ const PaymentPage = () => {
       const descuentoCabecera = roundCurrency(
         Number(editNota.notaDescuento ?? 0),
       );
+      const descuentoCabeceraBase = roundCurrency(
+        descuentoCabecera / IGV_FACTOR,
+      );
+      const ajustesCabecera = roundCurrency(
+        Number(editNota.notaMovilidad ?? 0) +
+          Number(editNota.notaAdicional ?? 0),
+      );
       const totalEsperadoDocumento = roundCurrency(
-        Math.max(totalDetalle - descuentoCabecera, 0),
+        Math.max(roundCurrency(totalDetalle / IGV_FACTOR) - descuentoCabeceraBase, 0) *
+          IGV_FACTOR +
+          ajustesCabecera,
       );
       const totalCabecera = roundCurrency(Number(editNota.notaTotal ?? 0));
       if (Math.abs(totalEsperadoDocumento - totalCabecera) > 0.05) {
@@ -5171,9 +5228,9 @@ const PaymentPage = () => {
             "",
         ) ||
         "EFECTIVO";
-      const totalDocumento = roundCurrency(documentTotalWithIgv);
+      const totalDocumento = roundCurrency(totalAPagar);
       const detalle = detalleFuente.map((item, index) => {
-        const line = monetarySummary.lines[index];
+        const line = grossMonetarySummary.lines[index];
         const quantity = Number(item.cantidad ?? 0);
         const safeQuantity =
           Number.isFinite(quantity) && quantity > 0
@@ -5267,11 +5324,11 @@ const PaymentPage = () => {
         SUB_TOTAL: roundCurrency(gravada),
         TOTAL_IGV: roundCurrency(igvAmount),
         TOTAL: totalDocumento,
-        TOTAL_GRAVADAS: roundCurrency(gravada),
+        TOTAL_GRAVADAS: roundCurrency(operacionGravada),
         TOTAL_EXONERADAS: 0,
         TOTAL_INAFECTA: 0,
         TOTAL_GRATUITAS: 0,
-        TOTAL_DESCUENTO: roundCurrency(descuento),
+        TOTAL_DESCUENTO: roundCurrency(descuentoBase),
         TOTAL_ICBPER: 0,
         TOTAL_OTR_IMP: 0,
         POR_IGV: 18,
@@ -5479,7 +5536,7 @@ const PaymentPage = () => {
     }
 
     const detalle = detallesFuente.map((item, index) => {
-      const line = monetarySummary.lines[index];
+      const line = grossMonetarySummary.lines[index];
       const quantity = Number(item.cantidad ?? 0);
       const safeQuantity =
         Number.isFinite(quantity) && quantity > 0
@@ -5570,16 +5627,16 @@ const PaymentPage = () => {
       RUTA_PFX: safeTrim(certificadoBase64FromSession),
       SUB_TOTAL: roundCurrency(gravada),
       TOTAL_IGV: roundCurrency(igvAmount),
-      TOTAL: roundCurrency(documentTotalWithIgv),
-      TOTAL_GRAVADAS: roundCurrency(gravada),
+      TOTAL: roundCurrency(totalAPagar),
+      TOTAL_GRAVADAS: roundCurrency(operacionGravada),
       TOTAL_EXONERADAS: 0,
       TOTAL_INAFECTA: 0,
       TOTAL_GRATUITAS: 0,
-      TOTAL_DESCUENTO: roundCurrency(descuento),
+      TOTAL_DESCUENTO: roundCurrency(descuentoBase),
       TOTAL_ICBPER: 0,
       TOTAL_OTR_IMP: 0,
       POR_IGV: 18,
-      TOTAL_LETRAS: numberToWords(documentTotalWithIgv, "SOLES"),
+      TOTAL_LETRAS: numberToWords(totalAPagar, "SOLES"),
       FORMA_PAGO: formaPagoNc,
       formaPago: formaPagoNc,
       docuSerie: docuSerieNc,
@@ -6624,7 +6681,7 @@ const PaymentPage = () => {
             disableClearable={formLocked}
             disabled={formLocked}
             onInputBlur={({ inputValue }) => {
-              ensureExistingCustomerByName(inputValue);
+              if (!isProforma) ensureExistingCustomerByName(inputValue);
             }}
             onOptionSelected={(opt: any) => {
               if (!opt) {
@@ -6656,7 +6713,7 @@ const PaymentPage = () => {
             }}
           />
         )}
-        {isReadOnlyNoteView ? (
+        {isProforma ? null : isReadOnlyNoteView ? (
           <HookFormInput
             name="customerId"
             label={docLabel}
@@ -6897,7 +6954,9 @@ const PaymentPage = () => {
         <div className="space-y-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-3">
           <div className="flex justify-between text-sm text-gray-700">
             <span>Op. gravada</span>
-            <span className="font-semibold">S/ {formatCurrency(gravada)}</span>
+            <span className="font-semibold">
+              S/ {formatCurrency(operacionGravada)}
+            </span>
           </div>
           <div className="flex items-center justify-between gap-3 text-sm text-gray-700">
             <span>Movilidad</span>
@@ -7070,12 +7129,28 @@ const PaymentPage = () => {
         <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-center">
           <Link
             to={backToPosRoute}
-            className="hidden w-fit items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 transition-colors hover:bg-slate-50 hover:text-slate-900 md:inline-flex"
+            className="hidden h-10 w-10 items-center justify-center rounded-lg bg-slate-700 text-white shadow-sm transition-colors hover:bg-slate-800 md:inline-flex"
             onClick={(e) => handleBackToPos(e)}
+            title={backLabel}
+            aria-label={backLabel}
           >
-            <ArrowLeft className="w-4 h-4" />
-            {backLabel}
+            <ShoppingCart className="w-4 h-4" />
           </Link>
+          {!formLocked && (
+            <button
+              type="button"
+              className="hidden w-fit items-center justify-center gap-2 rounded-lg bg-slate-700 px-3 py-2 text-sm font-semibold text-white transition-colors hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60 md:inline-flex"
+              onClick={() => void formMethods.handleSubmit(confirmPayment)()}
+              disabled={isPersistingToDb || isSubmitting}
+            >
+              {isSubmitting ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <CheckCircle2 className="h-4 w-4" />
+              )}
+              {isSubmitting ? "Guardando..." : "Confirmar"}
+            </button>
+          )}
           {isEditingMode && (
             <button
               type="button"
