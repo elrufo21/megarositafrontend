@@ -250,10 +250,6 @@ export default function MainLayout() {
       });
   }, [companies.length, companiesLoading]);
 
-  const reloadCurrentSession = useCallback(() => {
-    window.location.reload();
-  }, []);
-
   const handleSelectCompany = useCallback(async (company: CompanyOption) => {
     setSelectedCompanyId(company.id);
 
@@ -266,8 +262,10 @@ export default function MainLayout() {
     setSessionCompany(toCompanyUserPatch(response, company));
     toast.success("Compañía de sesión actualizada.");
     setUserMenuOpen(false);
-    reloadCurrentSession();
-  }, [reloadCurrentSession, setSessionCompany]);
+    if (!pathname.startsWith("/sales/pos") && !pathname.startsWith("/pos")) {
+      window.location.reload();
+    }
+  }, [pathname, setSessionCompany]);
 
   const navItems = useMemo(() => {
     const items = [

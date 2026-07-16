@@ -20,6 +20,7 @@ import { pdf, PDFViewer } from "@react-pdf/renderer";
 import TextField from "@mui/material/TextField";
 import { useForm, useWatch } from "react-hook-form";
 import { usePosStore, selectTotals } from "@/store/pos/pos.store";
+import { useAuthStore } from "@/store/auth/auth.store";
 import { toast } from "@/shared/ui/toast";
 import { getLocalDateISO } from "@/shared/helpers/localDate";
 import TicketDocument from "@/components/Ticket";
@@ -152,13 +153,21 @@ const PersonalCodeField = ({ onInputRef, onEnter }: PersonalCodeFieldProps) => {
 const AUTO_SEND_TO_OSE_ON_CREATE = false;
 const PROFORMA_DEFAULT_CONTACT_ID = 47;
 const POS_ROUTE = "/sales/pos";
+const isGenericVariosCustomer = (value: unknown) => {
+  const words = String(value ?? "")
+    .trim()
+    .toUpperCase()
+    .split(/\s+/)
+    .filter(Boolean);
+  return words.length > 0 && words.every((word) => word === "VARIOS");
+};
 
 const getCartItemKey = (item: Pick<PosCartItem, "productId" | "detalleId">) =>
   Number(item.detalleId ?? 0) || Number(item.productId ?? 0);
 const roundCurrency = (value: number) => {
   const numeric = Number(value ?? 0);
   if (!Number.isFinite(numeric)) return 0;
-  return Math.ceil((numeric - Number.EPSILON) * 100) / 100;
+  return Math.round((numeric + Number.EPSILON) * 100) / 100;
 };
 const formatCurrency = (value: unknown) =>
   roundCurrency(Number(value ?? 0)).toFixed(2);
@@ -357,6 +366,7 @@ const PaymentPage = () => {
   );
   const sendBoletaSummary = useBoletasSummaryStore((s) => s.sendSummary);
   const consultBoletaSummary = useBoletasSummaryStore((s) => s.consultSummary);
+  const sessionCompanyId = useAuthStore((s) => s.user?.companyId);
   const safeTrim = (value: unknown) => String(value ?? "").trim();
   const isPaymentMethodAllowedForCompany = (methodValue: unknown) => {
     const method = safeTrim(methodValue).toUpperCase();
@@ -753,13 +763,16 @@ const PaymentPage = () => {
   const [notaId, setNotaId] = useState<number | null>(
     routeNotaId ?? editingNotaIdFromStore ?? null,
   );
-  const shouldReturnToPosFromEdit = isEditingMode && Boolean(notaId);
+  const shouldReturnToPosFromEdit =
+    !isOrderNotesFlow && isEditingMode && Boolean(notaId);
   const backToPosRoute = shouldReturnToPosFromEdit ? POS_ROUTE : backRoute;
   const backLabel = shouldReturnToPosFromEdit
     ? "Volver al POS"
     : shouldBackToOrderNotesList
       ? "Volver"
       : "Volver al POS";
+  const showPosShortcutInOrderNoteEdit =
+    isOrderNotesFlow && isEditingMode && Boolean(notaId);
   const [notaNumero, setNotaNumero] = useState<string>("");
   const [notaSerieOverride, setNotaSerieOverride] = useState<string | null>(
     null,
@@ -923,7 +936,9 @@ const PaymentPage = () => {
     }
 
     const companyIdRaw =
-      parsedSession?.user?.companyId ?? localStorage.getItem("companiaId");
+      parsedSession?.user?.companyId ??
+      sessionCompanyId ??
+      localStorage.getItem("companiaId");
     const companyIdNum = Number(companyIdRaw);
     const safeCompanyId =
       Number.isFinite(companyIdNum) && companyIdNum > 0 ? companyIdNum : 1;
@@ -1071,7 +1086,7 @@ const PaymentPage = () => {
       boletaPorLoteFromSession,
       cardPercentageFromSession,
     };
-  }, []);
+  }, [parsePercentageLikeValue, sessionCompanyId]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -1515,6 +1530,10 @@ const PaymentPage = () => {
   const docTypeName = docConfig?.docu ?? "BOLETA";
   const isFactura = docTypeCode === "01";
   const isProforma = docTypeCode === "101" || docTypeCode === "001";
+  const shouldPrintOrderNoteAsProforma =
+    isOrderNotesFlow &&
+    Boolean(notaId) &&
+    (docTypeCode === "03" || docTypeCode === "01");
   const loadedNoteDocTypeCodeForEdit = (() => {
     const fromHeader = safeTrim(
       notaCabeceraActual?.codTipoDocumento ??
@@ -3292,7 +3311,7 @@ const PaymentPage = () => {
     const resolvedRuc = resolveDocumentValue(getValues("customerId"), "ruc");
     const ruc = safeTrim(resolvedRuc);
 
-    if (!selectedName || selectedName.toUpperCase() === "VARIOS") {
+    if (!selectedName || isGenericVariosCustomer(selectedName)) {
       toast.error(
         "Para Factura el nombre del cliente es obligatorio y no puede ser VARIOS.",
       );
@@ -3695,6 +3714,11 @@ const PaymentPage = () => {
         : isCreateFlow
           ? PROFORMA_DEFAULT_CONTACT_ID
           : 1;
+    const flagMovil =
+      typeof window !== "undefined" &&
+      window.matchMedia("(max-width: 1279px)").matches
+        ? 1
+        : 0;
 
     const notaGananciaCalculada = roundCurrency(
       safeItems.reduce((acc, item) => {
@@ -3750,6 +3774,7 @@ const PaymentPage = () => {
         nroOperacion: "",
         efectivo: isCash ? roundCurrency(totalAPagar) : 0,
         deposito: isCash ? 0 : roundCurrency(totalAPagar),
+        flagMovil,
       },
       detalles: safeItems.map((item) => {
         const detalleCantidad = Number(item.cantidad ?? 0);
@@ -3893,6 +3918,17 @@ const PaymentPage = () => {
     if (isReadOnlyNoteView) return;
     if (!isProforma && !isPaymentMethodAllowedForCompany(paymentMethod)) {
       await showPaymentCompanyRestrictionDialog();
+      return;
+    }
+    if (
+      docTypeCode === "101" &&
+      paymentMethod === "TARJETA" &&
+      isGenericVariosCustomer(getValues("customerName"))
+    ) {
+      toast.error(
+        "Para Proforma V con tarjeta ingresa un cliente distinto a VARIOS.",
+      );
+      setFocus("customerName");
       return;
     }
     const shouldSkipCustomerValidation =
@@ -4090,6 +4126,11 @@ const PaymentPage = () => {
         : isProforma
           ? PROFORMA_DEFAULT_CONTACT_ID
           : 1;
+    const flagMovil =
+      typeof window !== "undefined" &&
+      window.matchMedia("(max-width: 1279px)").matches
+        ? 1
+        : 0;
 
     const editPayloadForApi = isEditing
       ? {
@@ -4106,6 +4147,7 @@ const PaymentPage = () => {
           NotaEstado: "PENDIENTE",
           ModificadoPor: resolvedPaymentUsername,
           FechaEdita: editTimestamp.toISOString(),
+          FlagMovil: flagMovil,
           requestDetalle: requestDetallePayload ?? [],
         }
       : basePayload;
@@ -4143,6 +4185,7 @@ const PaymentPage = () => {
         nroOperacion: safeTrim(editNota.nroOperacion ?? ""),
         efectivo: Number(editNota.efectivo ?? 0),
         deposito: Number(editNota.deposito ?? 0),
+        flagMovil,
       },
       detalles: detallesPayload.map((detalle) => ({
         idProducto: Number(detalle.idProducto ?? 0),
@@ -4781,27 +4824,33 @@ const PaymentPage = () => {
     }, 0);
   };
 
+  const handleGoToPosFromEdit = (ev?: MouseEvent) => {
+    ev?.preventDefault();
+    if (!notaId) return;
+
+    const itemsForReturn =
+      items.length > 0
+        ? items
+        : purchasedItems.length > 0
+          ? purchasedItems
+          : serverItems.length > 0
+            ? serverItems
+            : items;
+
+    if (itemsForReturn.length) {
+      setStoreItems(itemsForReturn);
+      setPaidTotals(computeTotalsFromItems(itemsForReturn));
+      setEditingNotaInStore(notaId);
+      setServerItemsInStore(serverItems.length ? serverItems : itemsForReturn);
+    }
+
+    navigate(POS_ROUTE, { state: { preserveCart: true } });
+  };
+
   const handleBackToPos = (ev?: MouseEvent) => {
     ev?.preventDefault();
-    if (isEditingMode && notaId) {
-      const itemsForReturn =
-        items.length > 0
-          ? items
-          : purchasedItems.length > 0
-            ? purchasedItems
-            : serverItems.length > 0
-              ? serverItems
-              : items;
-
-      if (itemsForReturn.length) {
-        setStoreItems(itemsForReturn);
-        setPaidTotals(computeTotalsFromItems(itemsForReturn));
-        setEditingNotaInStore(notaId);
-        setServerItemsInStore(
-          serverItems.length ? serverItems : itemsForReturn,
-        );
-      }
-      navigate(POS_ROUTE, { state: { preserveCart: true } });
+    if (!isOrderNotesFlow && isEditingMode && notaId) {
+      handleGoToPosFromEdit(ev);
       return;
     }
 
@@ -5874,7 +5923,13 @@ const PaymentPage = () => {
 
     try {
       setIsDownloadingComprobante(true);
-      const blob = await createComprobanteBlob();
+      const downloadPreviewOverride = shouldPrintOrderNoteAsProforma
+        ? {
+            docType: "proforma" as const,
+            documentTitle: "PROFORMA V",
+          }
+        : undefined;
+      const blob = await createComprobanteBlob(downloadPreviewOverride);
       const fileName = getComprobanteFileName();
       const url = URL.createObjectURL(blob);
       const anchor = document.createElement("a");
@@ -5890,7 +5945,12 @@ const PaymentPage = () => {
     } finally {
       setIsDownloadingComprobante(false);
     }
-  }, [createComprobanteBlob, getComprobanteFileName, isNotaAnulada]);
+  }, [
+    createComprobanteBlob,
+    getComprobanteFileName,
+    isNotaAnulada,
+    shouldPrintOrderNoteAsProforma,
+  ]);
 
   const handlePrint = async (options?: {
     skipConfirmedCheck?: boolean;
@@ -5898,7 +5958,7 @@ const PaymentPage = () => {
     silent?: boolean;
   }): Promise<boolean> => {
     const silent = options?.silent === true;
-    if (isFactura) {
+    if (isFactura && !shouldPrintOrderNoteAsProforma) {
       if (!silent) {
         toast.error("Las facturas no se imprimen en ticketera.");
       }
@@ -5927,7 +5987,14 @@ const PaymentPage = () => {
 
     try {
       setIsPrinting(true);
-      const blob = await createComprobanteBlob(options?.previewPropsOverride);
+      const printPreviewOverride = shouldPrintOrderNoteAsProforma
+        ? {
+            ...options?.previewPropsOverride,
+            docType: "proforma" as const,
+            documentTitle: "PROFORMA V",
+          }
+        : options?.previewPropsOverride;
+      const blob = await createComprobanteBlob(printPreviewOverride);
       const fileName = getComprobanteFileName();
       const file = new File([blob], fileName, { type: "application/pdf" });
       const formData = new FormData();
@@ -6445,6 +6512,17 @@ const PaymentPage = () => {
           >
             <ArrowLeft className="w-4 h-4" />
           </Link>
+          {showPosShortcutInOrderNoteEdit && (
+            <Link
+              to={POS_ROUTE}
+              className="inline-flex items-center justify-center gap-2 py-2 text-sm text-slate-700 transition-colors hover:bg-slate-50 hover:text-slate-900 md:hidden"
+              onClick={(e) => handleGoToPosFromEdit(e)}
+              title="Volver al POS"
+              aria-label="Volver al POS"
+            >
+              <ShoppingCart className="w-4 h-4" />
+            </Link>
+          )}
           {!formLocked && (
             <button
               type="button"
@@ -7087,22 +7165,23 @@ const PaymentPage = () => {
             Enviar por WhatsApp
           </button>
         )}
-        {canShowOutputDocumentActions && !isFactura && (
-          <button
-            className="inline-flex w-full items-center justify-center gap-2 rounded-lg border border-blue-300 bg-blue-50 py-2.5 text-blue-800 transition-colors hover:bg-blue-100 disabled:opacity-50"
-            onClick={() => {
-              void handleDownloadComprobante();
-            }}
-            disabled={isDownloadingComprobante || isNotaAnulada}
-          >
-            <Download className="w-5 h-5" />
-            {isDownloadingComprobante
-              ? "Descargando..."
-              : isNotaAnulada
-                ? "No descargable"
-                : "Descargar PDF"}
-          </button>
-        )}
+        {canShowOutputDocumentActions &&
+          (!isFactura || shouldPrintOrderNoteAsProforma) && (
+            <button
+              className="inline-flex w-full items-center justify-center gap-2 rounded-lg border border-blue-300 bg-blue-50 py-2.5 text-blue-800 transition-colors hover:bg-blue-100 disabled:opacity-50"
+              onClick={() => {
+                void handleDownloadComprobante();
+              }}
+              disabled={isDownloadingComprobante || isNotaAnulada}
+            >
+              <Download className="w-5 h-5" />
+              {isDownloadingComprobante
+                ? "Descargando..."
+                : isNotaAnulada
+                  ? "No descargable"
+                  : "Descargar PDF"}
+            </button>
+          )}
         {canShowOutputDocumentActions && (
           <button
             className="inline-flex w-full items-center justify-center gap-2 rounded-lg border border-slate-200 bg-white py-2.5 text-slate-800 transition-colors hover:bg-slate-50 disabled:opacity-50"
@@ -7134,8 +7213,23 @@ const PaymentPage = () => {
             title={backLabel}
             aria-label={backLabel}
           >
-            <ShoppingCart className="w-4 h-4" />
+            {shouldBackToOrderNotesList ? (
+              <ArrowLeft className="w-4 h-4" />
+            ) : (
+              <ShoppingCart className="w-4 h-4" />
+            )}
           </Link>
+          {showPosShortcutInOrderNoteEdit && (
+            <Link
+              to={POS_ROUTE}
+              className="hidden h-10 w-10 items-center justify-center rounded-lg bg-slate-700 text-white shadow-sm transition-colors hover:bg-slate-800 md:inline-flex"
+              onClick={(e) => handleGoToPosFromEdit(e)}
+              title="Volver al POS"
+              aria-label="Volver al POS"
+            >
+              <ShoppingCart className="w-4 h-4" />
+            </Link>
+          )}
           {!formLocked && (
             <button
               type="button"

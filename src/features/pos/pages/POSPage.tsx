@@ -35,6 +35,7 @@ import { useClientsStore } from "@/store/customers/customers.store";
 import { useProductsStore } from "@/store/products/products.store";
 import { usePosStore, selectTotals } from "@/store/pos/pos.store";
 import { useDialogStore } from "@/store/app/dialog.store";
+import { useAuthStore } from "@/store/auth/auth.store";
 import { usePosCartDraftPersistence } from "@/features/pos/hooks/usePosCartDraftPersistence";
 import type { Product } from "@/types/product";
 import type { ProductUnitOption } from "@/types/product";
@@ -243,6 +244,14 @@ const POS_PAYMENT_METHODS: Array<{ value: PosPaymentMethod; label: string }> = [
   { value: "DEPO. SCOTIABANK", label: "DEPO. SCOTIABANK" },
   { value: "DEPO. CONTINENTAL", label: "DEPO. CONTINENTAL" },
 ];
+const isGenericVariosCustomer = (value: unknown) => {
+  const words = String(value ?? "")
+    .trim()
+    .toUpperCase()
+    .split(/\s+/)
+    .filter(Boolean);
+  return words.length > 0 && words.every((word) => word === "VARIOS");
+};
 const POS_PAYMENT_TEXT_FIELD_SX = {
   "& .MuiOutlinedInput-root": {
     borderRadius: "0.45rem",
@@ -612,6 +621,7 @@ const POSPage = () => {
   const openDialog = useDialogStore((state) => state.openDialog);
   const closeDialog = useDialogStore((state) => state.closeDialog);
   const setDialogLoading = useDialogStore((state) => state.setLoading);
+  const sessionCompanyId = useAuthStore((state) => state.user?.companyId);
   const { resetDraftForNewSale } = usePosCartDraftPersistence({
     enabled: true,
     autosave: true,
@@ -811,7 +821,9 @@ const POSPage = () => {
     }
 
     const companyIdRaw =
-      parsedSession?.user?.companyId ?? localStorage.getItem("companiaId");
+      parsedSession?.user?.companyId ??
+      sessionCompanyId ??
+      localStorage.getItem("companiaId");
     const companyIdNum = Number(companyIdRaw);
     const safeCompanyId =
       Number.isFinite(companyIdNum) && companyIdNum > 0 ? companyIdNum : 1;
@@ -848,7 +860,7 @@ const POSPage = () => {
       discountMaxFromSession,
       cardPercentageFromSession,
     };
-  }, []);
+  }, [sessionCompanyId]);
 
   const uniqueSaleClients = useMemo(() => {
     const seen = new Set<string>();
@@ -1498,8 +1510,21 @@ const POSPage = () => {
       return false;
     }
 
+    if (
+      saleSettings.docTypeCode === "101" &&
+      saleSettings.paymentMethod === "TARJETA" &&
+      isGenericVariosCustomer(customerName)
+    ) {
+      toast.error(
+        "Para Proforma V con tarjeta ingresa un cliente distinto a VARIOS.",
+      );
+      setCartTab("payment");
+      window.setTimeout(() => saleCustomerInputRef.current?.focus(), 0);
+      return false;
+    }
+
     if (isSaleFactura) {
-      if (!customerName || customerName.toUpperCase() === "VARIOS") {
+      if (!customerName || isGenericVariosCustomer(customerName)) {
         toast.error("Para factura selecciona un cliente valido.");
         return false;
       }
@@ -1897,6 +1922,11 @@ const POSPage = () => {
         return acc + (item.precio - costo) * item.cantidad;
       }, 0),
     );
+    const flagMovil =
+      typeof window !== "undefined" &&
+      window.matchMedia("(max-width: 1279px)").matches
+        ? 1
+        : 0;
 
     const payload = {
       nota: {
@@ -1932,6 +1962,7 @@ const POSPage = () => {
           : "",
         efectivo: isCashPayment ? safePayTotal : 0,
         deposito: isCashPayment ? 0 : safePayTotal,
+        flagMovil,
       },
       detalles: safeItems.map((item) => ({
         idProducto: Number(item.productId ?? 0),
