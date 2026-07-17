@@ -44,7 +44,7 @@ const normalizeCompanyItems = (payload: unknown): CompanyOption[] => {
   const items = Array.isArray(payload)
     ? payload
     : Array.isArray((payload as { data?: unknown[] } | null)?.data)
-      ? ((payload as { data: unknown[] }).data)
+      ? (payload as { data: unknown[] }).data
       : [];
 
   return items
@@ -63,11 +63,8 @@ const toCompanyUserPatch = (
   payload: unknown,
   fallback: CompanyOption,
 ): Partial<AuthUser> & Pick<AuthUser, "companyId" | "companyName"> => {
-  const record =
-    ((payload as { data?: unknown } | null)?.data ?? payload) as Record<
-      string,
-      unknown
-    >;
+  const record = ((payload as { data?: unknown } | null)?.data ??
+    payload) as Record<string, unknown>;
   const numberOrZero = (value: unknown) => {
     const numeric = Number(value ?? 0);
     return Number.isFinite(numeric) && numeric > 0 ? numeric : 0;
@@ -115,7 +112,9 @@ const toCompanyUserPatch = (
       record.ClaveSol ?? record.claveSol ?? record.ComapaniaPWD,
     ),
     certificadoBase64: normalizeText(
-      record.CertificadoBase64 ?? record.certificadoBase64 ?? record.CompaniaPFX,
+      record.CertificadoBase64 ??
+        record.certificadoBase64 ??
+        record.CompaniaPFX,
     ),
     claveCertificado: normalizeText(
       record.ClaveCertificado ??
@@ -145,9 +144,8 @@ export default function MainLayout() {
     pendingRequests > 0 &&
     (pathname.startsWith("/sales/order_notes") ||
       pathname.startsWith("/customers"));
-  const isPaymentViewCompanyLocked = /^\/sales\/order_notes\/[^/]+\/view$/i.test(
-    pathname,
-  );
+  const isPaymentViewCompanyLocked =
+    /^\/sales\/order_notes\/[^/]+\/view$/i.test(pathname);
 
   const user = useAuthStore((state) => state.user);
   const logout = useAuthStore((state) => state.logout);
@@ -175,9 +173,10 @@ export default function MainLayout() {
       const raw = window.localStorage.getItem("sgo.auth.session");
       if (!raw) return "Panel de Control";
 
-      const parsed = JSON.parse(raw) as
-        | { razonSocial?: unknown; user?: { companyName?: unknown } }
-        | null;
+      const parsed = JSON.parse(raw) as {
+        razonSocial?: unknown;
+        user?: { companyName?: unknown };
+      } | null;
       const fromStorage = String(
         parsed?.user?.companyName ?? parsed?.razonSocial ?? "",
       ).trim();
@@ -249,21 +248,24 @@ export default function MainLayout() {
       });
   }, [companies.length, companiesLoading]);
 
-  const handleSelectCompany = useCallback(async (company: CompanyOption) => {
-    setSelectedCompanyId(company.id);
+  const handleSelectCompany = useCallback(
+    async (company: CompanyOption) => {
+      setSelectedCompanyId(company.id);
 
-    const response = await apiRequest<unknown>({
-      url: buildApiUrl(`/Compania/${company.id}`),
-      blockUi: false,
-      fallback: null,
-    });
+      const response = await apiRequest<unknown>({
+        url: buildApiUrl(`/Compania/${company.id}`),
+        blockUi: false,
+        fallback: null,
+      });
 
-    setSessionCompany(toCompanyUserPatch(response, company));
-    setUserMenuOpen(false);
-    if (!pathname.startsWith("/sales/pos") && !pathname.startsWith("/pos")) {
-      window.location.reload();
-    }
-  }, [pathname, setSessionCompany]);
+      setSessionCompany(toCompanyUserPatch(response, company));
+      setUserMenuOpen(false);
+      if (!pathname.startsWith("/sales/pos") && !pathname.startsWith("/pos")) {
+        window.location.reload();
+      }
+    },
+    [pathname, setSessionCompany],
+  );
 
   const navItems = useMemo(() => {
     const items = [
@@ -347,7 +349,7 @@ export default function MainLayout() {
               open ? "opacity-100" : "opacity-0"
             }`}
           >
-            SGO VENTAS
+            CAMBIO RUBEN
           </h1>
 
           <button
@@ -583,13 +585,13 @@ export default function MainLayout() {
                           color: "#96312a",
                         },
                       }}
-                    onClick={() => {
-                      setUserMenuOpen(false);
-                      logout();
-                      navigate("/login", { replace: true });
-                    }}
-                  >
-                    Cerrar sesión
+                      onClick={() => {
+                        setUserMenuOpen(false);
+                        logout();
+                        navigate("/login", { replace: true });
+                      }}
+                    >
+                      Cerrar sesión
                     </Button>
                   </Box>
                 </Box>
