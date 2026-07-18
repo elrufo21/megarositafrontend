@@ -38,6 +38,12 @@ const AUTH_STORAGE_KEY = "sgo.auth.session";
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
+const formatTicketMoney = (value: number): string =>
+  Number(value || 0).toLocaleString("en-US", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
+
 const normalizePhoneLine = (value: unknown): string => {
   const raw = String(value ?? "").trim();
   if (!raw) return "";
@@ -688,8 +694,8 @@ const TicketHTML = ({
           <span style={s.colDesc}>
             {`${formatUnitPrefix(item.unitMeasure)}${item.description}`}
           </span>
-          <span style={s.colPUni}>{item.unitPrice.toFixed(2)}</span>
-          <span style={s.colImporte}>{item.total.toFixed(2)}</span>
+          <span style={s.colPUni}>{formatTicketMoney(item.unitPrice)}</span>
+          <span style={s.colImporte}>{formatTicketMoney(item.total)}</span>
         </div>
       ))}
       {ticketData.showDetailAdjustments && (
@@ -698,7 +704,7 @@ const TicketHTML = ({
           <span style={s.colDesc}>{ticketData.detailAdjustmentsLabel}</span>
           <span style={s.colPUni}></span>
           <span style={s.colImporte}>
-            {ticketData.detailAdjustmentAmount.toFixed(2)}
+            {formatTicketMoney(ticketData.detailAdjustmentAmount)}
           </span>
         </div>
       )}
@@ -715,27 +721,27 @@ const TicketHTML = ({
             <span style={s.summaryLabel}>Sub Total S/.</span>
             <span style={s.summaryCurrency}></span>
             <span style={s.summaryAmount}>
-              {ticketData.operacionGravada.toFixed(2)}
+              {formatTicketMoney(ticketData.subtotal)}
             </span>
           </div>
           <div style={s.summaryRow}>
             <span style={s.summaryLabel}>Movilidad S/.</span>
             <span style={s.summaryCurrency}></span>
             <span style={s.summaryAmount}>
-              {ticketData.movilidad.toFixed(2)}
+              {formatTicketMoney(ticketData.movilidad)}
             </span>
           </div>
           <div style={s.summaryRow}>
             <span style={s.summaryLabel}>Descuento S/.</span>
             <span style={s.summaryCurrency}></span>
             <span style={s.summaryAmount}>
-              {ticketData.descuento.toFixed(2)}
+              {formatTicketMoney(ticketData.descuento)}
             </span>
           </div>
           <div style={s.summaryRow}>
             <span style={s.summaryLabel}>Op Gravada S/.</span>
             <span style={s.summaryCurrency}></span>
-            <span style={s.summaryAmount}>{ticketData.total.toFixed(2)}</span>
+            <span style={s.summaryAmount}>{formatTicketMoney(ticketData.total)}</span>
           </div>
           <div style={s.summaryDivider} />
           <div style={s.summaryRow}>
@@ -746,7 +752,7 @@ const TicketHTML = ({
           <div style={s.summaryRow}>
             <span style={s.summaryLabel}>Saldo S/.</span>
             <span style={s.summaryCurrency}></span>
-            <span style={s.summaryAmount}>{ticketData.total.toFixed(2)}</span>
+            <span style={s.summaryAmount}>{formatTicketMoney(ticketData.total)}</span>
           </div>
           <div style={s.summaryDivider} />
           <div style={s.summaryRow}>
@@ -755,7 +761,7 @@ const TicketHTML = ({
             </span>
             <span style={s.summaryCurrency}></span>
             <span style={s.summaryAmount}>
-              {ticketData.cardAdditional.toFixed(2)}
+              {formatTicketMoney(ticketData.cardAdditional)}
             </span>
           </div>
           <div style={s.summaryRow}>
@@ -766,7 +772,7 @@ const TicketHTML = ({
           <div style={s.totalRow}>
             <span style={s.totalLabel}>Total A Pagar S/.</span>
             <span style={s.totalCurrency}></span>
-            <span style={s.totalAmount}>{ticketData.total.toFixed(2)}</span>
+            <span style={s.totalAmount}>{formatTicketMoney(ticketData.total)}</span>
           </div>
         </>
       ) : (
@@ -775,7 +781,7 @@ const TicketHTML = ({
             <span style={s.summaryLabel}>OP.GRAVADA :</span>
             <span style={s.summaryCurrency}>S/</span>
             <span style={s.summaryAmount}>
-              {ticketData.operacionGravada.toFixed(2)}
+              {formatTicketMoney(ticketData.operacionGravada)}
             </span>
           </div>
           {ticketData.showDiscount && (
@@ -783,7 +789,7 @@ const TicketHTML = ({
               <span style={s.summaryLabel}>DESCUENTO :</span>
               <span style={s.summaryCurrency}>S/</span>
               <span style={s.summaryAmount}>
-                {ticketData.descuento.toFixed(2)}
+                {formatTicketMoney(ticketData.descuento)}
               </span>
             </div>
           )}
@@ -791,18 +797,27 @@ const TicketHTML = ({
             <span style={s.summaryLabel}>SUBTOTAL :</span>
             <span style={s.summaryCurrency}>S/</span>
             <span style={s.summaryAmount}>
-              {ticketData.subtotal.toFixed(2)}
+              {formatTicketMoney(ticketData.subtotal)}
             </span>
           </div>
+          {ticketData.igv > 0 && (
+            <div style={s.summaryRow}>
+              <span style={s.summaryLabel}>I.G.V. :</span>
+              <span style={s.summaryCurrency}>S/</span>
+              <span style={s.summaryAmount}>
+                {formatTicketMoney(ticketData.igv)}
+              </span>
+            </div>
+          )}
           <div style={s.summaryRow}>
-            <span style={s.summaryLabel}>I.G.V. :</span>
+            <span style={s.summaryLabel}>ICBPER :</span>
             <span style={s.summaryCurrency}>S/</span>
-            <span style={s.summaryAmount}>{ticketData.igv.toFixed(2)}</span>
+            <span style={s.summaryAmount}>0.00</span>
           </div>
           <div style={s.totalRow}>
             <span style={s.totalLabel}>TOTAL :</span>
             <span style={s.totalCurrency}>S/</span>
-            <span style={s.totalAmount}>{ticketData.total.toFixed(2)}</span>
+            <span style={s.totalAmount}>{formatTicketMoney(ticketData.total)}</span>
           </div>
         </>
       )}

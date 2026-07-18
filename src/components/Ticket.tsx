@@ -50,6 +50,12 @@ type TicketDocumentProps = {
 const AUTH_STORAGE_KEY = "sgo.auth.session";
 const FALLBACK_LOGO_SRC = "/LogoHuillca.PNG";
 
+const formatTicketMoney = (value: number): string =>
+  Number(value || 0).toLocaleString("en-US", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
+
 const normalizePhoneLine = (value: unknown): string => {
   const raw = String(value ?? "").trim();
   if (!raw) return "";
@@ -973,7 +979,9 @@ const TicketDocument = ({
 
     const summaryRows = ticketData.isProforma
       ? 10
-      : 3 + (ticketData.showDiscount ? 1 : 0);
+      : 3 +
+        (ticketData.igv > 0 ? 1 : 0) +
+        (ticketData.showDiscount ? 1 : 0);
     const summaryRowsHeight =
       summaryRows * (9 + 3) + (ticketData.isProforma ? 16 : 0);
 
@@ -1094,10 +1102,10 @@ const TicketDocument = ({
                         {descriptionLine2}
                       </Text>
                       <Text style={styles.colPUni}>
-                        {item.unitPrice.toFixed(2)}
+                        {formatTicketMoney(item.unitPrice)}
                       </Text>
                       <Text style={styles.colImporte}>
-                        {item.total.toFixed(2)}
+                        {formatTicketMoney(item.total)}
                       </Text>
                     </View>
                     {(pvs.pv || pvs.sv) && (
@@ -1137,7 +1145,7 @@ const TicketDocument = ({
                   <Text style={styles.colDesc}></Text>
                   <Text style={styles.colPUni}></Text>
                   <Text style={styles.colImporte}>
-                    {ticketData.detailAdjustmentAmount.toFixed(2)}
+                    {formatTicketMoney(ticketData.detailAdjustmentAmount)}
                   </Text>
                 </View>
               </View>
@@ -1153,28 +1161,28 @@ const TicketDocument = ({
                 <Text style={styles.summaryLabel}>Sub Total S/.</Text>
                 <Text style={styles.summaryCurrency}></Text>
                 <Text style={styles.summaryAmount}>
-                  {ticketData.operacionGravada.toFixed(2)}
+                  {formatTicketMoney(ticketData.subtotal)}
                 </Text>
               </View>
               <View style={styles.summaryRow}>
                 <Text style={styles.summaryLabel}>Movilidad S/.</Text>
                 <Text style={styles.summaryCurrency}></Text>
                 <Text style={styles.summaryAmount}>
-                  {ticketData.movilidad.toFixed(2)}
+                  {formatTicketMoney(ticketData.movilidad)}
                 </Text>
               </View>
               <View style={styles.summaryRow}>
                 <Text style={styles.summaryLabel}>Descuento S/.</Text>
                 <Text style={styles.summaryCurrency}></Text>
                 <Text style={styles.summaryAmount}>
-                  {ticketData.descuento.toFixed(2)}
+                  {formatTicketMoney(ticketData.descuento)}
                 </Text>
               </View>
               <View style={styles.summaryRow}>
                 <Text style={styles.summaryLabel}>Op Gravada S/.</Text>
                 <Text style={styles.summaryCurrency}></Text>
                 <Text style={styles.summaryAmount}>
-                  {ticketData.total.toFixed(2)}
+                  {formatTicketMoney(ticketData.total)}
                 </Text>
               </View>
               <View style={styles.summaryDivider} />
@@ -1187,7 +1195,7 @@ const TicketDocument = ({
                 <Text style={styles.summaryLabel}>Saldo S/.</Text>
                 <Text style={styles.summaryCurrency}></Text>
                 <Text style={styles.summaryAmount}>
-                  {ticketData.total.toFixed(2)}
+                  {formatTicketMoney(ticketData.total)}
                 </Text>
               </View>
               <View style={styles.summaryDivider} />
@@ -1197,7 +1205,7 @@ const TicketDocument = ({
                 </Text>
                 <Text style={styles.summaryCurrency}></Text>
                 <Text style={styles.summaryAmount}>
-                  {ticketData.cardAdditional.toFixed(2)}
+                  {formatTicketMoney(ticketData.cardAdditional)}
                 </Text>
               </View>
               <View style={styles.summaryRow}>
@@ -1209,7 +1217,7 @@ const TicketDocument = ({
                 <Text style={styles.totalLabel}>Total A Pagar S/.</Text>
                 <Text style={styles.totalCurrency}></Text>
                 <Text style={styles.totalAmount}>
-                  {ticketData.total.toFixed(2)}
+                  {formatTicketMoney(ticketData.total)}
                 </Text>
               </View>
             </>
@@ -1219,7 +1227,7 @@ const TicketDocument = ({
                 <Text style={styles.summaryLabel}>OP.GRAVADA :</Text>
                 <Text style={styles.summaryCurrency}>S/</Text>
                 <Text style={styles.summaryAmount}>
-                  {ticketData.operacionGravada.toFixed(2)}
+                  {formatTicketMoney(ticketData.operacionGravada)}
                 </Text>
               </View>
               {ticketData.showDiscount && (
@@ -1227,7 +1235,7 @@ const TicketDocument = ({
                   <Text style={styles.summaryLabel}>DESCUENTO :</Text>
                   <Text style={styles.summaryCurrency}>S/</Text>
                   <Text style={styles.summaryAmount}>
-                    {ticketData.descuento.toFixed(2)}
+                    {formatTicketMoney(ticketData.descuento)}
                   </Text>
                 </View>
               )}
@@ -1235,21 +1243,28 @@ const TicketDocument = ({
                 <Text style={styles.summaryLabel}>SUBTOTAL :</Text>
                 <Text style={styles.summaryCurrency}>S/</Text>
                 <Text style={styles.summaryAmount}>
-                  {ticketData.subtotal.toFixed(2)}
+                  {formatTicketMoney(ticketData.subtotal)}
                 </Text>
               </View>
+              {ticketData.igv > 0 && (
+                <View style={styles.summaryRow}>
+                  <Text style={styles.summaryLabel}>I.G.V. :</Text>
+                  <Text style={styles.summaryCurrency}>S/</Text>
+                  <Text style={styles.summaryAmount}>
+                    {formatTicketMoney(ticketData.igv)}
+                  </Text>
+                </View>
+              )}
               <View style={styles.summaryRow}>
-                <Text style={styles.summaryLabel}>I.G.V. :</Text>
+                <Text style={styles.summaryLabel}>ICBPER :</Text>
                 <Text style={styles.summaryCurrency}>S/</Text>
-                <Text style={styles.summaryAmount}>
-                  {ticketData.igv.toFixed(2)}
-                </Text>
+                <Text style={styles.summaryAmount}>0.00</Text>
               </View>
               <View style={styles.totalRow}>
                 <Text style={styles.totalLabel}>TOTAL :</Text>
                 <Text style={styles.totalCurrency}>S/</Text>
                 <Text style={styles.totalAmount}>
-                  {ticketData.total.toFixed(2)}
+                  {formatTicketMoney(ticketData.total)}
                 </Text>
               </View>
             </>

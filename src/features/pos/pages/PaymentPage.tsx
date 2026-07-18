@@ -63,6 +63,10 @@ type LoadedNotaMonetaryTotals = {
   subtotalWithoutIgv: number;
   totalWithIgv: number;
   totalToPay: number;
+  gravada?: number;
+  descuento?: number;
+  igv?: number;
+  adicional?: number;
 };
 
 type CompanyDataPayload = {
@@ -1829,9 +1833,13 @@ const PaymentPage = () => {
     safeItemsForFiscal,
   ]);
   const operacionGravada = viewTotalsOverride
-    ? roundCurrency(viewTotalsOverride.subtotalWithoutIgv + descuentoBase)
+    ? viewTotalsOverride.gravada !== undefined
+      ? viewTotalsOverride.gravada
+      : isProforma
+      ? roundCurrency(viewTotalsOverride.totalWithIgv)
+      : roundCurrency(viewTotalsOverride.subtotalWithoutIgv + descuentoBase)
     : isProforma
-      ? roundCurrency(totalAmount)
+      ? roundCurrency(discountedTotal + notaMovilidad)
       : roundCurrency(grossMonetarySummary.subtotalWithoutIgv);
   const documentTotalWithIgv = viewTotalsOverride
     ? viewTotalsOverride.totalWithIgv
@@ -1845,10 +1853,11 @@ const PaymentPage = () => {
 
   const notaAdicional = viewTotalsOverride
     ? roundCurrency(
-        Math.max(
-          viewTotalsOverride.totalToPay - viewTotalsOverride.totalWithIgv,
-          0,
-        ),
+        viewTotalsOverride.adicional ??
+          Math.max(
+            viewTotalsOverride.totalToPay - viewTotalsOverride.totalWithIgv,
+            0,
+          ),
       )
     : paymentMethod === "TARJETA"
       ? roundCurrency(cardChargeBase * cardChargeRate)
@@ -1856,7 +1865,8 @@ const PaymentPage = () => {
   const totalAPagar = viewTotalsOverride
     ? viewTotalsOverride.totalToPay
     : roundCurrency(documentTotalWithIgv + notaMovilidad + notaAdicional);
-  const ajusteGravado = roundCurrency(notaMovilidad + notaAdicional);
+  const taxableTotalWithIgv = roundCurrency(documentTotalWithIgv + notaMovilidad);
+  const ajusteGravado = roundCurrency(notaMovilidad);
   const ajusteGravadoBase = isProforma
     ? 0
     : roundCurrency(ajusteGravado / IGV_FACTOR);
@@ -1865,15 +1875,34 @@ const PaymentPage = () => {
     : isProforma
       ? discountedTotal
       : roundCurrency(monetarySummary.subtotalWithoutIgv + ajusteGravadoBase);
-  const igvAmount = viewTotalsOverride
-    ? roundCurrency(
-        viewTotalsOverride.totalWithIgv - viewTotalsOverride.subtotalWithoutIgv,
-      )
-    : isProforma
-      ? 0
-      : roundCurrency(totalAPagar - gravada);
+  const igvAmount = isProforma
+    ? 0
+    : viewTotalsOverride
+      ? roundCurrency(
+          viewTotalsOverride.igv ??
+            viewTotalsOverride.totalWithIgv -
+              viewTotalsOverride.subtotalWithoutIgv,
+        )
+      : roundCurrency(taxableTotalWithIgv - gravada);
+  const useCardTicketTotals = !isProforma && paymentMethod === "TARJETA";
+  const commercialSubtotal = roundCurrency(totalAmount);
+  const ticketSubtotal = useCardTicketTotals
+    ? roundCurrency(totalAPagar / IGV_FACTOR)
+    : gravada;
+  const ticketIgv = useCardTicketTotals
+    ? roundCurrency(totalAPagar - ticketSubtotal)
+    : igvAmount;
+  const displayOperacionGravada = operacionGravada;
+  const displayDescuento = viewTotalsOverride?.descuento ?? descuentoBase;
+  const displaySubtotal = isProforma
+    ? commercialSubtotal
+    : useCardTicketTotals
+      ? ticketSubtotal
+      : gravada;
+  const displayIgv = useCardTicketTotals ? ticketIgv : igvAmount;
   const shouldRequireBoletaCustomerData =
-    docTypeCode === "03" && Number(totalAPagar ?? 0) >= 700;
+    docTypeCode === "03" &&
+    (paymentMethod === "TARJETA" || Number(totalAPagar ?? 0) >= 700);
   const getDisplayLineAmounts = (item: PosCartItem, rowIndex?: number) => {
     void rowIndex;
     const unitPrice = roundCurrency(Number(item.precio ?? 0));
@@ -2244,20 +2273,58 @@ const PaymentPage = () => {
           "pagar",
           "Pagar",
         ]);
+        const loadedAdicional = getNotaAmount(notaData, [
+          "notaAdicional",
+          "adicional",
+          "Adicional",
+          "docuAdicional",
+          "DocuAdicional",
+        ]);
+        const loadedDocuSubtotal = getNotaAmount(notaData, [
+          "docuSubtotal",
+          "docuSubTotal",
+          "DocuSubtotal",
+          "DocuSubTotal",
+        ]);
+        const loadedDocuIgv = getNotaAmount(notaData, [
+          "docuIgv",
+          "docuIGV",
+          "DocuIgv",
+          "DocuIGV",
+        ]);
+        const loadedDocuGravada = getNotaAmount(notaData, [
+          "docuGravada",
+          "DocuGravada",
+        ]);
+        const loadedDocuDescuento = getNotaAmount(notaData, [
+          "docuDescuento",
+          "DocuDescuento",
+        ]);
         const finalTotal = loadedTotal > 0 ? loadedTotal : loadedPagar;
         if (finalTotal > 0) {
           const finalSubtotal =
-            loadedSubtotal > 0
+            loadedDocuSubtotal > 0
+              ? loadedDocuSubtotal
+              : loadedSubtotal > 0
               ? loadedSubtotal
               : roundCurrency(finalTotal / IGV_FACTOR);
           const rawToPay = loadedPagar > 0 ? loadedPagar : finalTotal;
           const finalToPay = amountsAreClose(rawToPay, finalTotal)
             ? finalTotal
             : rawToPay;
+          const totalWithoutAdditional = roundCurrency(
+            Math.max(finalToPay - loadedAdicional, 0),
+          );
           setLoadedNotaMonetaryTotals({
             subtotalWithoutIgv: finalSubtotal,
-            totalWithIgv: finalTotal,
+            totalWithIgv:
+              loadedAdicional > 0 ? totalWithoutAdditional : finalTotal,
             totalToPay: finalToPay,
+            gravada: loadedDocuGravada > 0 ? loadedDocuGravada : undefined,
+            descuento:
+              loadedDocuDescuento > 0 ? loadedDocuDescuento : undefined,
+            igv: loadedDocuIgv > 0 ? loadedDocuIgv : undefined,
+            adicional: loadedAdicional,
           });
         } else {
           setLoadedNotaMonetaryTotals(null);
@@ -3602,7 +3669,7 @@ const PaymentPage = () => {
       totals: safeTotals,
       noteId: notaId,
       summary: {
-        operacionGravada: roundCurrency(operacionGravada),
+        operacionGravada: roundCurrency(displayOperacionGravada),
         cardAdditional: roundCurrency(notaAdicional),
         cardPercentage:
           paymentMethod === "TARJETA"
@@ -3610,10 +3677,10 @@ const PaymentPage = () => {
             : 0,
         showCardAdditional: paymentMethod === "TARJETA" && notaAdicional > 0,
         movilidad: roundCurrency(notaMovilidad),
-        descuento: roundCurrency(descuentoBase),
+        descuento: roundCurrency(displayDescuento),
         showDiscount: applyDiscount,
-        subtotal: roundCurrency(gravada),
-        igv: roundCurrency(igvAmount),
+        subtotal: roundCurrency(displaySubtotal),
+        igv: roundCurrency(displayIgv),
         total: roundCurrency(totalAPagar),
       },
       documentNumber,
@@ -3641,8 +3708,10 @@ const PaymentPage = () => {
     totalsToRender,
     purchasedItems,
     paidTotals,
-    operacionGravada,
-    gravada,
+    displayOperacionGravada,
+    displaySubtotal,
+    displayIgv,
+    displayDescuento,
     descuento,
     descuentoBase,
     notaMovilidad,
@@ -3691,7 +3760,6 @@ const PaymentPage = () => {
     const now = new Date();
     const today = getLocalDateISO(now);
     const safeItems = safeItemsForFiscal;
-    const base = gravada;
     const normalizedDocTypeName = safeTrim(docTypeName).toUpperCase();
     const isProformaDoc =
       normalizedDocTypeName === "PROFORMA V" ||
@@ -3754,7 +3822,7 @@ const PaymentPage = () => {
         notaFechaPago: now.toISOString(),
         notaDireccion: safeTrim(shippingAddress),
         notaTelefono: safeTrim(phone),
-        notaSubtotal: roundCurrency(base),
+        notaSubtotal: commercialSubtotal,
         notaMovilidad: roundCurrency(notaMovilidad),
         notaDescuento: roundCurrency(descuento),
         notaTotal: roundCurrency(totalAPagar),
@@ -3773,6 +3841,11 @@ const PaymentPage = () => {
         notaNumero: paddedNotaNumero || "00000000",
         notaGanancia: roundCurrency(notaGananciaCalculada),
         icbper: 0,
+        docuSubtotal: roundCurrency(displaySubtotal),
+        docuIgv: roundCurrency(displayIgv),
+        docuAdicional: roundCurrency(notaAdicional),
+        docuGravada: roundCurrency(displayOperacionGravada),
+        docuDescuento: roundCurrency(displayDescuento),
         entidadBancaria: "",
         nroOperacion: "",
         efectivo: isCash ? roundCurrency(totalAPagar) : 0,
@@ -3843,7 +3916,11 @@ const PaymentPage = () => {
     shippingAddress,
     phone,
     notaMovilidad,
-    gravada,
+    commercialSubtotal,
+    displaySubtotal,
+    displayIgv,
+    displayOperacionGravada,
+    displayDescuento,
     notaAdicional,
     resolvedNotaUsuario,
     paymentMethod,
@@ -4755,7 +4832,7 @@ const PaymentPage = () => {
     refetchProducts();
 
     setConfirmedFlowType(isEditing ? "edit" : "create");
-    shouldCleanupOnExitAfterConfirmRef.current = !isEditing;
+    shouldCleanupOnExitAfterConfirmRef.current = true;
     if (isEditing) {
       toast.success("Orden actualizada");
     } else {
@@ -4831,6 +4908,12 @@ const PaymentPage = () => {
     ev?.preventDefault();
     if (!notaId) return;
 
+    if (isConfirmed) {
+      runConfirmedSaleCleanup();
+      navigate(POS_ROUTE, { state: { resetCart: true } });
+      return;
+    }
+
     const itemsForReturn =
       items.length > 0
         ? items
@@ -4847,7 +4930,26 @@ const PaymentPage = () => {
       setServerItemsInStore(serverItems.length ? serverItems : itemsForReturn);
     }
 
-    navigate(POS_ROUTE, { state: { preserveCart: true } });
+    navigate(POS_ROUTE, {
+      state: {
+        preserveCart: true,
+        saleSettings: {
+          docTypeCode,
+          paymentMethod,
+          clienteId,
+          customerName,
+          customerId,
+          fiscalAddress,
+          shippingAddress,
+          phone,
+          movementCost: String(notaMovilidad || ""),
+          bankEntity: safeTrim(getValues("bankEntity")),
+          nroOperacion: safeTrim(getValues("nroOperacion")),
+          applyDiscount: Boolean(applyDiscount && descuento > 0),
+          discount: String(descuento || ""),
+        },
+      },
+    });
   };
 
   const handleBackToPos = (ev?: MouseEvent) => {
@@ -7050,7 +7152,7 @@ const PaymentPage = () => {
           <div className="flex justify-between text-sm text-gray-700">
             <span>Op. gravada</span>
             <span className="font-semibold">
-              S/ {formatCurrency(operacionGravada)}
+              S/ {formatCurrency(displayOperacionGravada)}
             </span>
           </div>
           <div className="flex items-center justify-between gap-3 text-sm text-gray-700">
@@ -7140,14 +7242,18 @@ const PaymentPage = () => {
           )}
           <div className="flex justify-between text-sm text-gray-700">
             <span>Sub total</span>
-            <span className="font-semibold">S/ {formatCurrency(gravada)}</span>
-          </div>
-          <div className="flex justify-between text-sm text-gray-700">
-            <span>IGV (18%)</span>
             <span className="font-semibold">
-              S/ {formatCurrency(igvAmount)}
+              S/ {formatCurrency(displaySubtotal)}
             </span>
           </div>
+          {displayIgv > 0 && (
+            <div className="flex justify-between text-sm text-gray-700">
+              <span>IGV (18%)</span>
+              <span className="font-semibold">
+                S/ {formatCurrency(displayIgv)}
+              </span>
+            </div>
+          )}
           <div className="flex justify-between text-base font-bold text-slate-800">
             <span>Total pago</span>
             <span>S/ {formatCurrency(totalAPagar)}</span>

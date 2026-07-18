@@ -244,6 +244,48 @@ const POS_PAYMENT_METHODS: Array<{ value: PosPaymentMethod; label: string }> = [
   { value: "DEPO. SCOTIABANK", label: "DEPO. SCOTIABANK" },
   { value: "DEPO. CONTINENTAL", label: "DEPO. CONTINENTAL" },
 ];
+const normalizePosSaleSettings = (
+  value: unknown,
+): PosSaleSettings | null => {
+  const record =
+    value && typeof value === "object" ? (value as Partial<PosSaleSettings>) : null;
+  if (!record) return null;
+
+  const docTypeCode = POS_DOC_TYPE_OPTIONS.includes(
+    record.docTypeCode as PosDocTypeCode,
+  )
+    ? (record.docTypeCode as PosDocTypeCode)
+    : DEFAULT_POS_SALE_SETTINGS.docTypeCode;
+  const customerId = String(record.customerId ?? "");
+
+  return {
+    ...DEFAULT_POS_SALE_SETTINGS,
+    ...record,
+    docTypeCode,
+    paymentMethod: (record.paymentMethod ??
+      DEFAULT_POS_SALE_SETTINGS.paymentMethod) as PosPaymentMethod,
+    clienteId:
+      record.clienteId === null || Number.isFinite(Number(record.clienteId))
+        ? (record.clienteId ?? null)
+        : DEFAULT_POS_SALE_SETTINGS.clienteId,
+    customerId,
+    customerDni:
+      docTypeCode === "01" ? "" : String(record.customerDni ?? customerId),
+    customerRuc:
+      docTypeCode === "01" ? String(record.customerRuc ?? customerId) : "",
+    customerName: String(
+      record.customerName ?? DEFAULT_POS_SALE_SETTINGS.customerName,
+    ),
+    fiscalAddress: String(record.fiscalAddress ?? ""),
+    shippingAddress: String(record.shippingAddress ?? ""),
+    phone: String(record.phone ?? ""),
+    movementCost: String(record.movementCost ?? ""),
+    bankEntity: String(record.bankEntity ?? DEFAULT_POS_SALE_SETTINGS.bankEntity),
+    nroOperacion: String(record.nroOperacion ?? ""),
+    applyDiscount: Boolean(record.applyDiscount),
+    discount: String(record.discount ?? ""),
+  };
+};
 const isGenericVariosCustomer = (value: unknown) => {
   const words = String(value ?? "")
     .trim()
@@ -614,6 +656,9 @@ const POSPage = () => {
   const clearEditingNota = usePosStore((state) => state.clearEditingNota);
   const editingNotaId = usePosStore((state) => state.editingNotaId);
   const isEditingMode = usePosStore((state) => state.isEditingMode);
+  const setServerItemsInStore = usePosStore(
+    (state) => state.setServerItemsFromNota,
+  );
   const clients = useClientsStore((state) => state.clients);
   const fetchClients = useClientsStore((state) => state.fetchClients);
   const addClient = useClientsStore((state) => state.addClient);
@@ -932,6 +977,7 @@ const POSPage = () => {
       : null;
   const saleDocConfig = POS_DOC_TYPE_CONFIG[saleSettings.docTypeCode];
   const isSaleFactura = saleSettings.docTypeCode === "01";
+  const isSaleBoleta = saleSettings.docTypeCode === "03";
   const isSaleProforma =
     saleSettings.docTypeCode === "101" || saleSettings.docTypeCode === "001";
   const shouldShowSaleBankFields = saleSettings.paymentMethod !== "EFECTIVO";
@@ -1008,15 +1054,34 @@ const POSPage = () => {
   const saleTotalAmount = roundCurrency(
     saleDocumentTotal + saleMovementAmount + saleCardAdditional,
   );
+  const saleTaxableTotal = roundCurrency(saleDocumentTotal + saleMovementAmount);
   const saleAdjustmentBase = isSaleProforma
     ? 0
-    : roundCurrency((saleMovementAmount + saleCardAdditional) / IGV_FACTOR);
+    : roundCurrency(saleMovementAmount / IGV_FACTOR);
   const saleGravada = isSaleProforma
     ? saleDocumentGravada
     : roundCurrency(saleDocumentGravada + saleAdjustmentBase);
   const saleIgvAmount = isSaleProforma
     ? 0
-    : roundCurrency(saleTotalAmount - saleGravada);
+    : roundCurrency(saleTaxableTotal - saleGravada);
+  const useSaleCommercialCardTotals =
+    !isSaleProforma && saleSettings.paymentMethod === "TARJETA";
+  const saleCommercialSubtotal = roundCurrency(Number(totals.total ?? 0));
+  const saleTicketSubtotal = useSaleCommercialCardTotals
+    ? roundCurrency(saleTotalAmount / IGV_FACTOR)
+    : saleGravada;
+  const saleTicketIgv = useSaleCommercialCardTotals
+    ? roundCurrency(saleTotalAmount - saleTicketSubtotal)
+    : saleIgvAmount;
+  const saleTicketGravada = saleOperacionGravada;
+  const saleTicketDescuento = saleDiscountBase;
+  const saleDisplayOperacionGravada = useSaleCommercialCardTotals
+    ? saleTotalAmount
+    : saleOperacionGravada;
+  const saleDisplaySubtotal = useSaleCommercialCardTotals
+    ? saleCommercialSubtotal
+    : saleGravada;
+  const saleDisplayIgv = useSaleCommercialCardTotals ? 0 : saleIgvAmount;
   const focusSaleField = (
     ref: RefObject<SaleFocusableElement | null>,
     select = false,
@@ -1538,6 +1603,21 @@ const POSPage = () => {
       }
     }
 
+    if (isSaleBoleta && saleSettings.paymentMethod === "TARJETA") {
+      if (!customerName || isGenericVariosCustomer(customerName)) {
+        toast.error("Para boleta con tarjeta selecciona un cliente valido.");
+        return false;
+      }
+      if (!selectedSaleClient) {
+        toast.error("Para boleta con tarjeta debes seleccionar un cliente registrado.");
+        return false;
+      }
+      if (customerDocument.length !== 8) {
+        toast.error("Para boleta con tarjeta ingresa un DNI valido de 8 digitos.");
+        return false;
+      }
+    }
+
     if (
       !isSaleFactura &&
       !isSaleProforma &&
@@ -1687,14 +1767,23 @@ const POSPage = () => {
       (location.state as {
         preserveCart?: boolean;
         resetCart?: boolean;
+        saleSettings?: Partial<PosSaleSettings>;
       } | null) ?? null;
+    const restoredSaleSettings = normalizePosSaleSettings(routeState?.saleSettings);
     const preserveCart = routeState?.preserveCart === true;
     const resetCart = routeState?.resetCart === true;
     if (resetCart) {
       clearCart();
       clearEditingNota();
+      setSaleSettings(DEFAULT_POS_SALE_SETTINGS);
+      setSaleCustomerInput(DEFAULT_POS_SALE_SETTINGS.customerName);
       void resetDraftForNewSale();
       return;
+    }
+    if (restoredSaleSettings) {
+      setSaleSettings(restoredSaleSettings);
+      setSaleCustomerInput(restoredSaleSettings.customerName);
+      setCartTab("payment");
     }
     if (preserveCart) return;
 
@@ -1872,15 +1961,11 @@ const POSPage = () => {
     const paymentBasePath = normalizedPath.includes("/sales/pos")
       ? "/sales/pos/payment"
       : "/pos/payment";
+    const editingNotaIdNumber = Number(editingNotaId);
     const hasEditingNota =
       isEditingMode &&
-      Number.isFinite(Number(editingNotaId)) &&
-      Number(editingNotaId) > 0;
-    if (hasEditingNota) {
-      const paymentTarget = `${paymentBasePath}/${Number(editingNotaId)}?mode=edit`;
-      navigate(paymentTarget);
-      return;
-    }
+      Number.isFinite(editingNotaIdNumber) &&
+      editingNotaIdNumber > 0;
 
     if (items.some(hasInvalidQuantityForPayment)) {
       toast.error("La cantidad debe ser mayor a 0.");
@@ -1901,7 +1986,7 @@ const POSPage = () => {
       toFirstName(authorizedPersonalName) ||
       toFirstName(usernameFromSession) ||
       "USUARIO";
-    const safeSubtotal = saleGravada;
+    const safeCommercialSubtotal = saleCommercialSubtotal;
     const safeDiscount = saleDiscountAmount;
     const safePayTotal = saleTotalAmount;
     const isCashPayment = saleSettings.paymentMethod === "EFECTIVO";
@@ -1927,17 +2012,23 @@ const POSPage = () => {
       window.matchMedia("(max-width: 1279px)").matches
         ? 1
         : 0;
+    const today = new Date();
+    const notaFecha = `${today.getFullYear()}-${String(
+      today.getMonth() + 1,
+    ).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
 
     const payload = {
       nota: {
+        ...(hasEditingNota ? { notaId: editingNotaIdNumber } : {}),
         notaDocu: saleDocConfig.docu,
+        notaFecha,
         clienteId,
         notaUsuario: resolvedPaymentUsername,
         notaFormaPago: saleSettings.paymentMethod,
         notaCondicion: "ALCONTADO",
         notaDireccion: safeTrim(saleSettings.shippingAddress),
         notaTelefono: safeTrim(saleSettings.phone),
-        notaSubtotal: safeSubtotal,
+        notaSubtotal: safeCommercialSubtotal,
         notaMovilidad: saleMovementAmount,
         notaDescuento: safeDiscount,
         notaTotal: safePayTotal,
@@ -1946,7 +2037,7 @@ const POSPage = () => {
         notaAdicional: saleCardAdditional,
         notaTarjeta: isCardPayment ? safePayTotal : 0,
         notaPagar: safePayTotal,
-        notaEstado: "PENDIENTE",
+        notaEstado: saleDocConfig.docu === "BOLETA" ? "EMITIDO" : "PENDIENTE",
         companiaId: companyId,
         notaEntrega: "INMEDIATA",
         notaConcepto: "MERCADERIA",
@@ -1954,6 +2045,11 @@ const POSPage = () => {
         notaNumero: "",
         notaGanancia,
         icbper: 0,
+        docuSubtotal: saleTicketSubtotal,
+        docuIgv: saleTicketIgv,
+        docuAdicional: saleCardAdditional,
+        docuGravada: saleTicketGravada,
+        docuDescuento: saleTicketDescuento,
         entidadBancaria: shouldShowSaleBankFields
           ? safeTrim(saleSettings.bankEntity)
           : "",
@@ -1963,8 +2059,15 @@ const POSPage = () => {
         efectivo: isCashPayment ? safePayTotal : 0,
         deposito: isCashPayment ? 0 : safePayTotal,
         flagMovil,
+        ...(hasEditingNota
+          ? {
+              modificadoPor: resolvedPaymentUsername,
+              fechaEdita: new Date().toISOString(),
+            }
+          : {}),
       },
       detalles: safeItems.map((item) => ({
+        detalleId: Number(item.detalleId ?? 0),
         idProducto: Number(item.productId ?? 0),
         detalleCantidad: Number(item.cantidad ?? 0),
         detalleUm: safeTrim(item.unidadMedida || "UND") || "UND",
@@ -1978,7 +2081,8 @@ const POSPage = () => {
           Math.max(0, Number(item.precio ?? 0)) *
             Math.max(0, Number(item.cantidad ?? 0)),
         ),
-        detalleEstado: "PENDIENTE",
+        detalleEstado:
+          saleDocConfig.docu === "BOLETA" ? "EMITIDO" : "PENDIENTE",
         valorUM:
           Number.isFinite(Number(item.valorUM ?? 1)) &&
           Number(item.valorUM ?? 1) > 0
@@ -1991,8 +2095,10 @@ const POSPage = () => {
     try {
       await updateMissingSaleClientContact();
       const result = await apiRequest({
-        url: buildApiUrl("/Nota/register-with-detail"),
-        method: "POST",
+        url: buildApiUrl(
+          hasEditingNota ? "/Nota/editarOrden" : "/Nota/register-with-detail",
+        ),
+        method: hasEditingNota ? "PUT" : "POST",
         data: payload,
         config: {
           headers: {
@@ -2010,7 +2116,22 @@ const POSPage = () => {
         hasHttpError ||
         Boolean((result as Record<string, unknown>)?.isAxiosError)
       ) {
-        toast.error(resolveApiMessage(result) || "Fallo la creacion de pedido");
+        toast.error(
+          resolveApiMessage(result) ||
+            (hasEditingNota
+              ? "No se pudo actualizar el pedido"
+              : "Fallo la creacion de pedido"),
+        );
+        return;
+      }
+
+      if (hasEditingNota) {
+        setServerItemsInStore(safeItems);
+        toast.success("Pedido actualizado");
+        const paymentQuery = isSaleFactura
+          ? "mode=view"
+          : "mode=view&autoprint=1";
+        navigate(`${paymentBasePath}/${editingNotaIdNumber}?${paymentQuery}`);
         return;
       }
 
@@ -2605,6 +2726,19 @@ const POSPage = () => {
       cancelText: "Cancelar",
     });
 
+  const handleNewSaleFromPos = () => {
+    clearCart();
+    clearEditingNota();
+    setSaleSettings(DEFAULT_POS_SALE_SETTINGS);
+    setSaleCustomerInput(DEFAULT_POS_SALE_SETTINGS.customerName);
+    setCartPriceMode("A");
+    setCartTab("products");
+    setMobileCartOpen(false);
+    setViewMode("cards");
+    void resetDraftForNewSale();
+    window.setTimeout(focusSearchInput, 0);
+  };
+
   const productColumns = [
     columnHelper.accessor("nombre", {
       header: () => <span className="block text-left">Nombre</span>,
@@ -2708,6 +2842,17 @@ const POSPage = () => {
             Productos
           </button>
         </div>
+        {isEditingMode && (
+          <button
+            type="button"
+            className="inline-flex shrink-0 items-center justify-center gap-1 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+            disabled={isSubmittingQuickSale}
+            onClick={handleNewSaleFromPos}
+            title="Nuevo registro"
+          >
+            Nuevo registro
+          </button>
+        )}
         {cartTab === "payment" ? (
           <button
             type="button"
@@ -3532,7 +3677,7 @@ const POSPage = () => {
         <div className="flex justify-between text-sm text-gray-700 md:text-lg xl:text-sm">
           <span>Op. gravada</span>
           <span className="font-semibold">
-            S/ {saleOperacionGravada.toFixed(2)}
+            S/ {saleDisplayOperacionGravada.toFixed(2)}
           </span>
         </div>
         {saleSettings.paymentMethod === "TARJETA" && (
@@ -3563,12 +3708,16 @@ const POSPage = () => {
         )}
         <div className="flex justify-between text-sm text-gray-700 md:text-lg xl:text-sm">
           <span>Sub total</span>
-          <span className="font-semibold">S/ {saleGravada.toFixed(2)}</span>
+          <span className="font-semibold">
+            S/ {saleDisplaySubtotal.toFixed(2)}
+          </span>
         </div>
-        <div className="flex justify-between text-sm text-gray-700 md:text-lg xl:text-sm">
-          <span>IGV (18%)</span>
-          <span className="font-semibold">S/ {saleIgvAmount.toFixed(2)}</span>
-        </div>
+        {saleDisplayIgv > 0 && (
+          <div className="flex justify-between text-sm text-gray-700 md:text-lg xl:text-sm">
+            <span>IGV (18%)</span>
+            <span className="font-semibold">S/ {saleDisplayIgv.toFixed(2)}</span>
+          </div>
+        )}
         <div className="flex justify-between text-base font-bold text-slate-800 md:text-xl xl:text-base">
           <span>Total pago</span>
           <span>S/ {saleTotalAmount.toFixed(2)}</span>
