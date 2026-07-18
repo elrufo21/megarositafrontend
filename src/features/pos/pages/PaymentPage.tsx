@@ -777,7 +777,7 @@ const PaymentPage = () => {
       : "Volver al POS";
   const showPosShortcutInOrderNoteEdit =
     isOrderNotesFlow && isEditingMode && Boolean(notaId);
-  const showMainBackShortcut = !isConfirmed;
+  const showMainBackShortcut = !isConfirmed || isOrderNotesFlow;
   const [notaNumero, setNotaNumero] = useState<string>("");
   const [notaSerieOverride, setNotaSerieOverride] = useState<string | null>(
     null,
@@ -1540,7 +1540,8 @@ const PaymentPage = () => {
     isOrderNotesFlow &&
     Boolean(notaId) &&
     (docTypeCode === "03" || docTypeCode === "01");
-  const showNewSaleShortcut = isEditingMode || (isConfirmed && isBoleta);
+  const showNewSaleShortcut =
+    isEditingMode || (isConfirmed && (isBoleta || isProforma));
   const loadedNoteDocTypeCodeForEdit = (() => {
     const fromHeader = safeTrim(
       notaCabeceraActual?.codTipoDocumento ??
@@ -3785,11 +3786,7 @@ const PaymentPage = () => {
         : isCreateFlow
           ? PROFORMA_DEFAULT_CONTACT_ID
           : 1;
-    const flagMovil =
-      typeof window !== "undefined" &&
-      window.matchMedia("(max-width: 1279px)").matches
-        ? 1
-        : 0;
+    const flagMovil = 1;
 
     const notaGananciaCalculada = roundCurrency(
       safeItems.reduce((acc, item) => {
@@ -4206,11 +4203,7 @@ const PaymentPage = () => {
         : isProforma
           ? PROFORMA_DEFAULT_CONTACT_ID
           : 1;
-    const flagMovil =
-      typeof window !== "undefined" &&
-      window.matchMedia("(max-width: 1279px)").matches
-        ? 1
-        : 0;
+    const flagMovil = 1;
 
     const editPayloadForApi = isEditing
       ? {
@@ -6615,16 +6608,19 @@ const PaymentPage = () => {
           {showMainBackShortcut && (
             <Link
               to={backToPosRoute}
-              className="inline-flex items-center justify-center gap-2 py-2 text-sm text-slate-700 transition-colors hover:bg-slate-50 hover:text-slate-900 md:hidden"
+              className="inline-flex shrink-0 items-center justify-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-medium text-slate-700 transition-colors hover:bg-slate-50 hover:text-slate-900 md:hidden"
               onClick={(e) => handleBackToPos(e)}
+              title={backLabel}
+              aria-label={backLabel}
             >
               <ArrowLeft className="w-4 h-4" />
+              <span className="hidden min-[390px]:inline">{backLabel}</span>
             </Link>
           )}
           {showPosShortcutInOrderNoteEdit && (
             <Link
               to={POS_ROUTE}
-              className="inline-flex items-center justify-center gap-2 py-2 text-sm text-slate-700 transition-colors hover:bg-slate-50 hover:text-slate-900 md:hidden"
+              className="inline-flex shrink-0 items-center justify-center rounded-lg border border-slate-200 bg-white px-3 py-2 text-slate-700 transition-colors hover:bg-slate-50 hover:text-slate-900 md:hidden"
               onClick={(e) => handleGoToPosFromEdit(e)}
               title="Volver al POS"
               aria-label="Volver al POS"
@@ -6638,13 +6634,17 @@ const PaymentPage = () => {
               className="inline-flex shrink-0 items-center justify-center gap-1.5 rounded-lg bg-green-700 px-3 py-2 text-xs font-semibold text-white transition-colors hover:bg-slate-800 disabled:opacity-50"
               onClick={handleMobileTopConfirm}
               disabled={isPersistingToDb}
+              title={isSubmitting ? "Guardando..." : "Confirmar"}
+              aria-label={isSubmitting ? "Guardando..." : "Confirmar"}
             >
               {isSubmitting ? (
                 <Loader2 className="h-4 w-4 animate-spin" />
               ) : (
                 <CheckCircle2 className="h-4 w-4" />
               )}
-              {isSubmitting ? "Guardando..." : "Confirmar"}
+              <span className="hidden min-[390px]:inline">
+                {isSubmitting ? "Guardando..." : "Confirmar"}
+              </span>
             </button>
           )}
           {showNewSaleShortcut && (
@@ -6653,8 +6653,11 @@ const PaymentPage = () => {
               className="inline-flex shrink-0 items-center justify-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-medium text-slate-700 transition-colors hover:bg-slate-50 hover:text-slate-900 disabled:opacity-50"
               onClick={handleNewSaleShortcut}
               disabled={isPersistingToDb}
+              title="Nuevo registro"
+              aria-label="Nuevo registro"
             >
-              Nuevo registro
+              <UserPlus className="h-4 w-4" />
+              <span className="hidden min-[390px]:inline">Nuevo registro</span>
             </button>
           )}
           {shouldShowOrderNotesDocumentAction && (
@@ -6663,9 +6666,13 @@ const PaymentPage = () => {
               className={`inline-flex shrink-0 items-center justify-center gap-1.5 rounded-lg px-3 py-2 text-xs font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-60 ${orderNotesDocumentActionClass}`}
               onClick={handleOrderNotesDocumentAction}
               disabled={isPersistingToDb || orderNotesDocumentActionPending}
+              title={orderNotesDocumentActionLabel}
+              aria-label={orderNotesDocumentActionLabel}
             >
               <Trash2 className="h-4 w-4" />
-              {orderNotesDocumentActionLabel}
+              <span className="hidden min-[390px]:inline">
+                {orderNotesDocumentActionLabel}
+              </span>
             </button>
           )}
           {isConfirmed &&
@@ -6708,9 +6715,11 @@ const PaymentPage = () => {
                 void shareByWhatsApp();
               }}
               disabled={isNotaAnulada}
+              title="WhatsApp"
+              aria-label="WhatsApp"
             >
               <MessageCircle className="h-4 w-4" />
-              WhatsApp
+              <span className="hidden min-[390px]:inline">WhatsApp</span>
             </button>
           )}
           {canShowOutputDocumentActions && (
@@ -6721,13 +6730,17 @@ const PaymentPage = () => {
                 void handleDownloadComprobante();
               }}
               disabled={isDownloadingComprobante || isNotaAnulada}
+              title="Descargar PDF"
+              aria-label="Descargar PDF"
             >
               <Download className="h-4 w-4" />
-              {isDownloadingComprobante
-                ? "Descargando..."
-                : isNotaAnulada
-                  ? "No descargable"
-                  : "Descargar PDF"}
+              <span className="hidden min-[390px]:inline">
+                {isDownloadingComprobante
+                  ? "Descargando..."
+                  : isNotaAnulada
+                    ? "No descargable"
+                    : "Descargar PDF"}
+              </span>
             </button>
           )}
           {canShowOutputDocumentActions && isPdfEnabled && !isFactura && (
@@ -6736,9 +6749,13 @@ const PaymentPage = () => {
               className="inline-flex shrink-0 items-center justify-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-medium text-slate-800 transition-colors hover:bg-slate-50 disabled:opacity-50"
               onClick={() => handlePrint()}
               disabled={isPrinting || isNotaAnulada}
+              title="Imprimir"
+              aria-label="Imprimir"
             >
               <Printer className="h-4 w-4" />
-              {isPrinting ? "Imprimiendo..." : "Imprimir"}
+              <span className="hidden min-[390px]:inline">
+                {isPrinting ? "Imprimiendo..." : "Imprimir"}
+              </span>
             </button>
           )}
         </div>
@@ -7296,13 +7313,17 @@ const PaymentPage = () => {
                 void handleDownloadComprobante();
               }}
               disabled={isDownloadingComprobante || isNotaAnulada}
+              title="Descargar PDF"
+              aria-label="Descargar PDF"
             >
               <Download className="w-5 h-5" />
-              {isDownloadingComprobante
-                ? "Descargando..."
-                : isNotaAnulada
-                  ? "No descargable"
-                  : "Descargar PDF"}
+              <span className="hidden min-[390px]:inline">
+                {isDownloadingComprobante
+                  ? "Descargando..."
+                  : isNotaAnulada
+                    ? "No descargable"
+                    : "Descargar PDF"}
+              </span>
             </button>
           )}
         {canShowOutputDocumentActions && (
@@ -7312,7 +7333,9 @@ const PaymentPage = () => {
             disabled={isPrinting || isNotaAnulada}
           >
             <Printer className="w-5 h-5" />
-            {isPrinting ? "Imprimiendo..." : "Imprimir comprobante"}
+              <span className="hidden min-[390px]:inline">
+                {isPrinting ? "Imprimiendo..." : "Imprimir comprobante"}
+              </span>
           </button>
         )}
       </div>

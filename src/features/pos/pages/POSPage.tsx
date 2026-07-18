@@ -2007,11 +2007,7 @@ const POSPage = () => {
         return acc + (item.precio - costo) * item.cantidad;
       }, 0),
     );
-    const flagMovil =
-      typeof window !== "undefined" &&
-      window.matchMedia("(max-width: 1279px)").matches
-        ? 1
-        : 0;
+    const flagMovil = 1;
     const today = new Date();
     const notaFecha = `${today.getFullYear()}-${String(
       today.getMonth() + 1,
