@@ -941,7 +941,7 @@ const TicketDocument = ({
     const TICKET_NUMBER = 11 + 10; // fontSize + marginBottom
     const DIVIDER = 1 + 8 * 2; // border + marginVertical x2
 
-    const INFO_ROWS = ticketData.isFactura ? 7 : 6;
+    const INFO_ROWS = ticketData.isFactura ? 8 : 7;
     const INFO_ROW_H = 8 + 4; // fontSize + marginBottom
     const clientNameLines = Math.ceil(
       (ticketData.clientName?.length ?? 0) / 28,
@@ -1062,6 +1062,10 @@ const TicketDocument = ({
           <View style={styles.infoRow}>
             <Text style={styles.infoLabel}>Vendedor</Text>
             <Text style={styles.infoValue}>: {ticketData.seller}</Text>
+          </View>
+          <View style={styles.infoRow}>
+            <Text style={styles.infoLabel}>NotaId</Text>
+            <Text style={styles.infoValue}>: {ticketData.id}</Text>
           </View>
           {ticketData.isFactura && (
             <View style={styles.infoRow}>

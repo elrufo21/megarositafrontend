@@ -357,6 +357,7 @@ const TicketHTML = ({
       clientAddress: clientAddress?.trim() || "-",
       clientDNI: clientDoc,
       clientDocLabel: docLabel,
+      seller: toFirstName(notaUsuario),
       items: hasItems
         ? (items ?? []).map((item) => ({
             quantity: Number(item.cantidad ?? 0),
@@ -399,6 +400,7 @@ const TicketHTML = ({
     clientId,
     clientAddress,
     clientName,
+    notaUsuario,
     docType,
     documentTitle,
     documentNumber,
@@ -668,6 +670,14 @@ const TicketHTML = ({
       <div style={s.infoRow}>
         <span style={s.infoLabel}>{ticketData.clientDocLabel}</span>
         <span style={s.infoValue}>: {ticketData.clientDNI}</span>
+      </div>
+      <div style={s.infoRow}>
+        <span style={s.infoLabel}>Vendedor</span>
+        <span style={s.infoValue}>: {ticketData.seller}</span>
+      </div>
+      <div style={s.infoRow}>
+        <span style={s.infoLabel}>NotaId</span>
+        <span style={s.infoValue}>: {ticketData.id}</span>
       </div>
       {ticketData.isFactura && (
         <div style={s.infoRow}>

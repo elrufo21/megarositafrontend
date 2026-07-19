@@ -10,6 +10,11 @@ export const getLocalDateISO = (date: Date = new Date()) => {
   return new Date(date.getTime() - offsetMs).toISOString().slice(0, 10);
 };
 
+export const getLocalDateTimeISO = (date: Date = new Date()) =>
+  `${getLocalDateISO(date)}T${pad(date.getHours())}:${pad(
+    date.getMinutes(),
+  )}:${pad(date.getSeconds())}`;
+
 export const parseDateLikeToLocalDate = (
   value?: DateLike | null,
 ): Date | null => {

@@ -22,7 +22,10 @@ import { useForm, useWatch } from "react-hook-form";
 import { usePosStore, selectTotals } from "@/store/pos/pos.store";
 import { useAuthStore } from "@/store/auth/auth.store";
 import { toast } from "@/shared/ui/toast";
-import { getLocalDateISO } from "@/shared/helpers/localDate";
+import {
+  getLocalDateISO,
+  getLocalDateTimeISO,
+} from "@/shared/helpers/localDate";
 import TicketDocument from "@/components/Ticket";
 import { generateTicketQrBase64 } from "@/components/ticketQr";
 import { apiRequest } from "@/shared/helpers/apiRequest";
@@ -156,6 +159,7 @@ const PersonalCodeField = ({ onInputRef, onEnter }: PersonalCodeFieldProps) => {
 
 const AUTO_SEND_TO_OSE_ON_CREATE = false;
 const PROFORMA_DEFAULT_CONTACT_ID = 47;
+const ORDER_NOTE_PROFORMA_PREVIEW_NUMBER = "0001-00000001";
 const POS_ROUTE = "/sales/pos";
 const isGenericVariosCustomer = (value: unknown) => {
   const words = String(value ?? "")
@@ -3759,7 +3763,6 @@ const PaymentPage = () => {
 
   const notaPayload = useMemo(() => {
     const now = new Date();
-    const today = getLocalDateISO(now);
     const safeItems = safeItemsForFiscal;
     const normalizedDocTypeName = safeTrim(docTypeName).toUpperCase();
     const isProformaDoc =
@@ -3811,7 +3814,7 @@ const PaymentPage = () => {
         notaId: notaId ?? 0,
         notaDocu: docTypeName,
         clienteId: clienteIdNumber,
-        notaFecha: `${today}T00:00:00`,
+        notaFecha: getLocalDateTimeISO(now),
         notaUsuario: resolvedNotaUsuario,
         notaFormaPago: paymentMethod,
         notaCondicion: "ALCONTADO",
@@ -6027,6 +6030,7 @@ const PaymentPage = () => {
         ? {
             docType: "proforma" as const,
             documentTitle: "PROFORMA V",
+            documentNumber: ORDER_NOTE_PROFORMA_PREVIEW_NUMBER,
           }
         : undefined;
       const blob = await createComprobanteBlob(downloadPreviewOverride);
@@ -6092,6 +6096,7 @@ const PaymentPage = () => {
             ...options?.previewPropsOverride,
             docType: "proforma" as const,
             documentTitle: "PROFORMA V",
+            documentNumber: ORDER_NOTE_PROFORMA_PREVIEW_NUMBER,
           }
         : options?.previewPropsOverride;
       const blob = await createComprobanteBlob(printPreviewOverride);

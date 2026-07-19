@@ -465,10 +465,11 @@ const groupProductsByHeader = (items: ApiProduct[]): Product[] => {
       const rows = grouped.get(id) ?? [];
       if (!rows.length) return null;
 
-      // El SP devuelve primero la fila base (unidad principal), luego alternas.
-      // Mantener ese orden evita invertir principal/secundaria cuando la alterna
-      // tiene stock convertido mayor.
-      const headerRow = rows[0];
+      const headerRow =
+        rows.find((row) => {
+          const raw = row as Record<string, unknown>;
+          return toNumberValue(raw.valorUM ?? raw.ValorUM, 0) === 1;
+        }) ?? rows[0];
 
       const header = mapApiToProduct(headerRow);
       const headerUm = (headerRow.productoUM ?? "").trim().toLowerCase();

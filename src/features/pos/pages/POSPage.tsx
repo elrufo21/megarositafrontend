@@ -15,6 +15,7 @@ import TextField from "@mui/material/TextField";
 import MenuItem from "@mui/material/MenuItem";
 import Autocomplete from "@mui/material/Autocomplete";
 import InputAdornment from "@mui/material/InputAdornment";
+import CircularProgress from "@mui/material/CircularProgress";
 import {
   CheckCircle2,
   Eye,
@@ -44,6 +45,7 @@ import type { Client } from "@/types/customer";
 import { toast } from "@/shared/ui/toast";
 import { apiRequest } from "@/shared/helpers/apiRequest";
 import { buildApiUrl } from "@/config";
+import { getLocalDateTimeISO } from "@/shared/helpers/localDate";
 import {
   IGV_FACTOR,
   buildSaleMonetarySummary,
@@ -322,7 +324,7 @@ const POS_PAYMENT_TEXT_FIELD_SX = {
 };
 
 const roundPrice = (value: number) =>
-  Math.ceil((value - Number.EPSILON) * 100) / 100;
+  Math.round((value + Number.EPSILON) * 100) / 100;
 const formatPrice = (value: unknown) => {
   const numeric = Number(value ?? 0);
   if (!Number.isFinite(numeric)) return "0.00";
@@ -660,6 +662,7 @@ const POSPage = () => {
     (state) => state.setServerItemsFromNota,
   );
   const clients = useClientsStore((state) => state.clients);
+  const clientsLoading = useClientsStore((state) => state.loading);
   const fetchClients = useClientsStore((state) => state.fetchClients);
   const addClient = useClientsStore((state) => state.addClient);
   const updateClient = useClientsStore((state) => state.updateClient);
@@ -1124,6 +1127,13 @@ const POSPage = () => {
         : clientOptions,
     [clientOptions, isSaleFactura],
   );
+  const saleClientByName = useMemo(() => {
+    const byName = new Map<string, (typeof saleClientOptions)[number]>();
+    saleClientOptions.forEach((client) => {
+      byName.set(normalizePosSearchText(client.label), client);
+    });
+    return byName;
+  }, [saleClientOptions]);
 
   const documentForClient = useCallback(
     (
@@ -1384,10 +1394,7 @@ const POSPage = () => {
   const applySaleCustomerInput = useCallback(
     (value: string) => {
       const typedName = normalizePosSearchText(value);
-      const matchedClient =
-        saleClientOptions.find(
-          (client) => normalizePosSearchText(client.label) === typedName,
-        ) ?? null;
+      const matchedClient = saleClientByName.get(typedName) ?? null;
 
       setSaleCustomerInput(value);
       setSaleSettings((prev) => ({
@@ -1406,16 +1413,12 @@ const POSPage = () => {
             }),
       }));
     },
-    [customerFieldsFromClient, saleClientOptions],
+    [customerFieldsFromClient, saleClientByName],
   );
   const ensureExistingSaleCustomer = (rawName: string) => {
     const typedName = safeTrim(rawName);
     if (!typedName) return;
-    const matchedClient = saleClientOptions.find(
-      (client) =>
-        normalizePosSearchText(client.label) ===
-        normalizePosSearchText(typedName),
-    );
+    const matchedClient = saleClientByName.get(normalizePosSearchText(typedName));
     if (matchedClient) {
       setSaleCustomerInput(matchedClient.label);
       setSaleSettings((prev) => ({
@@ -1445,7 +1448,7 @@ const POSPage = () => {
   };
   const ensureExistingSaleDocument = (type: "dni" | "ruc", rawValue: string) => {
     const typedDocument = normalizePosDocumentText(rawValue);
-    if (!typedDocument) return;
+    if (!typedDocument || isSaleProforma) return;
     const options = type === "ruc" ? saleRucOptions : saleDniOptions;
     const matchedOption = options.find(
       (option) => normalizePosDocumentText(option.value) === typedDocument,
@@ -2008,10 +2011,7 @@ const POSPage = () => {
       }, 0),
     );
     const flagMovil = 1;
-    const today = new Date();
-    const notaFecha = `${today.getFullYear()}-${String(
-      today.getMonth() + 1,
-    ).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
+    const notaFecha = getLocalDateTimeISO();
 
     const payload = {
       nota: {
@@ -3154,6 +3154,8 @@ const POSPage = () => {
             className="col-span-full"
             fullWidth
             size="small"
+            loading={clientsLoading}
+            loadingText="Cargando clientes..."
             options={saleClientOptions}
             value={selectedSaleClientValue}
             inputValue={saleCustomerInput}
@@ -3205,6 +3207,17 @@ const POSPage = () => {
                   placeholder="Seleccionar cliente"
                   sx={POS_PAYMENT_TEXT_FIELD_SX}
                   inputRef={saleCustomerInputRef}
+                  InputProps={{
+                    ...params.InputProps,
+                    endAdornment: (
+                      <>
+                        {clientsLoading ? (
+                          <CircularProgress color="inherit" size={16} />
+                        ) : null}
+                        {params.InputProps.endAdornment}
+                      </>
+                    ),
+                  }}
                   inputProps={{
                     ...params.inputProps,
                     name: "pos-sale-customer-name-autocomplete",
@@ -3221,10 +3234,6 @@ const POSPage = () => {
                     "data-bwignore": "true",
                     "data-form-type": "other",
                     "data-autocomplete": "off",
-                    onInput: (event: FormEvent<HTMLInputElement>) => {
-                      inputProps.onInput?.(event);
-                      applySaleCustomerInput(event.currentTarget.value);
-                    },
                     onKeyDown: (event: KeyboardEvent<HTMLInputElement>) => {
                       inputProps.onKeyDown?.(event);
                       if (!event.defaultPrevented) {
@@ -3240,11 +3249,12 @@ const POSPage = () => {
             }}
           />
 
-          {!isSaleProforma && (
-            <>
+          <>
               <Autocomplete
                 fullWidth
                 size="small"
+                loading={clientsLoading}
+                loadingText="Cargando clientes..."
                 options={saleDniOptions}
                 value={
                   saleDniOptions.find(
@@ -3307,6 +3317,17 @@ const POSPage = () => {
                       placeholder="Número de DNI"
                       sx={POS_PAYMENT_TEXT_FIELD_SX}
                       inputRef={saleDniInputRef}
+                      InputProps={{
+                        ...params.InputProps,
+                        endAdornment: (
+                          <>
+                            {clientsLoading ? (
+                              <CircularProgress color="inherit" size={16} />
+                            ) : null}
+                            {params.InputProps.endAdornment}
+                          </>
+                        ),
+                      }}
                       inputProps={{
                         ...params.inputProps,
                         "data-no-uppercase": "true",
@@ -3334,6 +3355,8 @@ const POSPage = () => {
               <Autocomplete
                 fullWidth
                 size="small"
+                loading={clientsLoading}
+                loadingText="Cargando clientes..."
                 options={saleRucOptions}
                 value={
                   saleRucOptions.find(
@@ -3396,6 +3419,17 @@ const POSPage = () => {
                       placeholder="Número de RUC"
                       sx={POS_PAYMENT_TEXT_FIELD_SX}
                       inputRef={saleRucInputRef}
+                      InputProps={{
+                        ...params.InputProps,
+                        endAdornment: (
+                          <>
+                            {clientsLoading ? (
+                              <CircularProgress color="inherit" size={16} />
+                            ) : null}
+                            {params.InputProps.endAdornment}
+                          </>
+                        ),
+                      }}
                       inputProps={{
                         ...params.inputProps,
                         "data-no-uppercase": "true",
@@ -3421,8 +3455,7 @@ const POSPage = () => {
                   );
                 }}
               />
-            </>
-          )}
+          </>
 
           <TextField
             className="col-span-full"
