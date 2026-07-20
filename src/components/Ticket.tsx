@@ -15,7 +15,7 @@ const MM_TO_PT = 2.834645669;
 const TICKET_WIDTH_MM = 77;
 const TICKET_PAGE_WIDTH_PT = TICKET_WIDTH_MM * MM_TO_PT;
 
-type TicketDocumentProps = {
+export type TicketDocumentProps = {
   clientName?: string;
   clientId?: string;
   clientAddress?: string;
@@ -266,7 +266,9 @@ const splitTicketDescriptionTwoLines = (
 };
 
 const splitTicketPvs = (value: string) => {
-  const normalized = String(value ?? "").replace(/\s+/g, " ").trim();
+  const normalized = String(value ?? "")
+    .replace(/\s+/g, " ")
+    .trim();
   const match = normalized.match(
     /\|\*\*\|\s*PV\s*:\s*([0-9.,]+)\s*\|\*\*\|\s*SV\s*:\s*([0-9.,]+)/i,
   );
@@ -764,10 +766,12 @@ const TicketDocument = ({
       Boolean(summary?.showCardAdditional) && safeCardAdditional > 0;
     const showMovement = safeMovilidad > 0;
     const showDiscount = Boolean(summary?.showDiscount) || safeDescuento > 0;
-    const detailAdjustments = docType === "proforma" ? [] : [
-      showMovement ? "MV" : "",
-      showCardAdditional ? "CT" : "",
-    ].filter(Boolean);
+    const detailAdjustments =
+      docType === "proforma"
+        ? []
+        : [showMovement ? "MV" : "", showCardAdditional ? "CT" : ""].filter(
+            Boolean,
+          );
     const detailAdjustmentAmount = safeMovilidad + safeCardAdditional;
     const safeSubtotal = Number.isFinite(subtotalValue)
       ? Math.max(0, subtotalValue)
@@ -979,9 +983,7 @@ const TicketDocument = ({
 
     const summaryRows = ticketData.isProforma
       ? 10
-      : 3 +
-        (ticketData.igv > 0 ? 1 : 0) +
-        (ticketData.showDiscount ? 1 : 0);
+      : 3 + (ticketData.igv > 0 ? 1 : 0) + (ticketData.showDiscount ? 1 : 0);
     const summaryRowsHeight =
       summaryRows * (9 + 3) + (ticketData.isProforma ? 16 : 0);
 
@@ -1059,20 +1061,17 @@ const TicketDocument = ({
             <Text style={styles.infoLabel}>{ticketData.clientDocLabel}</Text>
             <Text style={styles.infoValue}>: {ticketData.clientDNI}</Text>
           </View>
-          <View style={styles.infoRow}>
-            <Text style={styles.infoLabel}>Vendedor</Text>
-            <Text style={styles.infoValue}>: {ticketData.seller}</Text>
-          </View>
-          <View style={styles.infoRow}>
-            <Text style={styles.infoLabel}>NotaId</Text>
-            <Text style={styles.infoValue}>: {ticketData.id}</Text>
-          </View>
+
           {ticketData.isFactura && (
             <View style={styles.infoRow}>
               <Text style={styles.infoLabel}>DIRECCION</Text>
               <Text style={styles.infoValue}>: {ticketData.clientAddress}</Text>
             </View>
           )}
+          <View style={styles.infoRow}>
+            <Text style={styles.infoLabel}>Vendedor</Text>
+            <Text style={styles.infoValue}>: {ticketData.seller}</Text>
+          </View>
           <View style={styles.divider} />
           <View style={styles.tableHeader}>
             <Text style={[styles.tableHeaderText, styles.colCant]}>Cant.</Text>

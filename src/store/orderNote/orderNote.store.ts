@@ -1,7 +1,7 @@
 import { create } from "zustand";
 import { API_BASE_URL } from "@/config";
 import { apiRequest } from "@/shared/helpers/apiRequest";
-import { getLocalDateISO } from "@/shared/helpers/localDate";
+import { getLocalDateTimeISO } from "@/shared/helpers/localDate";
 import type { OrderNote, OrderNoteApiItem } from "@/types/orderNote";
 import type { SendNote, SendNoteItem } from "@/types/sendNote";
 
@@ -76,6 +76,36 @@ const formatDateForList = (rawValue: unknown) => {
   }
 
   return raw;
+};
+
+const toEditableNotaDateTime = (value: unknown) => {
+  const raw = String(value ?? "").trim();
+  const now = new Date();
+  const currentTime = getLocalDateTimeISO(now).slice(11);
+  const isoDateTime = raw.match(
+    /^(\d{4}-\d{2}-\d{2})[T\s](\d{2}:\d{2})(?::(\d{2}))?/,
+  );
+  const isoDateOnly = raw.match(/^(\d{4}-\d{2}-\d{2})$/);
+  const slashDateTime = raw.match(
+    /^(\d{1,2})\/(\d{1,2})\/(\d{4})[T\s,]+(\d{2}:\d{2})(?::(\d{2}))?/,
+  );
+  const slashDateOnly = raw.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+  const slashDate = slashDateTime ?? slashDateOnly;
+  const date =
+    isoDateTime?.[1] ??
+    isoDateOnly?.[1] ??
+    (slashDate
+      ? `${slashDate[3]}-${slashDate[2].padStart(2, "0")}-${slashDate[1].padStart(2, "0")}`
+      : "");
+  const time = isoDateTime
+    ? `${isoDateTime[2]}:${isoDateTime[3] ?? "00"}`
+    : slashDateTime
+      ? `${slashDateTime[4]}:${slashDateTime[5] ?? "00"}`
+      : "";
+
+  return date
+    ? `${date}T${time && !/^00:00:00$/.test(time) ? time : currentTime}`
+    : getLocalDateTimeISO(now);
 };
 
 const mapDocTypeToCode = (docValue: string) => {
@@ -591,19 +621,21 @@ export const useOrderNoteStore = create<OrderNoteState>((set, get) => ({
     const safeNoteId = toPositiveInt(noteId, 0);
     if (!safeNoteId) return false;
 
-    const nowDate = getLocalDateISO();
     const clienteId = toPositiveInt(
       formData.clienteId ?? current.clienteId ?? 0,
       0
     );
-    const notaFecha =
+    const notaFecha = toEditableNotaDateTime(
       String(current.fechaEmitido ?? "").trim() ||
-      String(formData.fechaPago ?? "").trim() ||
-      nowDate;
+        String(formData.fechaPago ?? "").trim(),
+    );
+
+    const notaDocu = mapFormDocTypeToNotaDocu(formData.tipoDocumento, current);
+    const notaEstado = notaDocu === "BOLETA" ? "EMITIDO" : "PENDIENTE";
 
     const notaPayload = {
       notaId: safeNoteId,
-      notaDocu: mapFormDocTypeToNotaDocu(formData.tipoDocumento, current),
+      notaDocu,
       clienteId,
       notaFecha,
       notaUsuario:
@@ -613,6 +645,7 @@ export const useOrderNoteStore = create<OrderNoteState>((set, get) => ({
       notaFormaPago: mapFormFormaPagoToNotaFormaPago(formData.formaPago),
       notaCondicion:
         String(current.notaCondicion ?? "").trim().toUpperCase() || "NORMAL",
+      notaEstado,
     };
 
     const detallesPayload = (formData.items ?? [])
@@ -636,7 +669,7 @@ export const useOrderNoteStore = create<OrderNoteState>((set, get) => ({
           detalleCosto,
           detallePrecio,
           detalleImporte,
-          detalleEstado: "ACTIVO",
+          detalleEstado: notaEstado,
         };
       })
       .filter((item) => item.idProducto > 0);

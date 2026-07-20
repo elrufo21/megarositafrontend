@@ -26,14 +26,16 @@ import {
   getLocalDateISO,
   getLocalDateTimeISO,
 } from "@/shared/helpers/localDate";
-import TicketDocument from "@/components/Ticket";
+import TicketDocument, { type TicketDocumentProps } from "@/components/Ticket";
 import { generateTicketQrBase64 } from "@/components/ticketQr";
 import { apiRequest } from "@/shared/helpers/apiRequest";
 import { HookForm } from "@/components/forms/HookForm";
 import { HookFormSelect } from "@/components/forms/HookFormSelect";
 import { HookFormInput } from "@/components/forms/HookFormInput";
 import { HookFormAutocomplete } from "@/components/forms/HookFormAutocomplete";
-import CustomerFormBase from "@/components/CustomerFormBase";
+import CustomerDialogContent, {
+  CUSTOMER_DIALOG_FORM_ID,
+} from "@/features/pos/components/CustomerDialogContent";
 import { usePosCartDraftPersistence } from "@/features/pos/hooks/usePosCartDraftPersistence";
 import { useClientsStore } from "@/store/customers/customers.store";
 import { useProductsStore } from "@/store/products/products.store";
@@ -98,6 +100,8 @@ type CompanyDataPayload = {
   logoCompania?: string;
   LogoCompania?: string;
 };
+
+type CompanyOption = { id: string; nombre: string };
 
 const localCompanyLogo = (companyId: unknown) => {
   const id = Number(companyId);
@@ -376,11 +380,15 @@ const PaymentPage = () => {
   const consultBoletaSummary = useBoletasSummaryStore((s) => s.consultSummary);
   const sessionCompanyId = useAuthStore((s) => s.user?.companyId);
   const safeTrim = (value: unknown) => String(value ?? "").trim();
-  const isPaymentMethodAllowedForCompany = (methodValue: unknown) => {
+  const isPaymentMethodAllowedForCompany = (
+    methodValue: unknown,
+    companyIdValue = companyId,
+  ) => {
     const method = safeTrim(methodValue).toUpperCase();
-    if (!method || method === "SELECCIONE" || method === "EFECTIVO") return true;
+    if (!method || method === "SELECCIONE" || method === "EFECTIVO")
+      return true;
     const allowed =
-      Number(companyId) === 4
+      Number(companyIdValue) === 4
         ? ["DEPO. CONTINENTAL", "DEPO. BCP", "TARJETA"]
         : ["DEPO. BCP", "DEPO. SCOTIABANK"];
     return allowed.includes(method);
@@ -1525,9 +1533,20 @@ const PaymentPage = () => {
   }) as boolean;
   const discountInput = watch("discount");
   const movementInput = watch("movementCost");
+  const [companyOptions, setCompanyOptions] = useState<CompanyOption[]>([]);
 
   const activeCustomerDocument =
     docTypeCode === "01" ? customerRuc : customerDni;
+  const loadedNotaCompanyId = useMemo(
+    () => resolveCompanyIdFromNota(notaCabeceraActual),
+    [notaCabeceraActual],
+  );
+  const activeCompanyId = useMemo(() => {
+    if (isReadOnlyNoteView && loadedNotaCompanyId > 0) {
+      return loadedNotaCompanyId;
+    }
+    return companyId;
+  }, [companyId, isReadOnlyNoteView, loadedNotaCompanyId]);
   const docConfig = docTypeConfig[docTypeCode as keyof typeof docTypeConfig];
   const notaSerie = (notaSerieOverride || docConfig?.serie || "BA01").trim();
   const paddedNotaNumero = useMemo(() => {
@@ -1541,6 +1560,46 @@ const PaymentPage = () => {
     const serie = notaSerie || "BA01";
     return `${serie}-${paddedNotaNumero}`;
   }, [notaSerie, paddedNotaNumero]);
+  const selectedCompanyName =
+    companyOptions.find((company) => Number(company.id) === activeCompanyId)
+      ?.nombre ?? "";
+
+  useEffect(() => {
+    const cached = localStorage.getItem("companiaMap");
+    if (cached) {
+      try {
+        const parsed = JSON.parse(cached) as { options?: CompanyOption[] };
+        if (Array.isArray(parsed.options)) {
+          setCompanyOptions(parsed.options);
+        }
+      } catch {
+        // ignore stale cache
+      }
+    }
+
+    void apiRequest<CompanyOption[]>({
+      url: buildApiUrl("/Compania/combo"),
+      method: "GET",
+      fallback: [],
+      blockUi: false,
+    }).then((response) => {
+      const rows: CompanyOption[] = Array.isArray(response) ? response : [];
+      const options = rows.map((item) => ({
+        id: String(item.id),
+        nombre: item.nombre,
+      }));
+      setCompanyOptions(options);
+      localStorage.setItem(
+        "companiaMap",
+        JSON.stringify({
+          options,
+          map: Object.fromEntries(
+            options.map((company) => [company.id, company.nombre]),
+          ),
+        }),
+      );
+    });
+  }, []);
   const docTypeName = docConfig?.docu ?? "BOLETA";
   const isFactura = docTypeCode === "01";
   const isBoleta = docTypeCode === "03";
@@ -1846,8 +1905,8 @@ const PaymentPage = () => {
     ? viewTotalsOverride.gravada !== undefined
       ? viewTotalsOverride.gravada
       : isProforma
-      ? roundCurrency(viewTotalsOverride.totalWithIgv)
-      : roundCurrency(viewTotalsOverride.subtotalWithoutIgv + descuentoBase)
+        ? roundCurrency(viewTotalsOverride.totalWithIgv)
+        : roundCurrency(viewTotalsOverride.subtotalWithoutIgv + descuentoBase)
     : isProforma
       ? roundCurrency(discountedTotal + notaMovilidad)
       : roundCurrency(grossMonetarySummary.subtotalWithoutIgv);
@@ -1875,7 +1934,9 @@ const PaymentPage = () => {
   const totalAPagar = viewTotalsOverride
     ? viewTotalsOverride.totalToPay
     : roundCurrency(documentTotalWithIgv + notaMovilidad + notaAdicional);
-  const taxableTotalWithIgv = roundCurrency(documentTotalWithIgv + notaMovilidad);
+  const taxableTotalWithIgv = roundCurrency(
+    documentTotalWithIgv + notaMovilidad,
+  );
   const ajusteGravado = roundCurrency(notaMovilidad);
   const ajusteGravadoBase = isProforma
     ? 0
@@ -2316,8 +2377,8 @@ const PaymentPage = () => {
             loadedDocuSubtotal > 0
               ? loadedDocuSubtotal
               : loadedSubtotal > 0
-              ? loadedSubtotal
-              : roundCurrency(finalTotal / IGV_FACTOR);
+                ? loadedSubtotal
+                : roundCurrency(finalTotal / IGV_FACTOR);
           const rawToPay = loadedPagar > 0 ? loadedPagar : finalTotal;
           const finalToPay = amountsAreClose(rawToPay, finalTotal)
             ? finalTotal
@@ -2604,12 +2665,7 @@ const PaymentPage = () => {
       fillCustomerContactFields(client, shouldDirty);
       setClienteIdFromOption(client, { shouldDirty });
     },
-    [
-      docTypeCode,
-      fillCustomerContactFields,
-      setClienteIdFromOption,
-      setValue,
-    ],
+    [docTypeCode, fillCustomerContactFields, setClienteIdFromOption, setValue],
   );
   const clearCustomerSelection = useCallback(
     (shouldDirty = true) => {
@@ -2812,16 +2868,39 @@ const PaymentPage = () => {
   const handleOpenCreateClientModal = useCallback(() => {
     if (formLocked) return;
 
+    const currentClient =
+      clients.find((client) => Number(client.id) === Number(clienteId)) ?? null;
+    const editableCurrentClient =
+      currentClient && !isGenericVariosCustomer(currentClient.nombreRazon)
+        ? currentClient
+        : null;
+
     openDialog({
-      title: "",
       maxWidth: "lg",
       fullWidth: true,
-      hideCancelButton: true,
+      cancelText: "Cerrar",
+      confirmText: "Guardar",
+      onConfirm: () => {
+        (
+          document.getElementById(
+            CUSTOMER_DIALOG_FORM_ID,
+          ) as HTMLFormElement | null
+        )?.requestSubmit();
+        return false;
+      },
       content: (
-        <CustomerFormBase
-          mode="create"
-          variant="modal"
-          onSave={async (data) => {
+        <CustomerDialogContent
+          initialEditingClient={editableCurrentClient}
+          initialQuery={
+            safeTrim(customerName).toUpperCase() === "VARIOS"
+              ? ""
+              : customerName
+          }
+          onSelectClient={(client) => {
+            fillCustomerFromOption(client, true);
+            closeDialog();
+          }}
+          onCreateClient={async (data) => {
             const payload: Omit<Client, "id"> = {
               nombreRazon: safeTrim(data.nombreRazon).toUpperCase(),
               ruc: safeTrim(data.ruc),
@@ -2830,7 +2909,8 @@ const PaymentPage = () => {
               direccionDespacho: safeTrim(data.direccionDespacho),
               telefonoMovil: safeTrim(data.telefonoMovil),
               email: safeTrim(data.email),
-              registradoPor: safeTrim(data.registradoPor) || resolvedNotaUsuario,
+              registradoPor:
+                safeTrim(data.registradoPor) || resolvedNotaUsuario,
               estado: safeTrim(data.estado) || "ACTIVO",
               fecha: data.fecha ?? null,
             };
@@ -2872,18 +2952,75 @@ const PaymentPage = () => {
             closeDialog();
             return true;
           }}
-          onNew={() => {}}
+          onUpdateClient={async (client, data) => {
+            const payload: Omit<Client, "id"> = {
+              nombreRazon: safeTrim(data.nombreRazon).toUpperCase(),
+              ruc: safeTrim(data.ruc),
+              dni: safeTrim(data.dni),
+              direccionFiscal: safeTrim(data.direccionFiscal),
+              direccionDespacho: safeTrim(data.direccionDespacho),
+              telefonoMovil: safeTrim(data.telefonoMovil),
+              email: safeTrim(data.email),
+              registradoPor:
+                safeTrim(data.registradoPor) || resolvedNotaUsuario,
+              estado: safeTrim(data.estado) || "ACTIVO",
+              fecha: data.fecha ?? null,
+            };
+
+            if (!payload.nombreRazon) {
+              toast.error("El nombre o razon social es obligatorio.");
+              return false;
+            }
+
+            const result = await updateClient(client.id, {
+              ...client,
+              ...payload,
+            });
+            if (!result.ok) {
+              toast.error(result.error ?? "No se pudo actualizar el cliente.");
+              return false;
+            }
+
+            await fetchClients("");
+            const refreshedClients = useClientsStore.getState().clients;
+            const normalizedName = safeTrim(payload.nombreRazon).toLowerCase();
+            const normalizedRuc = safeTrim(payload.ruc);
+            const normalizedDni = safeTrim(payload.dni);
+            const updatedClient =
+              refreshedClients.find(
+                (item) => Number(item.id) === Number(client.id),
+              ) ??
+              refreshedClients.find((item) => {
+                const itemRuc = safeTrim(item.ruc);
+                const itemDni = safeTrim(item.dni);
+                const itemName = safeTrim(item.nombreRazon).toLowerCase();
+                return (
+                  (normalizedRuc && itemRuc === normalizedRuc) ||
+                  (normalizedDni && itemDni === normalizedDni) ||
+                  (!!normalizedName && itemName === normalizedName)
+                );
+              }) ??
+              ({ ...client, ...payload } as Client);
+            fillCustomerFromOption(updatedClient, true);
+            toast.success("Cliente actualizado correctamente.");
+            closeDialog();
+            return true;
+          }}
         />
       ),
     });
   }, [
     addClient,
+    clienteId,
+    clients,
     closeDialog,
+    customerName,
     fetchClients,
     fillCustomerFromOption,
     formLocked,
     openDialog,
     resolvedNotaUsuario,
+    updateClient,
   ]);
 
   const confirmWithAppDialog = useCallback(
@@ -2918,7 +3055,10 @@ const PaymentPage = () => {
     () =>
       new Promise<void>((resolve) => {
         const method = safeTrim(paymentMethod).toUpperCase();
-        const company = safeTrim(companyNameFromSession) || `COMPANIA ${companyId}`;
+        const company =
+          safeTrim(selectedCompanyName) ||
+          safeTrim(companyNameFromSession) ||
+          `COMPANIA ${activeCompanyId}`;
         openDialog({
           title: "AVISO",
           content: (
@@ -2939,7 +3079,13 @@ const PaymentPage = () => {
           },
         });
       }),
-    [companyId, companyNameFromSession, openDialog, paymentMethod],
+    [
+      activeCompanyId,
+      companyNameFromSession,
+      openDialog,
+      paymentMethod,
+      selectedCompanyName,
+    ],
   );
 
   const requestPersonalAuthorizationForPayment = () =>
@@ -3085,61 +3231,57 @@ const PaymentPage = () => {
     return result;
   }, [clients]);
 
-  const clientOptions = useMemo(
-    () => {
-      const byLabel = new Map<
-        string,
-        {
-          value: string;
-          label: string;
-          dni: string;
-          ruc: string;
-          id: number;
-          optionKey: string;
-          searchLabel: string;
-          searchDocument: string;
-        }
-      >();
+  const clientOptions = useMemo(() => {
+    const byLabel = new Map<
+      string,
+      {
+        value: string;
+        label: string;
+        dni: string;
+        ruc: string;
+        id: number;
+        optionKey: string;
+        searchLabel: string;
+        searchDocument: string;
+      }
+    >();
 
-      uniqueClients.forEach((client) => {
-        const label = safeTrim(client.nombreRazon ?? "");
-        if (!label) return;
-        const dni = safeTrim(client.dni ?? "");
-        const ruc = safeTrim(client.ruc ?? "");
-        const option = {
-          value: label,
-          label,
-          dni,
-          ruc,
-          id: client.id,
-          optionKey:
-            Number(client.id) > 0
-              ? `client-${client.id}`
-              : `${normalizeSearchText(label)}-${dni}-${ruc}`,
-          searchLabel: normalizeSearchText(label),
-          searchDocument: normalizeSearchText(`${dni} ${ruc}`),
-        };
+    uniqueClients.forEach((client) => {
+      const label = safeTrim(client.nombreRazon ?? "");
+      if (!label) return;
+      const dni = safeTrim(client.dni ?? "");
+      const ruc = safeTrim(client.ruc ?? "");
+      const option = {
+        value: label,
+        label,
+        dni,
+        ruc,
+        id: client.id,
+        optionKey:
+          Number(client.id) > 0
+            ? `client-${client.id}`
+            : `${normalizeSearchText(label)}-${dni}-${ruc}`,
+        searchLabel: normalizeSearchText(label),
+        searchDocument: normalizeSearchText(`${dni} ${ruc}`),
+      };
 
-        const key = option.searchLabel;
-        const current = byLabel.get(key);
-        const optionScore =
-          Number(Boolean(option.ruc)) * 2 + Number(Boolean(option.dni));
-        const currentScore = current
-          ? Number(Boolean(current.ruc)) * 2 + Number(Boolean(current.dni))
-          : -1;
+      const key = option.searchLabel;
+      const current = byLabel.get(key);
+      const optionScore =
+        Number(Boolean(option.ruc)) * 2 + Number(Boolean(option.dni));
+      const currentScore = current
+        ? Number(Boolean(current.ruc)) * 2 + Number(Boolean(current.dni))
+        : -1;
 
-        if (!current || optionScore > currentScore) {
-          byLabel.set(key, option);
-        }
-      });
+      if (!current || optionScore > currentScore) {
+        byLabel.set(key, option);
+      }
+    });
 
-      return Array.from(byLabel.values())
-        .sort((a, b) =>
-          a.label.localeCompare(b.label, "es", { sensitivity: "base" }),
-        );
-    },
-    [uniqueClients],
-  );
+    return Array.from(byLabel.values()).sort((a, b) =>
+      a.label.localeCompare(b.label, "es", { sensitivity: "base" }),
+    );
+  }, [uniqueClients]);
 
   const facturaClientOptions = useMemo(
     () =>
@@ -3149,75 +3291,69 @@ const PaymentPage = () => {
     [clientOptions],
   );
 
-  const dniOptions = useMemo(
-    () => {
-      const byDocument = new Map<
-        string,
-        {
-          value: string;
-          label: string;
-          dni: string;
-          ruc: string;
-          nombreRazon: string;
-          id: number;
-        }
-      >();
+  const dniOptions = useMemo(() => {
+    const byDocument = new Map<
+      string,
+      {
+        value: string;
+        label: string;
+        dni: string;
+        ruc: string;
+        nombreRazon: string;
+        id: number;
+      }
+    >();
 
-      uniqueClients
-        .filter((client) => client.dni?.trim())
-        .forEach((client) => {
-          const dni = (client.dni ?? "").trim();
-          const key = normalizeDocumentText(dni);
-          if (!key || byDocument.has(key)) return;
-          byDocument.set(key, {
-            value: dni,
-            label: dni,
-            dni,
-            ruc: safeTrim(client.ruc ?? ""),
-            nombreRazon: (client.nombreRazon ?? "").trim(),
-            id: client.id,
-          });
+    uniqueClients
+      .filter((client) => client.dni?.trim())
+      .forEach((client) => {
+        const dni = (client.dni ?? "").trim();
+        const key = normalizeDocumentText(dni);
+        if (!key || byDocument.has(key)) return;
+        byDocument.set(key, {
+          value: dni,
+          label: dni,
+          dni,
+          ruc: safeTrim(client.ruc ?? ""),
+          nombreRazon: (client.nombreRazon ?? "").trim(),
+          id: client.id,
         });
+      });
 
-      return Array.from(byDocument.values());
-    },
-    [uniqueClients],
-  );
+    return Array.from(byDocument.values());
+  }, [uniqueClients]);
 
-  const rucOptions = useMemo(
-    () => {
-      const byDocument = new Map<
-        string,
-        {
-          value: string;
-          label: string;
-          dni: string;
-          ruc: string;
-          nombreRazon: string;
-          id: number;
-        }
-      >();
+  const rucOptions = useMemo(() => {
+    const byDocument = new Map<
+      string,
+      {
+        value: string;
+        label: string;
+        dni: string;
+        ruc: string;
+        nombreRazon: string;
+        id: number;
+      }
+    >();
 
-      uniqueClients
-        .filter((client) => client.ruc?.trim())
-        .forEach((client) => {
-          const ruc = (client.ruc ?? "").trim();
-          const key = normalizeDocumentText(ruc);
-          if (!key || byDocument.has(key)) return;
-          byDocument.set(key, {
-            value: ruc,
-            label: ruc,
-            dni: safeTrim(client.dni ?? ""),
-            ruc,
-            nombreRazon: (client.nombreRazon ?? "").trim(),
-            id: client.id,
-          });
+    uniqueClients
+      .filter((client) => client.ruc?.trim())
+      .forEach((client) => {
+        const ruc = (client.ruc ?? "").trim();
+        const key = normalizeDocumentText(ruc);
+        if (!key || byDocument.has(key)) return;
+        byDocument.set(key, {
+          value: ruc,
+          label: ruc,
+          dni: safeTrim(client.dni ?? ""),
+          ruc,
+          nombreRazon: (client.nombreRazon ?? "").trim(),
+          id: client.id,
         });
+      });
 
-      return Array.from(byDocument.values());
-    },
-    [uniqueClients],
-  );
+    return Array.from(byDocument.values());
+  }, [uniqueClients]);
 
   const facturaRucOptions = useMemo(
     () =>
@@ -3611,66 +3747,125 @@ const PaymentPage = () => {
     [clientOptions, normalizeSearchText, tokenizeSearchText],
   );
 
-  const loadedNotaCompanyId = useMemo(
-    () => resolveCompanyIdFromNota(notaCabeceraActual),
-    [notaCabeceraActual],
+  const rawSelectedCompanyRecord = notaCompaniaActual as Record<
+    string,
+    unknown
+  > | null;
+  const selectedCompanyRecord =
+    resolveCompanyIdFromNota(rawSelectedCompanyRecord) === activeCompanyId
+      ? rawSelectedCompanyRecord
+      : null;
+  const companyCommercialFromNota = readRecordField(
+    selectedCompanyRecord,
+    "companiaComercial",
+    "CompaniaComercial",
   );
-  const companyCommercialFromNota = safeTrim(
-    notaCompaniaActual?.companiaComercial ??
-      notaCompaniaActual?.CompaniaComercial ??
-      "",
+  const companyNameFromNota = readRecordField(
+    selectedCompanyRecord,
+    "companiaRazonSocial",
+    "CompaniaRazonSocial",
   );
-  const companyNameFromNota = safeTrim(
-    notaCompaniaActual?.companiaRazonSocial ??
-      notaCompaniaActual?.CompaniaRazonSocial ??
-      "",
+  const companyRucFromNota = readRecordField(
+    selectedCompanyRecord,
+    "companiaRUC",
+    "companiaRuc",
+    "CompaniaRUC",
+    "CompaniaRuc",
   );
-  const companyRucFromNota = safeTrim(
-    notaCompaniaActual?.companiaRUC ??
-      notaCompaniaActual?.companiaRuc ??
-      notaCompaniaActual?.CompaniaRUC ??
-      notaCompaniaActual?.CompaniaRuc ??
-      "",
+  const companyAddressFromNota = readRecordField(
+    selectedCompanyRecord,
+    "companiaDirecSunat",
+    "CompaniaDirecSunat",
+    "companiaDireccion",
+    "CompaniaDireccion",
   );
-  const companyAddressFromNota = safeTrim(
-    notaCompaniaActual?.companiaDirecSunat ??
-      notaCompaniaActual?.CompaniaDirecSunat ??
-      notaCompaniaActual?.companiaDireccion ??
-      notaCompaniaActual?.CompaniaDireccion ??
-      "",
+  const companyDistrictFromNota = readRecordField(
+    selectedCompanyRecord,
+    "companiaDistrito",
+    "CompaniaDistrito",
+    "companiaNomUBG",
+    "companiaNomUbg",
+    "CompaniaNomUBG",
+    "CompaniaNomUbg",
   );
-  const companyDistrictFromNota = safeTrim(
-    notaCompaniaActual?.companiaDistrito ??
-      notaCompaniaActual?.CompaniaDistrito ??
-      notaCompaniaActual?.companiaNomUBG ??
-      notaCompaniaActual?.companiaNomUbg ??
-      notaCompaniaActual?.CompaniaNomUBG ??
-      notaCompaniaActual?.CompaniaNomUbg ??
-      "",
+  const companyLogoFromNota = readRecordField(
+    selectedCompanyRecord,
+    "logoCompania",
+    "LogoCompania",
   );
-  const companyLogoFromNota = safeTrim(
-    notaCompaniaActual?.logoCompania ?? notaCompaniaActual?.LogoCompania ?? "",
+  const companyUbigeoCodeFromSelected = readRecordField(
+    selectedCompanyRecord,
+    "companiaCodUbg",
+    "CompaniaCodUbg",
+    "companiaUbg",
+    "CompaniaUbg",
   );
-  const isExistingNota = Boolean(notaId);
-  const effectiveCompanyNameForDocument = isExistingNota
-    ? companyCommercialFromNota ||
-      companyNameFromNota ||
-      "CONSORCIO FERRETERO ROSITA E.I.R.L."
-    : companyCommercialFromSession ||
-      companyNameFromSession ||
-      "CONSORCIO FERRETERO ROSITA E.I.R.L.";
-  const effectiveCompanyRucForDocument = isExistingNota
-    ? companyRucFromNota || "20601070155"
-    : companyRucFromSession || "20601070155";
-  const effectiveCompanyAddressForDocument = isExistingNota
-    ? companyAddressFromNota || "Calle 2 Mz B Lote 1"
-    : companyAddressSunatFromSession || "Calle 2 Mz B Lote 1";
-  const effectiveCompanyDistrictForDocument = isExistingNota
-    ? companyDistrictFromNota || "LIMA"
-    : companyUbigeoNameFromSession || "LIMA";
-  const effectiveCompanyLogoForDocument = isExistingNota
-    ? localCompanyLogo(loadedNotaCompanyId) || companyLogoFromNota
-    : localCompanyLogo(companyId) || companyLogoFromSession;
+  const effectiveCompanyUbigeoCode =
+    companyUbigeoCodeFromSelected ||
+    (activeCompanyId === Number(companyId)
+      ? companyUbigeoCodeFromSession
+      : "") ||
+    "150101";
+  const effectiveUsuarioSol =
+    readRecordField(
+      selectedCompanyRecord,
+      "UsuarioSol",
+      "usuarioSol",
+      "CompaniaUserSecun",
+    ) || usuarioSolFromSession;
+  const effectiveClaveSol =
+    readRecordField(
+      selectedCompanyRecord,
+      "ClaveSol",
+      "claveSol",
+      "ComapaniaPWD",
+    ) || claveSolFromSession;
+  const effectiveCertificadoBase64 =
+    readRecordField(
+      selectedCompanyRecord,
+      "CertificadoBase64",
+      "certificadoBase64",
+      "CompaniaPFX",
+    ) || certificadoBase64FromSession;
+  const effectiveClaveCertificado =
+    readRecordField(
+      selectedCompanyRecord,
+      "ClaveCertificado",
+      "claveCertificado",
+      "CompaniaClave",
+    ) || claveCertificadoFromSession;
+  const effectiveEntorno =
+    readRecordField(selectedCompanyRecord, "Entorno", "entorno") ||
+    entornoFromSession;
+  const effectiveCompanyNameForDocument =
+    companyCommercialFromNota ||
+    companyNameFromNota ||
+    (activeCompanyId === Number(companyId)
+      ? companyCommercialFromSession
+      : "") ||
+    (activeCompanyId === Number(companyId) ? companyNameFromSession : "") ||
+    selectedCompanyName ||
+    "CONSORCIO FERRETERO ROSITA E.I.R.L.";
+  const effectiveCompanyRucForDocument =
+    companyRucFromNota ||
+    (activeCompanyId === Number(companyId) ? companyRucFromSession : "") ||
+    "20601070155";
+  const effectiveCompanyAddressForDocument =
+    companyAddressFromNota ||
+    (activeCompanyId === Number(companyId)
+      ? companyAddressSunatFromSession
+      : "") ||
+    "Calle 2 Mz B Lote 1";
+  const effectiveCompanyDistrictForDocument =
+    companyDistrictFromNota ||
+    (activeCompanyId === Number(companyId)
+      ? companyUbigeoNameFromSession
+      : "") ||
+    "LIMA";
+  const effectiveCompanyLogoForDocument =
+    localCompanyLogo(activeCompanyId) ||
+    companyLogoFromNota ||
+    (activeCompanyId === Number(companyId) ? companyLogoFromSession : "");
 
   const ticketPreviewProps = useMemo(() => {
     const safeItems = itemsToRender.length ? itemsToRender : purchasedItems;
@@ -3764,32 +3959,44 @@ const PaymentPage = () => {
     effectiveCompanyDistrictForDocument,
     effectiveCompanyLogoForDocument,
   ]);
+  const [pdfPreviewProps, setPdfPreviewProps] =
+    useState<TicketDocumentProps>(ticketPreviewProps);
+  const syncedNotaPreviewIdRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    if (!notaId || !hasLoadedNotaMeta) return;
+    if (syncedNotaPreviewIdRef.current === notaId) return;
+    syncedNotaPreviewIdRef.current = notaId;
+    setPdfPreviewProps(ticketPreviewProps);
+  }, [hasLoadedNotaMeta, notaId, ticketPreviewProps]);
+
   const previewKey = useMemo(
     () =>
       [
         docTypeCode,
-        paymentMethod,
-        applyDiscount ? "discount-on" : "discount-off",
-        ticketPreviewProps.clientName,
-        ticketPreviewProps.clientId,
-        ticketPreviewProps.documentNumber,
-        formatCurrency(operacionGravada),
-        formatCurrency(totalAPagar),
-        formatCurrency(notaMovilidad),
-        formatCurrency(descuento),
-        itemsToRender.length,
+        pdfPreviewProps.paymentMethod,
+        pdfPreviewProps.summary?.showDiscount ? "discount-on" : "discount-off",
+        pdfPreviewProps.clientName,
+        pdfPreviewProps.clientId,
+        pdfPreviewProps.documentNumber,
+        formatCurrency(pdfPreviewProps.summary?.operacionGravada ?? 0),
+        formatCurrency(pdfPreviewProps.summary?.total ?? 0),
+        formatCurrency(pdfPreviewProps.summary?.movilidad ?? 0),
+        formatCurrency(pdfPreviewProps.summary?.descuento ?? 0),
+        pdfPreviewProps.items?.length ?? 0,
       ].join("|"),
     [
-      applyDiscount,
       docTypeCode,
-      itemsToRender.length,
-      paymentMethod,
-      ticketPreviewProps.clientId,
-      ticketPreviewProps.clientName,
-      ticketPreviewProps.documentNumber,
-      operacionGravada,
-      totalAPagar,
-      descuento,
+      pdfPreviewProps.clientId,
+      pdfPreviewProps.clientName,
+      pdfPreviewProps.documentNumber,
+      pdfPreviewProps.items?.length,
+      pdfPreviewProps.paymentMethod,
+      pdfPreviewProps.summary?.descuento,
+      pdfPreviewProps.summary?.movilidad,
+      pdfPreviewProps.summary?.operacionGravada,
+      pdfPreviewProps.summary?.showDiscount,
+      pdfPreviewProps.summary?.total,
     ],
   );
 
@@ -3864,7 +4071,7 @@ const PaymentPage = () => {
         notaTarjeta: isCard ? roundCurrency(totalAPagar) : 0,
         notaPagar: roundCurrency(totalAPagar),
         notaEstado: "PENDIENTE",
-        companiaId: companyId,
+        companiaId: activeCompanyId,
         notaEntrega: "INMEDIATA",
         modificadoPor: null,
         fechaEdita: null,
@@ -3933,7 +4140,7 @@ const PaymentPage = () => {
     };
   }, [
     notaId,
-    companyId,
+    activeCompanyId,
     clienteId,
     dirtyFields?.clienteId,
     dirtyFields?.customerName,
@@ -3970,12 +4177,8 @@ const PaymentPage = () => {
   }, [notaId, hasLoadedNotaMeta]);
 
   useEffect(() => {
-    if (!notaId) {
-      setNotaCompaniaActual(null);
-      return;
-    }
-    if (!hasLoadedNotaMeta) return;
-    if (!loadedNotaCompanyId) {
+    if (notaId && !hasLoadedNotaMeta) return;
+    if (!activeCompanyId) {
       setNotaCompaniaActual(null);
       return;
     }
@@ -3984,7 +4187,7 @@ const PaymentPage = () => {
     void (async () => {
       try {
         const response = await apiRequest<CompanyDataPayload | null>({
-          url: buildApiUrl(`/Compania/${loadedNotaCompanyId}`),
+          url: buildApiUrl(`/Compania/${activeCompanyId}`),
           method: "GET",
           config: { headers: { Accept: "text/plain" } },
           fallback: null,
@@ -4024,11 +4227,14 @@ const PaymentPage = () => {
     return () => {
       isCancelled = true;
     };
-  }, [notaId, hasLoadedNotaMeta, loadedNotaCompanyId]);
+  }, [activeCompanyId, notaId, hasLoadedNotaMeta]);
 
   const confirmPayment = async () => {
     if (isReadOnlyNoteView) return;
-    if (!isProforma && !isPaymentMethodAllowedForCompany(paymentMethod)) {
+    if (
+      !isProforma &&
+      !isPaymentMethodAllowedForCompany(paymentMethod, activeCompanyId)
+    ) {
       await showPaymentCompanyRestrictionDialog();
       return;
     }
@@ -4136,7 +4342,7 @@ const PaymentPage = () => {
           nroOperacion: baseNota.nroOperacion ?? "",
         }
       : baseNota;
-    const detalleEstadoForSave = safeTrim(editNota.notaDocu)
+    const notaEstadoForSave = safeTrim(editNota.notaDocu)
       .toUpperCase()
       .includes("BOLETA")
       ? "EMITIDO"
@@ -4147,7 +4353,7 @@ const PaymentPage = () => {
         const baseDetalle = {
           ...detalle,
           detalleId: (detalle as any).detalleId ?? 0,
-          detalleEstado: detalleEstadoForSave,
+          detalleEstado: notaEstadoForSave,
         };
         if (!isEditing) return baseDetalle;
         return {
@@ -4159,7 +4365,7 @@ const PaymentPage = () => {
           detalleCosto: baseDetalle.detalleCosto,
           detallePrecio: baseDetalle.detallePrecio,
           detalleImporte: baseDetalle.detalleImporte,
-          detalleEstado: detalleEstadoForSave,
+          detalleEstado: notaEstadoForSave,
           valorUM: baseDetalle.valorUM,
         };
       },
@@ -4183,7 +4389,10 @@ const PaymentPage = () => {
           Number(editNota.notaAdicional ?? 0),
       );
       const totalEsperadoDocumento = roundCurrency(
-        Math.max(roundCurrency(totalDetalle / IGV_FACTOR) - descuentoCabeceraBase, 0) *
+        Math.max(
+          roundCurrency(totalDetalle / IGV_FACTOR) - descuentoCabeceraBase,
+          0,
+        ) *
           IGV_FACTOR +
           ajustesCabecera,
       );
@@ -4225,12 +4434,40 @@ const PaymentPage = () => {
 
     const notaFechaEdicionRaw = safeTrim(
       (notaCabeceraActual as any)?.notaFecha ?? "",
-    )
-      .split("T")[0]
-      .trim();
-    const notaFechaEdicion = /^\d{4}-\d{2}-\d{2}$/.test(notaFechaEdicionRaw)
-      ? notaFechaEdicionRaw
-      : getLocalDateISO(new Date());
+    );
+    const nowForNotaFechaEdicion = new Date();
+    const currentTimeForNotaFechaEdicion = getLocalDateTimeISO(
+      nowForNotaFechaEdicion,
+    ).slice(11);
+    const isoDateTimeMatch = notaFechaEdicionRaw.match(
+      /^(\d{4}-\d{2}-\d{2})[T\s](\d{2}:\d{2})(?::(\d{2}))?/,
+    );
+    const isoDateOnlyMatch = notaFechaEdicionRaw.match(/^(\d{4}-\d{2}-\d{2})$/);
+    const slashDateTimeMatch = notaFechaEdicionRaw.match(
+      /^(\d{1,2})\/(\d{1,2})\/(\d{4})[T\s,]+(\d{2}:\d{2})(?::(\d{2}))?/,
+    );
+    const slashDateOnlyMatch = notaFechaEdicionRaw.match(
+      /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/,
+    );
+    const slashDate = slashDateTimeMatch ?? slashDateOnlyMatch;
+    const notaFechaEdicionDate =
+      isoDateTimeMatch?.[1] ??
+      isoDateOnlyMatch?.[1] ??
+      (slashDate
+        ? `${slashDate[3]}-${slashDate[2].padStart(2, "0")}-${slashDate[1].padStart(2, "0")}`
+        : "");
+    const notaFechaEdicionTime = isoDateTimeMatch
+      ? `${isoDateTimeMatch[2]}:${isoDateTimeMatch[3] ?? "00"}`
+      : slashDateTimeMatch
+        ? `${slashDateTimeMatch[4]}:${slashDateTimeMatch[5] ?? "00"}`
+        : "";
+    const notaFechaEdicion = notaFechaEdicionDate
+      ? `${notaFechaEdicionDate}T${
+          notaFechaEdicionTime && !/^00:00:00$/.test(notaFechaEdicionTime)
+            ? notaFechaEdicionTime
+            : currentTimeForNotaFechaEdicion
+        }`
+      : getLocalDateTimeISO(nowForNotaFechaEdicion);
     const clienteIdEdicionRaw = Number(editNota.clienteId ?? 0);
     const clienteIdEdicion =
       Number.isFinite(clienteIdEdicionRaw) && clienteIdEdicionRaw > 0
@@ -4249,10 +4486,10 @@ const PaymentPage = () => {
           Usuario: resolvedPaymentUsername,
           FormaPago:
             safeTrim(editNota.notaFormaPago ?? paymentMethod) || "EFECTIVO",
-          CompaniaId: Number(editNota.companiaId ?? companyId) || 1,
+          CompaniaId: Number(editNota.companiaId ?? activeCompanyId) || 1,
           Condicion:
             safeTrim(editNota.notaCondicion ?? "ALCONTADO") || "ALCONTADO",
-          NotaEstado: "PENDIENTE",
+          NotaEstado: notaEstadoForSave,
           ModificadoPor: resolvedPaymentUsername,
           FechaEdita: editTimestamp.toISOString(),
           FlagMovil: flagMovil,
@@ -4281,7 +4518,7 @@ const PaymentPage = () => {
         notaAdicional: Number(editNota.notaAdicional ?? 0),
         notaTarjeta: Number(editNota.notaTarjeta ?? 0),
         notaPagar: Number(editNota.notaPagar ?? editNota.notaTotal ?? 0),
-        notaEstado: "PENDIENTE",
+        notaEstado: notaEstadoForSave,
         companiaId: Number(editNota.companiaId ?? 1) || 1,
         notaEntrega: "INMEDIATA",
         notaConcepto: "VENTA",
@@ -4636,20 +4873,21 @@ const PaymentPage = () => {
       boletaPorLoteFromSession
     ) {
       const todayIso = getLocalDateISO(new Date());
-      const tipoProcesoRaw = Number(entornoFromSession || 3);
+      const tipoProcesoRaw = Number(effectiveEntorno || 3);
       const tipoProceso =
         Number.isFinite(tipoProcesoRaw) && tipoProcesoRaw > 0
           ? Math.floor(tipoProcesoRaw)
           : 3;
 
       try {
-        const nextSequence = await fetchNextBoletaSummarySequence(companyId);
+        const nextSequence =
+          await fetchNextBoletaSummarySequence(activeCompanyId);
         if (!nextSequence) {
           boletaLoteStatus = "warning";
           boletaLoteMessage =
             "Boleta registrada, pero no se obtuvo secuencia para enviar resumen.";
         } else {
-          await fetchBoletaSummaryDocuments({ dataOverride: companyId });
+          await fetchBoletaSummaryDocuments({ dataOverride: activeCompanyId });
           const pendingRows = useBoletasSummaryStore.getState().documents ?? [];
           const parsedNotaIdNumber = Number(parsedNotaId ?? 0);
           const targetDocNumber = safeTrim(
@@ -4732,11 +4970,9 @@ const PaymentPage = () => {
             );
 
             const summaryResponse = await sendBoletaSummary({
-              NRO_DOCUMENTO_EMPRESA: safeTrim(companyRucFromSession),
+              NRO_DOCUMENTO_EMPRESA: safeTrim(effectiveCompanyRucForDocument),
               RAZON_SOCIAL:
-                safeTrim(companyNameFromSession) ||
-                safeTrim(companyCommercialFromSession) ||
-                "EMPRESA",
+                safeTrim(effectiveCompanyNameForDocument) || "EMPRESA",
               USUARIO: resolvedNotaUsuario || "USUARIO",
               Usuario: resolvedNotaUsuario || "USUARIO",
               usuario: resolvedNotaUsuario || "USUARIO",
@@ -4748,11 +4984,11 @@ const PaymentPage = () => {
               FECHA_REFERENCIA: referenceDateIso,
               FECHA_DOCUMENTO: todayIso,
               TIPO_PROCESO: tipoProceso,
-              CONTRA_FIRMA: safeTrim(claveCertificadoFromSession),
-              USUARIO_SOL_EMPRESA: safeTrim(usuarioSolFromSession),
-              PASS_SOL_EMPRESA: safeTrim(claveSolFromSession),
-              RUTA_PFX: safeTrim(certificadoBase64FromSession),
-              COMPANIA_ID: companyId,
+              CONTRA_FIRMA: safeTrim(effectiveClaveCertificado),
+              USUARIO_SOL_EMPRESA: safeTrim(effectiveUsuarioSol),
+              PASS_SOL_EMPRESA: safeTrim(effectiveClaveSol),
+              RUTA_PFX: safeTrim(effectiveCertificadoBase64),
+              COMPANIA_ID: activeCompanyId,
               detalle: detailRows,
               RANGO_NUMEROS: rangoNumeros,
               SUBTOTAL: roundCurrency(summarySubTotal),
@@ -4793,9 +5029,9 @@ const PaymentPage = () => {
                 MENSAJE_SUNAT: "",
                 ESTADO: "P",
                 SECUENCIA: String(nextSequence),
-                RUC: safeTrim(companyRucFromSession),
-                USUARIO_SOL_EMPRESA: safeTrim(usuarioSolFromSession),
-                PASS_SOL_EMPRESA: safeTrim(claveSolFromSession),
+                RUC: safeTrim(effectiveCompanyRucForDocument),
+                USUARIO_SOL_EMPRESA: safeTrim(effectiveUsuarioSol),
+                PASS_SOL_EMPRESA: safeTrim(effectiveClaveSol),
                 TIPO_DOCUMENTO: "RC",
                 TIPO_PROCESO: tipoProceso,
                 INTENTOS: 0,
@@ -4874,6 +5110,12 @@ const PaymentPage = () => {
       serieForImmediatePrint && numeroForImmediatePrint
         ? `${serieForImmediatePrint}-${numeroForImmediatePrint}`
         : safeTrim(documentNumber);
+    setPdfPreviewProps({
+      ...ticketPreviewProps,
+      ...(immediateDocumentNumber
+        ? { documentNumber: immediateDocumentNumber }
+        : {}),
+    });
     if (!isFactura) {
       void handlePrint({
         skipConfirmedCheck: true,
@@ -5296,13 +5538,11 @@ const PaymentPage = () => {
       toast.info("Solo se puede reenviar cuando el estado SUNAT es RECHAZADO.");
       return;
     }
-    if (
-      !(
-        resolvedDocTypeCodeForResend === "01" ||
-        resolvedDocTypeCodeForResend === "03" ||
-        resolvedDocTypeCodeForResend === "07"
-      )
-    ) {
+    if (!(
+      resolvedDocTypeCodeForResend === "01" ||
+      resolvedDocTypeCodeForResend === "03" ||
+      resolvedDocTypeCodeForResend === "07"
+    )) {
       toast.info(
         "Reenvío disponible solo para factura, boleta o nota de crédito.",
       );
@@ -5345,7 +5585,7 @@ const PaymentPage = () => {
       const horaRegistro = `${String(now.getHours()).padStart(2, "0")}:${String(
         now.getMinutes(),
       ).padStart(2, "0")}:${String(now.getSeconds()).padStart(2, "0")}`;
-      const tipoProcesoParsed = Number(entornoFromSession);
+      const tipoProcesoParsed = Number(effectiveEntorno);
       const tipoProceso =
         Number.isFinite(tipoProcesoParsed) && tipoProcesoParsed > 0
           ? Math.floor(tipoProcesoParsed)
@@ -5395,17 +5635,14 @@ const PaymentPage = () => {
         ) ||
         "CLIENTE VARIOS";
       const razonSocialEmpresa =
-        safeTrim(companyNameFromSession) ||
-        safeTrim(companyCommercialFromSession) ||
-        "EMPRESA";
+        safeTrim(effectiveCompanyNameForDocument) || "EMPRESA";
       const nombreComercialEmpresa =
-        safeTrim(companyCommercialFromSession) ||
-        safeTrim(companyNameFromSession) ||
-        "EMPRESA";
-      const ubigeoEmpresa = safeTrim(companyUbigeoCodeFromSession) || "150101";
+        safeTrim(effectiveCompanyNameForDocument) || "EMPRESA";
+      const ubigeoEmpresa = safeTrim(effectiveCompanyUbigeoCode) || "150101";
       const nombreUbigeoEmpresa =
-        safeTrim(companyUbigeoNameFromSession) || "LIMA";
-      const direccionEmpresa = safeTrim(companyAddressSunatFromSession) || "-";
+        safeTrim(effectiveCompanyDistrictForDocument) || "LIMA";
+      const direccionEmpresa =
+        safeTrim(effectiveCompanyAddressForDocument) || "-";
       const formaPagoDocumento =
         safeTrim(paymentMethod) ||
         safeTrim(
@@ -5482,7 +5719,7 @@ const PaymentPage = () => {
         FECHA_VTO: fechaIso,
         COD_TIPO_DOCUMENTO: resolvedDocTypeCodeForResend,
         COD_MONEDA: "PEN",
-        NRO_DOCUMENTO_EMPRESA: safeTrim(companyRucFromSession),
+        NRO_DOCUMENTO_EMPRESA: safeTrim(effectiveCompanyRucForDocument),
         TIPO_DOCUMENTO_EMPRESA: "6",
         RAZON_SOCIAL_EMPRESA: razonSocialEmpresa,
         NOMBRE_COMERCIAL_EMPRESA: nombreComercialEmpresa,
@@ -5502,11 +5739,11 @@ const PaymentPage = () => {
         DEPARTAMENTO_CLIENTE: nombreUbigeoEmpresa,
         PROVINCIA_CLIENTE: nombreUbigeoEmpresa,
         DISTRITO_CLIENTE: nombreUbigeoEmpresa,
-        USUARIO_SOL_EMPRESA: safeTrim(usuarioSolFromSession),
-        PASS_SOL_EMPRESA: safeTrim(claveSolFromSession),
-        CONTRA_FIRMA: safeTrim(claveCertificadoFromSession),
+        USUARIO_SOL_EMPRESA: safeTrim(effectiveUsuarioSol),
+        PASS_SOL_EMPRESA: safeTrim(effectiveClaveSol),
+        CONTRA_FIRMA: safeTrim(effectiveClaveCertificado),
         TIPO_PROCESO: tipoProceso,
-        RUTA_PFX: safeTrim(certificadoBase64FromSession),
+        RUTA_PFX: safeTrim(effectiveCertificadoBase64),
         SUB_TOTAL: roundCurrency(gravada),
         TOTAL_IGV: roundCurrency(igvAmount),
         TOTAL: totalDocumento,
@@ -5694,7 +5931,7 @@ const PaymentPage = () => {
           ? "1"
           : "0";
 
-    const tipoProcesoParsed = Number(entornoFromSession);
+    const tipoProcesoParsed = Number(effectiveEntorno);
     const tipoProceso =
       Number.isFinite(tipoProcesoParsed) && tipoProcesoParsed > 0
         ? Math.floor(tipoProcesoParsed)
@@ -5780,37 +6017,37 @@ const PaymentPage = () => {
       NRO_DOCUMENTO_MODIFICA: originalDoc,
       COD_TIPO_MOTIVO: "01",
       DESCRIPCION_MOTIVO: "ANULACION DE LA OPERACION",
-      NRO_DOCUMENTO_EMPRESA: safeTrim(companyRucFromSession),
+      NRO_DOCUMENTO_EMPRESA: safeTrim(effectiveCompanyRucForDocument),
       TIPO_DOCUMENTO_EMPRESA: "6",
       RAZON_SOCIAL_EMPRESA:
-        safeTrim(companyNameFromSession) ||
-        safeTrim(companyCommercialFromSession) ||
-        "EMPRESA",
+        safeTrim(effectiveCompanyNameForDocument) || "EMPRESA",
       NOMBRE_COMERCIAL_EMPRESA:
-        safeTrim(companyCommercialFromSession) ||
-        safeTrim(companyNameFromSession) ||
-        "EMPRESA",
-      CODIGO_UBIGEO_EMPRESA: safeTrim(companyUbigeoCodeFromSession) || "150101",
-      DIRECCION_EMPRESA: safeTrim(companyAddressSunatFromSession) || "-",
-      DEPARTAMENTO_EMPRESA: safeTrim(companyUbigeoNameFromSession) || "LIMA",
-      PROVINCIA_EMPRESA: safeTrim(companyUbigeoNameFromSession) || "LIMA",
-      DISTRITO_EMPRESA: safeTrim(companyUbigeoNameFromSession) || "LIMA",
+        safeTrim(effectiveCompanyNameForDocument) || "EMPRESA",
+      CODIGO_UBIGEO_EMPRESA: safeTrim(effectiveCompanyUbigeoCode) || "150101",
+      DIRECCION_EMPRESA: safeTrim(effectiveCompanyAddressForDocument) || "-",
+      DEPARTAMENTO_EMPRESA:
+        safeTrim(effectiveCompanyDistrictForDocument) || "LIMA",
+      PROVINCIA_EMPRESA:
+        safeTrim(effectiveCompanyDistrictForDocument) || "LIMA",
+      DISTRITO_EMPRESA: safeTrim(effectiveCompanyDistrictForDocument) || "LIMA",
       CODIGO_PAIS_EMPRESA: "PE",
       NRO_DOCUMENTO_CLIENTE: clienteDocumento || "00000000",
       TIPO_DOCUMENTO_CLIENTE: tipoDocumentoCliente,
       RAZON_SOCIAL_CLIENTE: safeTrim(customerName) || "CLIENTE VARIOS",
       DIRECCION_CLIENTE: "-",
-      CIUDAD_CLIENTE: safeTrim(companyUbigeoNameFromSession) || "LIMA",
+      CIUDAD_CLIENTE: safeTrim(effectiveCompanyDistrictForDocument) || "LIMA",
       COD_PAIS_CLIENTE: "PE",
-      COD_UBIGEO_CLIENTE: safeTrim(companyUbigeoCodeFromSession) || "150101",
-      DEPARTAMENTO_CLIENTE: safeTrim(companyUbigeoNameFromSession) || "LIMA",
-      PROVINCIA_CLIENTE: safeTrim(companyUbigeoNameFromSession) || "LIMA",
-      DISTRITO_CLIENTE: safeTrim(companyUbigeoNameFromSession) || "LIMA",
-      USUARIO_SOL_EMPRESA: safeTrim(usuarioSolFromSession),
-      PASS_SOL_EMPRESA: safeTrim(claveSolFromSession),
-      CONTRA_FIRMA: safeTrim(claveCertificadoFromSession),
+      COD_UBIGEO_CLIENTE: safeTrim(effectiveCompanyUbigeoCode) || "150101",
+      DEPARTAMENTO_CLIENTE:
+        safeTrim(effectiveCompanyDistrictForDocument) || "LIMA",
+      PROVINCIA_CLIENTE:
+        safeTrim(effectiveCompanyDistrictForDocument) || "LIMA",
+      DISTRITO_CLIENTE: safeTrim(effectiveCompanyDistrictForDocument) || "LIMA",
+      USUARIO_SOL_EMPRESA: safeTrim(effectiveUsuarioSol),
+      PASS_SOL_EMPRESA: safeTrim(effectiveClaveSol),
+      CONTRA_FIRMA: safeTrim(effectiveClaveCertificado),
       TIPO_PROCESO: tipoProceso,
-      RUTA_PFX: safeTrim(certificadoBase64FromSession),
+      RUTA_PFX: safeTrim(effectiveCertificadoBase64),
       SUB_TOTAL: roundCurrency(gravada),
       TOTAL_IGV: roundCurrency(igvAmount),
       TOTAL: roundCurrency(totalAPagar),
@@ -6589,7 +6826,7 @@ const PaymentPage = () => {
                 style={{ width: "100%", height: "100%", border: "none" }}
                 showToolbar={false}
               >
-                <TicketDocument {...ticketPreviewProps} />
+                <TicketDocument {...pdfPreviewProps} />
               </PDFViewer>
             </div>
           </div>
@@ -6867,7 +7104,9 @@ const PaymentPage = () => {
             label="Nombre del cliente"
             placeholder="Seleccionar cliente"
             selectOnFocus={false}
-            options={docTypeCode === "01" ? facturaClientOptions : clientOptions}
+            options={
+              docTypeCode === "01" ? facturaClientOptions : clientOptions
+            }
             isOptionEqualToValue={(option: any, value: any) => {
               const optionId = Number(
                 option?.id ?? option?.clienteId ?? option?.clientId ?? 0,
@@ -6987,7 +7226,9 @@ const PaymentPage = () => {
                 fillCustomerFromOption(matchedOption, true);
                 return;
               }
-              toast.error("El DNI no existe. Agrega el cliente y seleccionalo.");
+              toast.error(
+                "El DNI no existe. Agrega el cliente y seleccionalo.",
+              );
               setValue("customerDni", "", { shouldDirty: true });
               setClienteIdFromOption(null, { shouldDirty: true });
             }}
@@ -7036,7 +7277,9 @@ const PaymentPage = () => {
                 fillCustomerFromOption(matchedOption, true);
                 return;
               }
-              toast.error("El RUC no existe. Agrega el cliente y seleccionalo.");
+              toast.error(
+                "El RUC no existe. Agrega el cliente y seleccionalo.",
+              );
               setValue("customerRuc", "", { shouldDirty: true });
               setClienteIdFromOption(null, { shouldDirty: true });
             }}
@@ -7330,9 +7573,9 @@ const PaymentPage = () => {
             disabled={isPrinting || isNotaAnulada}
           >
             <Printer className="w-5 h-5" />
-              <span className="hidden min-[390px]:inline">
-                {isPrinting ? "Imprimiendo..." : "Imprimir comprobante"}
-              </span>
+            <span className="hidden min-[390px]:inline">
+              {isPrinting ? "Imprimiendo..." : "Imprimir comprobante"}
+            </span>
           </button>
         )}
       </div>

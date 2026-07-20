@@ -1,5 +1,5 @@
-import React, { useCallback, useEffect, useMemo, useRef } from "react";
-import { ArrowLeft, Plus, Save, Trash2 } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef } from "react";
+import { Plus, Save, Trash2 } from "lucide-react";
 import { useForm } from "react-hook-form";
 
 import { HookForm } from "@/components/forms/HookForm";
@@ -34,6 +34,7 @@ interface ClientFormBaseProps {
   onNew?: () => void;
   onDelete?: () => void;
   variant?: "page" | "modal";
+  formId?: string;
 }
 
 const buildDefaults = (
@@ -62,11 +63,11 @@ export default function CustomerFormBase({
   onNew,
   onDelete,
   variant = "page",
+  formId,
 }: ClientFormBaseProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const previousTipoDocumentoRef = useRef<"ruc" | "dni" | null>(null);
   const setDialogData = useDialogStore((s) => s.setData);
-  const closeDialog = useDialogStore((s) => s.closeDialog);
   const authUser = useAuthStore((s) => s.user);
   const registradoPorUser = authUser?.displayName ?? authUser?.username ?? null;
   const isModal = variant === "modal";
@@ -408,26 +409,11 @@ export default function CustomerFormBase({
               : "overflow-visible rounded-2xl shadow-xl"
           }`}
         >
-          <HookForm methods={formMethods} onSubmit={handleSave}>
-            <div
-              className={`z-30 bg-[#B23636] text-white px-4 py-3 rounded-t-2xl flex items-center justify-between shadow-lg shadow-black/10 ${
-                isModal ? "" : "sticky top-20 sm:top-2"
-              }`}
-            >
+          <HookForm methods={formMethods} onSubmit={handleSave} formId={formId}>
+            {!isModal ? (
+              <div className="sticky top-20 sm:top-2 z-30 bg-[#B23636] text-white px-4 py-3 rounded-t-2xl flex items-center justify-between shadow-lg shadow-black/10">
                 <div className="flex items-center gap-3">
-                  {isModal ? (
-                    <button
-                      type="button"
-                      onClick={closeDialog}
-                      title="Volver"
-                      aria-label="Volver"
-                      className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-white/30 bg-white/10 text-white hover:bg-white/20 transition-colors"
-                    >
-                      <ArrowLeft className="h-5 w-5" />
-                    </button>
-                  ) : (
-                    <BackArrowButton />
-                  )}
+                  <BackArrowButton />
                   <h1 className="text-base font-semibold">
                     {mode === "create"
                       ? "Registrar Nuevo Cliente"
@@ -468,6 +454,7 @@ export default function CustomerFormBase({
                   </button>
                 </div>
               </div>
+            ) : null}
 
             <div className="p-6 sm:p-8">
               <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">

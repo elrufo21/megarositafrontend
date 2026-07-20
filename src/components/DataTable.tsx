@@ -757,7 +757,9 @@ export default function DataTable<T extends RowData>({
               ))}
             </select>
             <span className="text-slate-500">
-              {start}-{end} de {totalCount}
+              {start.toLocaleString("en-US")}-
+              {end.toLocaleString("en-US")} de{" "}
+              {totalCount.toLocaleString("en-US")}
             </span>
           </div>
 

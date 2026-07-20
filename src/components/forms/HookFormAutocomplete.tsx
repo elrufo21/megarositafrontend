@@ -111,7 +111,9 @@ export function HookFormAutocomplete<
   const ctrl = control ?? methods.control;
   const watchedValue = useWatch({ control: ctrl, name });
   const [inputValue, setInputValue] = useState("");
+  const [open, setOpen] = useState(false);
   const inputElementRef = useRef<HTMLInputElement | null>(null);
+  const selectedBeforeBlurRef = useRef<TOption | null>(null);
   const rawInputId = useId();
   const safeInputId = rawInputId.replace(/[^a-zA-Z0-9_-]/g, "");
   const fieldKey = String(name ?? "field")
@@ -324,7 +326,28 @@ export function HookFormAutocomplete<
                 : option;
             field.onChange(nextValue);
             setInputValue(defaultGetOptionLabel(option));
+            setOpen(false);
+            selectedBeforeBlurRef.current = option;
             onOptionSelected?.(option);
+          };
+          const getBlurSelectedOption = (value: string) => {
+            if (selectedBeforeBlurRef.current) return selectedBeforeBlurRef.current;
+            if (!selectedOption) return null;
+            return defaultGetOptionLabel(selectedOption) === value
+              ? selectedOption
+              : null;
+          };
+          const notifyInputBlur = (
+            value: string,
+            option: TOption | null = getBlurSelectedOption(value),
+          ) => {
+            field.onBlur();
+            onInputBlur?.({
+              inputValue: value,
+              selectedOption: option,
+              value: field.value,
+            });
+            selectedBeforeBlurRef.current = null;
           };
 
           return (
@@ -332,6 +355,9 @@ export function HookFormAutocomplete<
               fullWidth
               size="small"
               options={options}
+              open={open}
+              onOpen={() => setOpen(true)}
+              onClose={() => setOpen(false)}
               value={normalizedValue}
               inputValue={inputValue}
               freeSolo={allowCreate}
@@ -374,16 +400,17 @@ export function HookFormAutocomplete<
               onBlur={() => {
                 const visibleInputValue =
                   inputElementRef.current?.value ?? inputValue;
-                field.onBlur();
-                onInputBlur?.({
-                  inputValue: visibleInputValue,
-                  selectedOption,
-                  value: field.value,
-                });
+                notifyInputBlur(visibleInputValue);
+                setOpen(false);
               }}
               onInputChange={(_, newInputValue, reason) => {
+                if (reason === "input") {
+                  selectedBeforeBlurRef.current = null;
+                }
+
                 if (reason === "clear") {
                   setInputValue("");
+                  setOpen(false);
                   field.onChange(null);
                   onOptionSelected?.(null);
                   return;
@@ -428,6 +455,7 @@ export function HookFormAutocomplete<
                   if (reason !== "clear") return;
                   field.onChange(null);
                   setInputValue("");
+                  setOpen(false);
                   onOptionSelected?.(null);
                   return;
                 }
@@ -442,6 +470,7 @@ export function HookFormAutocomplete<
                   const inputVal = option.inputValue;
                   field.onChange(inputVal);
                   setInputValue(inputVal);
+                  setOpen(false);
                   onCreateOption?.(inputVal);
                   onOptionSelected?.({
                     label: inputVal,
@@ -545,9 +574,7 @@ export function HookFormAutocomplete<
                     if (
                       event.key === "Enter" &&
                       !event.shiftKey &&
-                      !allowCreate &&
-                      !event.defaultPrevented &&
-                      !(event as MuiKeyboardEvent).defaultMuiPrevented
+                      !allowCreate
                     ) {
                       const input =
                         inputElementRef.current ??
@@ -569,6 +596,14 @@ export function HookFormAutocomplete<
                         );
                         return;
                       }
+                      event.preventDefault();
+                      notifyInputBlur(input?.value ?? "");
+                      if (input) {
+                        window.requestAnimationFrame(() =>
+                          focusNextInput(input),
+                        );
+                      }
+                      return;
                     }
                     handleKeyDown(event as KeyboardEvent<HTMLInputElement>);
                   }}
