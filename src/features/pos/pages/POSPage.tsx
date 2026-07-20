@@ -5,6 +5,7 @@ import {
   useRef,
   useState,
   type FormEvent,
+  type HTMLAttributes,
   type InputHTMLAttributes,
   type KeyboardEvent,
   type RefObject,
@@ -1461,6 +1462,25 @@ const POSPage = () => {
     selectSaleDocumentOption(type, matches[0]);
     return true;
   };
+  const renderSaleDocumentOption = (
+    type: "dni" | "ruc",
+    props: HTMLAttributes<HTMLLIElement>,
+    option: (typeof saleDniOptions)[number],
+  ) => (
+    <li
+      {...props}
+      onMouseDown={(event) => {
+        props.onMouseDown?.(event);
+        selectSaleDocumentOption(type, option);
+      }}
+      onTouchStart={(event) => {
+        props.onTouchStart?.(event);
+        selectSaleDocumentOption(type, option);
+      }}
+    >
+      {option.label}
+    </li>
+  );
   const applySaleCustomerInput = useCallback(
     (value: string) => {
       const typedName = normalizePosSearchText(value);
@@ -3348,6 +3368,9 @@ const POSPage = () => {
               filterOptions={(options, state) =>
                 filterSaleDocumentOptions(options, state.inputValue)
               }
+              renderOption={(props, option) =>
+                renderSaleDocumentOption("dni", props, option)
+              }
               onInputChange={(_, value, reason) => {
                 if (reason === "reset") return;
                 const numericValue = value.replace(/\D/g, "");
@@ -3364,7 +3387,10 @@ const POSPage = () => {
                 selectSaleDocumentOption("dni", option);
               }}
               onBlur={() =>
-                ensureExistingSaleDocument("dni", saleSettings.customerDni)
+                ensureExistingSaleDocument(
+                  "dni",
+                  saleDniInputRef.current?.value ?? saleSettings.customerDni,
+                )
               }
               renderInput={(params) => {
                 const inputProps =
@@ -3445,6 +3471,9 @@ const POSPage = () => {
               filterOptions={(options, state) =>
                 filterSaleDocumentOptions(options, state.inputValue)
               }
+              renderOption={(props, option) =>
+                renderSaleDocumentOption("ruc", props, option)
+              }
               onInputChange={(_, value, reason) => {
                 if (reason === "reset") return;
                 const numericValue = value.replace(/\D/g, "");
@@ -3461,7 +3490,10 @@ const POSPage = () => {
                 selectSaleDocumentOption("ruc", option);
               }}
               onBlur={() =>
-                ensureExistingSaleDocument("ruc", saleSettings.customerRuc)
+                ensureExistingSaleDocument(
+                  "ruc",
+                  saleRucInputRef.current?.value ?? saleSettings.customerRuc,
+                )
               }
               renderInput={(params) => {
                 const inputProps =

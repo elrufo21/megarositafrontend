@@ -348,17 +348,35 @@ export function HookFormAutocomplete<
               isOptionEqualToValue={defaultIsEqual}
               renderOption={(props, option) => {
                 const optionKey = String(defaultGetOptionKey(option as TOption));
+                const selectBeforeBlur = () => {
+                  const optionWithInput = option as TOption & CreateOption;
+                  if (allowCreate && optionWithInput.inputValue) return;
+                  selectExistingOption(option as TOption);
+                };
                 return (
-                  <li {...props} key={optionKey}>
+                  <li
+                    {...props}
+                    key={optionKey}
+                    onMouseDown={(event) => {
+                      props.onMouseDown?.(event);
+                      selectBeforeBlur();
+                    }}
+                    onTouchStart={(event) => {
+                      props.onTouchStart?.(event);
+                      selectBeforeBlur();
+                    }}
+                  >
                     {defaultGetOptionLabel(option as TOption)}
                   </li>
                 );
               }}
               filterOptions={appliedFilterOptions}
               onBlur={() => {
+                const visibleInputValue =
+                  inputElementRef.current?.value ?? inputValue;
                 field.onBlur();
                 onInputBlur?.({
-                  inputValue,
+                  inputValue: visibleInputValue,
                   selectedOption,
                   value: field.value,
                 });
