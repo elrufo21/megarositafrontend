@@ -1484,6 +1484,8 @@ const PaymentPage = () => {
       clienteId: null as number | null,
       customerName: "",
       customerId: "",
+      customerDni: "",
+      customerRuc: "",
       fiscalAddress: "",
       shippingAddress: "",
       phone: "",
@@ -1511,6 +1513,8 @@ const PaymentPage = () => {
   const clienteId = watch("clienteId");
   const customerName = watch("customerName");
   const customerId = watch("customerId");
+  const customerDni = watch("customerDni");
+  const customerRuc = watch("customerRuc");
   const fiscalAddress = watch("fiscalAddress");
   const shippingAddress = watch("shippingAddress");
   const phone = watch("phone");
@@ -1522,7 +1526,8 @@ const PaymentPage = () => {
   const discountInput = watch("discount");
   const movementInput = watch("movementCost");
 
-  const docLabel = docTypeCode === "01" ? "RUC" : "DNI";
+  const activeCustomerDocument =
+    docTypeCode === "01" ? customerRuc : customerDni;
   const docConfig = docTypeConfig[docTypeCode as keyof typeof docTypeConfig];
   const notaSerie = (notaSerieOverride || docConfig?.serie || "BA01").trim();
   const paddedNotaNumero = useMemo(() => {
@@ -2374,16 +2379,44 @@ const PaymentPage = () => {
           setValue("customerName", notaClienteNombre, { shouldDirty: false });
         }
 
-        const notaDocValue = readLoadedNoteField(
+        const notaRucValue = readLoadedNoteField(
           "clienteRuc",
           "ClienteRuc",
-          "clienteDni",
-          "ClienteDni",
           "notaRuc",
           "NotaRuc",
+        );
+        const notaDniValue = readLoadedNoteField(
+          "clienteDni",
+          "ClienteDni",
           "notaDni",
           "NotaDni",
         );
+        const notaDocFallback = readLoadedNoteField(
+          "clienteDocumento",
+          "ClienteDocumento",
+          "numeroDocumento",
+          "NumeroDocumento",
+        );
+        const notaRucResolved =
+          safeTrim(notaRucValue) ||
+          (normalizeDocumentText(notaDocFallback).length === 11
+            ? notaDocFallback
+            : "");
+        const notaDniResolved =
+          safeTrim(notaDniValue) ||
+          (normalizeDocumentText(notaDocFallback).length === 8
+            ? notaDocFallback
+            : "");
+        if (notaRucResolved) {
+          setValue("customerRuc", notaRucResolved, { shouldDirty: false });
+        }
+        if (notaDniResolved) {
+          setValue("customerDni", notaDniResolved, { shouldDirty: false });
+        }
+        const notaDocValue =
+          docTypeCode === "01"
+            ? safeTrim(notaRucResolved)
+            : safeTrim(notaDniResolved);
         if (notaDocValue) {
           setValue("customerId", notaDocValue, { shouldDirty: false });
         }
@@ -2515,6 +2548,21 @@ const PaymentPage = () => {
     fetchClients();
   }, [clients.length, fetchClients, isReadOnlyNoteView]);
 
+  const setClienteIdFromOption = useCallback(
+    (opt: any, options?: { shouldDirty?: boolean }) => {
+      const shouldDirty = options?.shouldDirty ?? true;
+      const candidate = opt?.id ?? opt?.clienteId ?? opt?.clientId;
+      const numeric = Number(candidate);
+      if (Number.isFinite(numeric) && numeric > 0) {
+        setValue("clienteId", numeric, { shouldDirty });
+        return;
+      }
+
+      setValue("clienteId", null, { shouldDirty });
+    },
+    [setValue],
+  );
+
   const fillCustomerContactFields = useCallback(
     (client: Partial<Client> | null | undefined, shouldDirty = true) => {
       const clientId = Number(
@@ -2540,6 +2588,38 @@ const PaymentPage = () => {
       setValue("phone", safeTrim(source?.telefonoMovil), { shouldDirty });
     },
     [clients, setValue],
+  );
+  const fillCustomerFromOption = useCallback(
+    (client: any, shouldDirty = true) => {
+      const selectedName = safeTrim(client?.nombreRazon ?? client?.label ?? "");
+      const selectedDni = safeTrim(client?.dni ?? "");
+      const selectedRuc = safeTrim(client?.ruc ?? "");
+
+      setValue("customerName", selectedName, { shouldDirty });
+      setValue("customerDni", selectedDni, { shouldDirty });
+      setValue("customerRuc", selectedRuc, { shouldDirty });
+      setValue("customerId", docTypeCode === "01" ? selectedRuc : selectedDni, {
+        shouldDirty,
+      });
+      fillCustomerContactFields(client, shouldDirty);
+      setClienteIdFromOption(client, { shouldDirty });
+    },
+    [
+      docTypeCode,
+      fillCustomerContactFields,
+      setClienteIdFromOption,
+      setValue,
+    ],
+  );
+  const clearCustomerSelection = useCallback(
+    (shouldDirty = true) => {
+      setValue("clienteId", null, { shouldDirty });
+      setValue("customerName", "", { shouldDirty });
+      setValue("customerId", "", { shouldDirty });
+      setValue("customerDni", "", { shouldDirty });
+      setValue("customerRuc", "", { shouldDirty });
+    },
+    [setValue],
   );
   const updateMissingClientContact = useCallback(async () => {
     const clientIdNumeric = Number(clienteId ?? 0);
@@ -2576,7 +2656,11 @@ const PaymentPage = () => {
     if (defaultCustomerAppliedRef.current) return;
     if (!clients.length) return;
     const hasClientAlready =
-      Number(clienteId) > 0 || safeTrim(customerName) || safeTrim(customerId);
+      Number(clienteId) > 0 ||
+      safeTrim(customerName) ||
+      safeTrim(customerDni) ||
+      safeTrim(customerRuc) ||
+      safeTrim(customerId);
     if (hasClientAlready) return;
 
     const defaultClient =
@@ -2585,24 +2669,7 @@ const PaymentPage = () => {
       clients[0];
     if (!defaultClient) return;
 
-    const defaultId = Number(defaultClient?.id ?? PROFORMA_DEFAULT_CONTACT_ID);
-    if (Number.isFinite(defaultId) && defaultId > 0) {
-      setValue("clienteId", defaultId, { shouldDirty: false });
-    }
-
-    const defaultName = safeTrim((defaultClient as any)?.nombreRazon ?? "");
-    if (defaultName) {
-      setValue("customerName", defaultName, { shouldDirty: false });
-    }
-
-    const defaultDoc =
-      docTypeCode === "01"
-        ? safeTrim((defaultClient as any)?.ruc ?? "")
-        : safeTrim((defaultClient as any)?.dni ?? "");
-    if (defaultDoc) {
-      setValue("customerId", defaultDoc, { shouldDirty: false });
-    }
-    fillCustomerContactFields(defaultClient, false);
+    fillCustomerFromOption(defaultClient, false);
 
     defaultCustomerAppliedRef.current = true;
   }, [
@@ -2612,42 +2679,52 @@ const PaymentPage = () => {
     clienteId,
     customerName,
     customerId,
+    customerDni,
+    customerRuc,
     clients,
-    docTypeCode,
-    fillCustomerContactFields,
-    setValue,
+    fillCustomerFromOption,
   ]);
 
   // Hidratamos nombre/documento del cliente al volver con datos de nota
   useEffect(() => {
     if (!hasLoadedNotaMeta) return;
-    if (dirtyFields?.customerName || dirtyFields?.customerId) return;
+    if (
+      dirtyFields?.customerName ||
+      dirtyFields?.customerDni ||
+      dirtyFields?.customerRuc
+    )
+      return;
     const clientIdNumeric = Number(clienteId);
     if (!Number.isFinite(clientIdNumeric) || clientIdNumeric <= 0) return;
     const client = clients.find((c) => Number(c.id) === clientIdNumeric);
     if (!client) return;
 
     const currentName = safeTrim(customerName);
-    const currentDoc = safeTrim(customerId);
+    const currentDni = safeTrim(customerDni);
+    const currentRuc = safeTrim(customerRuc);
     const suggestedName = safeTrim(client.nombreRazon ?? "");
-    const suggestedDoc =
-      docTypeCode === "01"
-        ? safeTrim((client as any).ruc ?? "")
-        : safeTrim(client.dni ?? "");
+    const suggestedDni = safeTrim(client.dni ?? "");
+    const suggestedRuc = safeTrim((client as any).ruc ?? "");
 
     if (!currentName && suggestedName) {
       setValue("customerName", suggestedName, { shouldDirty: false });
     }
-    if (!currentDoc && suggestedDoc) {
-      setValue("customerId", suggestedDoc, { shouldDirty: false });
+    if (!currentDni && suggestedDni) {
+      setValue("customerDni", suggestedDni, { shouldDirty: false });
+    }
+    if (!currentRuc && suggestedRuc) {
+      setValue("customerRuc", suggestedRuc, { shouldDirty: false });
     }
   }, [
     hasLoadedNotaMeta,
     clienteId,
     clients,
-    docTypeCode,
+    customerName,
+    customerDni,
+    customerRuc,
     dirtyFields?.customerName,
-    dirtyFields?.customerId,
+    dirtyFields?.customerDni,
+    dirtyFields?.customerRuc,
     setValue,
   ]);
 
@@ -2683,9 +2760,7 @@ const PaymentPage = () => {
     if (docTypeCode !== "01" || previousDocType === docTypeCode) return;
     if (notaId || isEditingMode || hasLoadedNotaMeta) return;
 
-    setValue("clienteId", null, { shouldDirty: false });
-    setValue("customerName", "", { shouldDirty: false });
-    setValue("customerId", "", { shouldDirty: false });
+    clearCustomerSelection(false);
     hasInvalidCustomerSelectionRef.current = false;
   }, [
     docTypeCode,
@@ -2693,8 +2768,13 @@ const PaymentPage = () => {
     notaId,
     isEditingMode,
     hasLoadedNotaMeta,
-    setValue,
+    clearCustomerSelection,
   ]);
+
+  useEffect(() => {
+    if (safeTrim(customerId) === safeTrim(activeCustomerDocument)) return;
+    setValue("customerId", activeCustomerDocument, { shouldDirty: false });
+  }, [activeCustomerDocument, customerId, setValue]);
 
   // Asegura que el formulario siga editable mientras no se haya confirmado
   useEffect(() => {
@@ -2703,28 +2783,31 @@ const PaymentPage = () => {
     }
   }, [notaId, items.length]);
 
-  const setClienteIdFromOption = useCallback(
-    (opt: any, options?: { shouldDirty?: boolean }) => {
-      const shouldDirty = options?.shouldDirty ?? true;
-      const candidate = opt?.id ?? opt?.clienteId ?? opt?.clientId;
-      const numeric = Number(candidate);
-      if (Number.isFinite(numeric) && numeric > 0) {
-        setValue("clienteId", numeric, { shouldDirty });
-        return;
-      }
-
-      setValue("clienteId", null, { shouldDirty });
-    },
-    [setValue],
-  );
-  // Si el usuario borra manualmente el DNI/RUC, se mantiene el nombre
+  // Si el usuario borra manualmente el DNI/RUC activo, se mantiene el nombre
   // y solo se desvincula clienteId para no rehidratar el documento anterior.
   useEffect(() => {
-    if (!dirtyFields?.customerId) return;
-    if (safeTrim(customerId)) return;
+    const activeDirty =
+      docTypeCode === "01"
+        ? dirtyFields?.customerRuc
+        : dirtyFields?.customerDni;
+    if (!activeDirty) return;
     if (Number(clienteId) <= 0) return;
+    const client = clients.find(
+      (item) => Number(item.id) === Number(clienteId),
+    );
+    const expectedDocument =
+      docTypeCode === "01" ? safeTrim(client?.ruc) : safeTrim(client?.dni);
+    if (safeTrim(activeCustomerDocument) === expectedDocument) return;
     setClienteIdFromOption(null, { shouldDirty: true });
-  }, [customerId, clienteId, dirtyFields?.customerId, setClienteIdFromOption]);
+  }, [
+    activeCustomerDocument,
+    clienteId,
+    dirtyFields?.customerDni,
+    dirtyFields?.customerRuc,
+    docTypeCode,
+    setClienteIdFromOption,
+    clients,
+  ]);
 
   const handleOpenCreateClientModal = useCallback(() => {
     if (formLocked) return;
@@ -2781,26 +2864,10 @@ const PaymentPage = () => {
                 );
               }) ?? null;
 
-            const selectedName =
-              safeTrim(createdClient?.nombreRazon) || payload.nombreRazon;
-            const selectedDoc =
-              docTypeCode === "01"
-                ? safeTrim(createdClient?.ruc) ||
-                  safeTrim(createdClient?.dni) ||
-                  payload.ruc ||
-                  payload.dni
-                : safeTrim(createdClient?.dni) ||
-                  safeTrim(createdClient?.ruc) ||
-                  payload.dni ||
-                  payload.ruc;
-
-            setValue("customerName", selectedName, { shouldDirty: true });
-            setValue("customerId", selectedDoc, { shouldDirty: true });
-            fillCustomerContactFields(createdClient ?? payload, true);
-            setClienteIdFromOption({
-              id: createdClient?.id ?? null,
-              clienteId: createdClient?.id ?? null,
-            });
+            fillCustomerFromOption(
+              createdClient ?? { ...payload, id: null },
+              true,
+            );
             toast.success("Cliente creado correctamente.");
             closeDialog();
             return true;
@@ -2812,14 +2879,11 @@ const PaymentPage = () => {
   }, [
     addClient,
     closeDialog,
-    docTypeCode,
     fetchClients,
-    fillCustomerContactFields,
+    fillCustomerFromOption,
     formLocked,
     openDialog,
     resolvedNotaUsuario,
-    setClienteIdFromOption,
-    setValue,
   ]);
 
   const confirmWithAppDialog = useCallback(
@@ -3093,6 +3157,7 @@ const PaymentPage = () => {
           value: string;
           label: string;
           dni: string;
+          ruc: string;
           nombreRazon: string;
           id: number;
         }
@@ -3108,6 +3173,7 @@ const PaymentPage = () => {
             value: dni,
             label: dni,
             dni,
+            ruc: safeTrim(client.ruc ?? ""),
             nombreRazon: (client.nombreRazon ?? "").trim(),
             id: client.id,
           });
@@ -3125,6 +3191,7 @@ const PaymentPage = () => {
         {
           value: string;
           label: string;
+          dni: string;
           ruc: string;
           nombreRazon: string;
           id: number;
@@ -3140,6 +3207,7 @@ const PaymentPage = () => {
           byDocument.set(key, {
             value: ruc,
             label: ruc,
+            dni: safeTrim(client.dni ?? ""),
             ruc,
             nombreRazon: (client.nombreRazon ?? "").trim(),
             id: client.id,
@@ -3162,11 +3230,13 @@ const PaymentPage = () => {
   const selectedDocument = useMemo(() => {
     const source = docTypeCode === "01" ? rucOptions : dniOptions;
     const match = source.find(
-      (opt) => String(opt.value) === String(customerId),
+      (opt) => String(opt.value) === String(activeCustomerDocument),
     );
     if (match?.label) return match.label;
-    return typeof customerId === "string" ? customerId : "";
-  }, [customerId, docTypeCode, dniOptions, rucOptions]);
+    return typeof activeCustomerDocument === "string"
+      ? activeCustomerDocument
+      : "";
+  }, [activeCustomerDocument, docTypeCode, dniOptions, rucOptions]);
 
   const ensureExistingCustomerByName = useCallback(
     (rawName?: string) => {
@@ -3195,9 +3265,7 @@ const PaymentPage = () => {
         toast.error(
           "Intentaste seleccionar un cliente que no existe, por favor agrega el cliente y seleccionalo.",
         );
-        setValue("customerName", "", { shouldDirty: true });
-        setValue("customerId", "", { shouldDirty: true });
-        setClienteIdFromOption(null, { shouldDirty: true });
+        clearCustomerSelection(true);
         window.requestAnimationFrame(() => {
           setFocus("customerName");
         });
@@ -3205,16 +3273,7 @@ const PaymentPage = () => {
       }
 
       hasInvalidCustomerSelectionRef.current = false;
-      const selectedName = safeTrim(matchedOption.label ?? "");
-      const docValue =
-        docTypeCode === "01"
-          ? safeTrim((matchedOption as any).ruc ?? "")
-          : safeTrim((matchedOption as any).dni ?? "");
-
-      setValue("customerName", selectedName, { shouldDirty: true });
-      setValue("customerId", docValue || "", { shouldDirty: true });
-      fillCustomerContactFields(matchedOption, true);
-      setClienteIdFromOption(matchedOption, { shouldDirty: true });
+      fillCustomerFromOption(matchedOption, true);
       return true;
     },
     [
@@ -3224,11 +3283,9 @@ const PaymentPage = () => {
       facturaClientOptions,
       docTypeCode,
       getValues,
-      setValue,
       setFocus,
-      setClienteIdFromOption,
-      fillCustomerContactFields,
-      normalizeSearchText,
+      clearCustomerSelection,
+      fillCustomerFromOption,
     ],
   );
 
@@ -3252,25 +3309,31 @@ const PaymentPage = () => {
     if (!resolvedClient) return;
 
     const nameFromId = safeTrim(resolvedClient.nombreRazon ?? "");
-    const docFromId =
-      docTypeCode === "01"
-        ? safeTrim((resolvedClient as any).ruc ?? "")
-        : safeTrim((resolvedClient as any).dni ?? "");
+    const dniFromId = safeTrim((resolvedClient as any).dni ?? "");
+    const rucFromId = safeTrim((resolvedClient as any).ruc ?? "");
     const normalizedCurrentName = safeTrim(customerName);
-    const normalizedCurrentDoc = safeTrim(customerId);
+    const normalizedCurrentDni = safeTrim(customerDni);
+    const normalizedCurrentRuc = safeTrim(customerRuc);
     const isManualNameEdition =
       Boolean(dirtyFields?.customerName) &&
       normalizedCurrentName !== "" &&
       normalizedCurrentName !== nameFromId;
-    const isManualDocEdition =
-      normalizedCurrentDoc !== "" && normalizedCurrentDoc !== docFromId;
+    const isManualDniEdition = Boolean(dirtyFields?.customerDni);
+    const isManualRucEdition = Boolean(dirtyFields?.customerRuc);
 
-    if (!isManualNameEdition && nameFromId && normalizedCurrentName !== nameFromId) {
+    if (
+      !isManualNameEdition &&
+      nameFromId &&
+      normalizedCurrentName !== nameFromId
+    ) {
       setValue("customerName", nameFromId, { shouldDirty: false });
     }
 
-    if (!isManualDocEdition && normalizedCurrentDoc !== docFromId) {
-      setValue("customerId", docFromId, { shouldDirty: false });
+    if (!isManualDniEdition && normalizedCurrentDni !== dniFromId) {
+      setValue("customerDni", dniFromId, { shouldDirty: false });
+    }
+    if (!isManualRucEdition && normalizedCurrentRuc !== rucFromId) {
+      setValue("customerRuc", rucFromId, { shouldDirty: false });
     }
     if (!dirtyFields?.fiscalAddress && !safeTrim(fiscalAddress)) {
       setValue("fiscalAddress", safeTrim(resolvedClient.direccionFiscal), {
@@ -3289,16 +3352,17 @@ const PaymentPage = () => {
     }
   }, [
     clienteId,
-    docTypeCode,
     uniqueClients,
     customerName,
-    customerId,
+    customerDni,
+    customerRuc,
     fiscalAddress,
     shippingAddress,
     phone,
     hasLoadedNotaMeta,
     dirtyFields?.customerName,
-    dirtyFields?.customerId,
+    dirtyFields?.customerDni,
+    dirtyFields?.customerRuc,
     dirtyFields?.fiscalAddress,
     dirtyFields?.shippingAddress,
     dirtyFields?.phone,
@@ -3306,7 +3370,7 @@ const PaymentPage = () => {
   ]);
 
   // Si el usuario empieza a editar manualmente el nombre,
-  // desacoplamos el cliente seleccionado para no "reponer" el texto.
+  // desacoplamos el cliente seleccionado sin borrar los datos visibles.
   useEffect(() => {
     const clientIdNumeric = Number(clienteId);
     if (!Number.isFinite(clientIdNumeric) || clientIdNumeric <= 0) return;
@@ -3321,11 +3385,7 @@ const PaymentPage = () => {
     if (typedName === canonicalName) return;
 
     setClienteIdFromOption(null, { shouldDirty: true });
-    setValue("customerId", "", { shouldDirty: true });
-    setValue("fiscalAddress", "", { shouldDirty: true });
-    setValue("shippingAddress", "", { shouldDirty: true });
-    setValue("phone", "", { shouldDirty: true });
-  }, [clienteId, uniqueClients, customerName, setClienteIdFromOption, setValue]);
+  }, [clienteId, uniqueClients, customerName, setClienteIdFromOption]);
 
   const resolveDocumentValue = useCallback(
     (value: any, type: "dni" | "ruc") => {
@@ -3372,10 +3432,11 @@ const PaymentPage = () => {
   const validateRucLength = useCallback(
     (value: any) => {
       const doc = resolveDocumentValue(value, "ruc");
+      if (docTypeCode !== "01") return true;
       if (!doc) return "El RUC es obligatorio para Factura";
       return /^\d{11}$/.test(doc) || "El RUC debe tener 11 digitos";
     },
-    [resolveDocumentValue],
+    [docTypeCode, resolveDocumentValue],
   );
 
   const ensureFacturaCustomerAndRuc = useCallback(() => {
@@ -3383,7 +3444,7 @@ const PaymentPage = () => {
 
     const selectedClientId = Number(getValues("clienteId") ?? 0);
     const selectedName = safeTrim(getValues("customerName"));
-    const resolvedRuc = resolveDocumentValue(getValues("customerId"), "ruc");
+    const resolvedRuc = resolveDocumentValue(getValues("customerRuc"), "ruc");
     const ruc = safeTrim(resolvedRuc);
 
     if (!selectedName || isGenericVariosCustomer(selectedName)) {
@@ -3407,7 +3468,7 @@ const PaymentPage = () => {
     if (!/^\d{11}$/.test(ruc)) {
       toast.error("Para Factura debes ingresar un RUC valido de 11 digitos.");
       window.requestAnimationFrame(() => {
-        setFocus("customerId");
+        setFocus("customerRuc");
       });
       return false;
     }
@@ -3421,7 +3482,7 @@ const PaymentPage = () => {
 
     const selectedClientId = Number(getValues("clienteId") ?? 0);
     const selectedName = safeTrim(getValues("customerName"));
-    const resolvedDni = resolveDocumentValue(getValues("customerId"), "dni");
+    const resolvedDni = resolveDocumentValue(getValues("customerDni"), "dni");
     const dni = safeTrim(resolvedDni);
 
     if (!selectedName) {
@@ -3443,7 +3504,7 @@ const PaymentPage = () => {
     if (!/^\d{8}$/.test(dni)) {
       toast.error("Para Boleta debes ingresar un DNI valido de 8 digitos.");
       window.requestAnimationFrame(() => {
-        setFocus("customerId");
+        setFocus("customerDni");
       });
       return false;
     }
@@ -3484,38 +3545,9 @@ const PaymentPage = () => {
         );
       });
 
-      if (input) {
-        const exists = filtered.some((opt) => {
-          const label = (opt.label ?? "").toLowerCase();
-          const valueStr = String(opt.value ?? "").toLowerCase();
-          const docStr = (
-            (opt as any)?.dni ??
-            (opt as any)?.ruc ??
-            opt.label ??
-            ""
-          )
-            .toString()
-            .toLowerCase();
-          return (
-            label === input ||
-            valueStr === input ||
-            docStr === input ||
-            normalizeDocumentText(docStr) === inputDocument
-          );
-        });
-
-        if (!exists) {
-          filtered.push({
-            label: `Usar ${docLabel}: ${state.inputValue}`,
-            value: state.inputValue,
-            inputValue: state.inputValue,
-          } as any);
-        }
-      }
-
       return filtered;
     },
-    [docLabel],
+    [],
   );
 
   const clientFilterOptions = useCallback(
@@ -4935,6 +4967,8 @@ const PaymentPage = () => {
           clienteId,
           customerName,
           customerId,
+          customerDni,
+          customerRuc,
           fiscalAddress,
           shippingAddress,
           phone,
@@ -6904,99 +6938,24 @@ const PaymentPage = () => {
             }}
             onOptionSelected={(opt: any) => {
               if (!opt) {
-                setValue("customerName", "", { shouldDirty: true });
-                setValue("customerId", "", { shouldDirty: true });
-                setClienteIdFromOption(null, { shouldDirty: true });
+                clearCustomerSelection(true);
                 return;
               }
 
-              const selectedName = safeTrim(opt.nombreRazon ?? opt.label ?? "");
-              const docValue =
-                docTypeCode === "01" ? safeTrim(opt?.ruc) : safeTrim(opt?.dni);
-              console.log("[POS] Cliente seleccionado", {
-                id:
-                  Number(opt?.id ?? opt?.clienteId ?? opt?.clientId ?? 0) ||
-                  null,
-                nombre: selectedName,
-                dni: safeTrim(opt?.dni),
-                ruc: safeTrim(opt?.ruc),
-                documentoAsignado: docValue || "",
-                docTypeCode,
-                option: opt,
-              });
-
-              setValue("customerName", selectedName, { shouldDirty: true });
-              setValue("customerId", docValue || "", { shouldDirty: true });
-              fillCustomerContactFields(opt, true);
-              setClienteIdFromOption(opt, { shouldDirty: true });
+              fillCustomerFromOption(opt, true);
             }}
           />
         )}
-        {isProforma ? null : isReadOnlyNoteView ? (
+        {isReadOnlyNoteView ? (
           <HookFormInput
-            name="customerId"
-            label={docLabel}
+            name="customerDni"
+            label="DNI"
             disabled
-            placeholder={docLabel}
-          />
-        ) : docTypeCode === "01" ? (
-          <HookFormAutocomplete
-            name="customerId"
-            label="RUC"
-            placeholder="Número de RUC"
-            options={facturaRucOptions}
-            rules={{ validate: validateRucLength }}
-            disableClearable={formLocked}
-            disabled={formLocked}
-            numericOnly
-            filterOptions={documentFilterOptions as any}
-            isOptionEqualToValue={(option: any, value: any) =>
-              String(option?.value) === String((value as any)?.value ?? value)
-            }
-            onOptionSelected={(opt: any) => {
-              if (!opt) {
-                setValue("customerId", "", { shouldDirty: true });
-                setClienteIdFromOption(null, { shouldDirty: true });
-                return;
-              }
-
-              const selectedDoc = resolveDocumentValue(opt, "ruc");
-              const selectedName = safeTrim(opt?.nombreRazon ?? "");
-
-              setValue("customerId", selectedDoc, { shouldDirty: true });
-              if (selectedName) {
-                setValue("customerName", selectedName, { shouldDirty: true });
-                fillCustomerContactFields(opt as Partial<Client>, true);
-                setClienteIdFromOption(opt, { shouldDirty: true });
-                return;
-              }
-
-              setClienteIdFromOption(null, { shouldDirty: true });
-            }}
-            onInputBlur={({ inputValue, selectedOption }) => {
-              const typedDoc = normalizeDocumentText(inputValue);
-              if (!typedDoc || selectedOption) return;
-              const matchedOption = facturaRucOptions.find(
-                (option) => normalizeDocumentText(option.value) === typedDoc,
-              );
-              if (matchedOption) {
-                const selectedDoc = resolveDocumentValue(matchedOption, "ruc");
-                setValue("customerId", selectedDoc, { shouldDirty: true });
-                setValue("customerName", safeTrim(matchedOption.nombreRazon), {
-                  shouldDirty: true,
-                });
-                fillCustomerContactFields(matchedOption as Partial<Client>, true);
-                setClienteIdFromOption(matchedOption, { shouldDirty: true });
-                return;
-              }
-              toast.error("El RUC no existe. Agrega el cliente y seleccionalo.");
-              setValue("customerId", "", { shouldDirty: true });
-              setClienteIdFromOption(null, { shouldDirty: true });
-            }}
+            placeholder="DNI"
           />
         ) : (
           <HookFormAutocomplete
-            name="customerId"
+            name="customerDni"
             label="DNI"
             placeholder="Número de DNI"
             options={dniOptions}
@@ -7004,29 +6963,19 @@ const PaymentPage = () => {
             disableClearable={formLocked}
             disabled={formLocked}
             numericOnly
+            syncInputToValue
             filterOptions={documentFilterOptions as any}
             isOptionEqualToValue={(option: any, value: any) =>
               String(option?.value) === String((value as any)?.value ?? value)
             }
             onOptionSelected={(opt: any) => {
               if (!opt) {
-                setValue("customerId", "", { shouldDirty: true });
+                setValue("customerDni", "", { shouldDirty: true });
                 setClienteIdFromOption(null, { shouldDirty: true });
                 return;
               }
 
-              const selectedDoc = resolveDocumentValue(opt, "dni");
-              const selectedName = safeTrim(opt?.nombreRazon ?? "");
-
-              setValue("customerId", selectedDoc, { shouldDirty: true });
-              if (selectedName) {
-                setValue("customerName", selectedName, { shouldDirty: true });
-                fillCustomerContactFields(opt as Partial<Client>, true);
-                setClienteIdFromOption(opt, { shouldDirty: true });
-                return;
-              }
-
-              setClienteIdFromOption(null, { shouldDirty: true });
+              fillCustomerFromOption(opt, true);
             }}
             onInputBlur={({ inputValue, selectedOption }) => {
               const typedDoc = normalizeDocumentText(inputValue);
@@ -7035,17 +6984,60 @@ const PaymentPage = () => {
                 (option) => normalizeDocumentText(option.value) === typedDoc,
               );
               if (matchedOption) {
-                const selectedDoc = resolveDocumentValue(matchedOption, "dni");
-                setValue("customerId", selectedDoc, { shouldDirty: true });
-                setValue("customerName", safeTrim(matchedOption.nombreRazon), {
-                  shouldDirty: true,
-                });
-                fillCustomerContactFields(matchedOption as Partial<Client>, true);
-                setClienteIdFromOption(matchedOption, { shouldDirty: true });
+                fillCustomerFromOption(matchedOption, true);
                 return;
               }
               toast.error("El DNI no existe. Agrega el cliente y seleccionalo.");
-              setValue("customerId", "", { shouldDirty: true });
+              setValue("customerDni", "", { shouldDirty: true });
+              setClienteIdFromOption(null, { shouldDirty: true });
+            }}
+          />
+        )}
+        {isReadOnlyNoteView ? (
+          <HookFormInput
+            name="customerRuc"
+            label="RUC"
+            disabled
+            placeholder="RUC"
+          />
+        ) : (
+          <HookFormAutocomplete
+            name="customerRuc"
+            label="RUC"
+            placeholder="Número de RUC"
+            options={docTypeCode === "01" ? facturaRucOptions : rucOptions}
+            rules={{ validate: validateRucLength }}
+            disableClearable={formLocked}
+            disabled={formLocked}
+            numericOnly
+            syncInputToValue
+            filterOptions={documentFilterOptions as any}
+            isOptionEqualToValue={(option: any, value: any) =>
+              String(option?.value) === String((value as any)?.value ?? value)
+            }
+            onOptionSelected={(opt: any) => {
+              if (!opt) {
+                setValue("customerRuc", "", { shouldDirty: true });
+                setClienteIdFromOption(null, { shouldDirty: true });
+                return;
+              }
+
+              fillCustomerFromOption(opt, true);
+            }}
+            onInputBlur={({ inputValue, selectedOption }) => {
+              const typedDoc = normalizeDocumentText(inputValue);
+              if (!typedDoc || selectedOption) return;
+              const sourceOptions =
+                docTypeCode === "01" ? facturaRucOptions : rucOptions;
+              const matchedOption = sourceOptions.find(
+                (option) => normalizeDocumentText(option.value) === typedDoc,
+              );
+              if (matchedOption) {
+                fillCustomerFromOption(matchedOption, true);
+                return;
+              }
+              toast.error("El RUC no existe. Agrega el cliente y seleccionalo.");
+              setValue("customerRuc", "", { shouldDirty: true });
               setClienteIdFromOption(null, { shouldDirty: true });
             }}
           />

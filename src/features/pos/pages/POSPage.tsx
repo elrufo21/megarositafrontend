@@ -145,6 +145,9 @@ type PosSaleSettings = {
 };
 
 type SaleFocusableElement = HTMLInputElement | HTMLTextAreaElement;
+type MuiInputKeyboardEvent = KeyboardEvent<HTMLInputElement> & {
+  defaultMuiPrevented?: boolean;
+};
 
 type PersonalCodeFieldProps = {
   onInputRef: (node: HTMLInputElement | null) => void;
@@ -246,11 +249,11 @@ const POS_PAYMENT_METHODS: Array<{ value: PosPaymentMethod; label: string }> = [
   { value: "DEPO. SCOTIABANK", label: "DEPO. SCOTIABANK" },
   { value: "DEPO. CONTINENTAL", label: "DEPO. CONTINENTAL" },
 ];
-const normalizePosSaleSettings = (
-  value: unknown,
-): PosSaleSettings | null => {
+const normalizePosSaleSettings = (value: unknown): PosSaleSettings | null => {
   const record =
-    value && typeof value === "object" ? (value as Partial<PosSaleSettings>) : null;
+    value && typeof value === "object"
+      ? (value as Partial<PosSaleSettings>)
+      : null;
   if (!record) return null;
 
   const docTypeCode = POS_DOC_TYPE_OPTIONS.includes(
@@ -282,7 +285,9 @@ const normalizePosSaleSettings = (
     shippingAddress: String(record.shippingAddress ?? ""),
     phone: String(record.phone ?? ""),
     movementCost: String(record.movementCost ?? ""),
-    bankEntity: String(record.bankEntity ?? DEFAULT_POS_SALE_SETTINGS.bankEntity),
+    bankEntity: String(
+      record.bankEntity ?? DEFAULT_POS_SALE_SETTINGS.bankEntity,
+    ),
     nroOperacion: String(record.nroOperacion ?? ""),
     applyDiscount: Boolean(record.applyDiscount),
     discount: String(record.discount ?? ""),
@@ -716,7 +721,8 @@ const POSPage = () => {
   const safeTrim = (value: unknown) => String(value ?? "").trim();
   const isPaymentMethodAllowedForCompany = (methodValue: unknown) => {
     const method = safeTrim(methodValue).toUpperCase();
-    if (!method || method === "SELECCIONE" || method === "EFECTIVO") return true;
+    if (!method || method === "SELECCIONE" || method === "EFECTIVO")
+      return true;
     const allowed =
       Number(companyId) === 4
         ? ["DEPO. CONTINENTAL", "DEPO. BCP", "TARJETA"]
@@ -1039,13 +1045,18 @@ const POSPage = () => {
   const saleOperacionGravada = roundCurrency(
     saleGrossMonetarySummary.subtotalWithoutIgv,
   );
-  const saleDocumentGravada = roundCurrency(saleMonetarySummary.subtotalWithoutIgv);
+  const saleDocumentGravada = roundCurrency(
+    saleMonetarySummary.subtotalWithoutIgv,
+  );
   const saleDocumentTotal = roundCurrency(saleMonetarySummary.totalWithIgv);
   const saleMovementAmount = roundCurrency(
     Math.max(0, toDecimal(saleSettings.movementCost)),
   );
   const saleCardChargeBase = roundCurrency(
-    Math.max(0, Number(totals.total ?? 0) + saleMovementAmount - saleDiscountAmount),
+    Math.max(
+      0,
+      Number(totals.total ?? 0) + saleMovementAmount - saleDiscountAmount,
+    ),
   );
   const saleCardAdditional =
     saleSettings.paymentMethod === "TARJETA"
@@ -1057,7 +1068,9 @@ const POSPage = () => {
   const saleTotalAmount = roundCurrency(
     saleDocumentTotal + saleMovementAmount + saleCardAdditional,
   );
-  const saleTaxableTotal = roundCurrency(saleDocumentTotal + saleMovementAmount);
+  const saleTaxableTotal = roundCurrency(
+    saleDocumentTotal + saleMovementAmount,
+  );
   const saleAdjustmentBase = isSaleProforma
     ? 0
     : roundCurrency(saleMovementAmount / IGV_FACTOR);
@@ -1391,6 +1404,63 @@ const POSPage = () => {
     },
     [],
   );
+  const selectSaleClientOption = (client: (typeof saleClientOptions)[number]) => {
+    setSaleCustomerInput(client.label);
+    setSaleSettings((prev) => ({
+      ...prev,
+      clienteId: client.id,
+      customerName: client.label,
+      ...customerFieldsFromClient(client, prev.docTypeCode),
+    }));
+    focusSaleField(nextSaleAfterCustomerRef, true);
+  };
+  const selectSaleDocumentOption = (
+    type: "dni" | "ruc",
+    option: (typeof saleDniOptions)[number],
+  ) => {
+    setSaleCustomerInput(option.client.label);
+    setSaleSettings((prev) => ({
+      ...prev,
+      clienteId: option.client.id,
+      customerName: option.client.label,
+      ...customerFieldsFromClient(option.client, prev.docTypeCode),
+      ...(type === "ruc"
+        ? {
+          customerRuc: option.value,
+          customerId:
+              prev.docTypeCode === "01"
+                ? option.value
+                : safeTrim(option.client.dni),
+        }
+        : {
+            customerDni: option.value,
+            customerId:
+              prev.docTypeCode === "01"
+                ? safeTrim(option.client.ruc)
+                : option.value,
+          }),
+    }));
+    focusSaleField(
+      type === "ruc" ? saleFiscalAddressInputRef : saleRucInputRef,
+      true,
+    );
+  };
+  const selectOnlySaleClientMatch = (inputValue: string) => {
+    const matches = filterSaleClientOptions(saleClientOptions, inputValue);
+    if (matches.length !== 1) return false;
+    selectSaleClientOption(matches[0]);
+    return true;
+  };
+  const selectOnlySaleDocumentMatch = (
+    type: "dni" | "ruc",
+    inputValue: string,
+  ) => {
+    const options = type === "ruc" ? saleRucOptions : saleDniOptions;
+    const matches = filterSaleDocumentOptions(options, inputValue);
+    if (matches.length !== 1) return false;
+    selectSaleDocumentOption(type, matches[0]);
+    return true;
+  };
   const applySaleCustomerInput = useCallback(
     (value: string) => {
       const typedName = normalizePosSearchText(value);
@@ -1403,14 +1473,7 @@ const POSPage = () => {
         customerName: value,
         ...(matchedClient
           ? customerFieldsFromClient(matchedClient, prev.docTypeCode)
-          : {
-              customerId: "",
-              customerRuc: "",
-              customerDni: "",
-              fiscalAddress: "",
-              shippingAddress: "",
-              phone: "",
-            }),
+          : {}),
       }));
     },
     [customerFieldsFromClient, saleClientByName],
@@ -1418,7 +1481,9 @@ const POSPage = () => {
   const ensureExistingSaleCustomer = (rawName: string) => {
     const typedName = safeTrim(rawName);
     if (!typedName) return;
-    const matchedClient = saleClientByName.get(normalizePosSearchText(typedName));
+    const matchedClient = saleClientByName.get(
+      normalizePosSearchText(typedName),
+    );
     if (matchedClient) {
       setSaleCustomerInput(matchedClient.label);
       setSaleSettings((prev) => ({
@@ -1446,7 +1511,10 @@ const POSPage = () => {
       phone: "",
     }));
   };
-  const ensureExistingSaleDocument = (type: "dni" | "ruc", rawValue: string) => {
+  const ensureExistingSaleDocument = (
+    type: "dni" | "ruc",
+    rawValue: string,
+  ) => {
     const typedDocument = normalizePosDocumentText(rawValue);
     if (!typedDocument || isSaleProforma) return;
     const options = type === "ruc" ? saleRucOptions : saleDniOptions;
@@ -1565,8 +1633,8 @@ const POSPage = () => {
         content: (
           <p className="text-sm text-slate-700 uppercase leading-relaxed">
             LA FORMA DE PAGO EN {method} NO TIENE RELACION CON {company}.
-            IMPRIMIR O GUARDAR COMO PROFORMA V Y EMITIR LA BOLETA EN LA
-            COMPANIA CORRESPONDIENTE.
+            IMPRIMIR O GUARDAR COMO PROFORMA V Y EMITIR LA BOLETA EN LA COMPANIA
+            CORRESPONDIENTE.
           </p>
         ),
         confirmText: "Aceptar",
@@ -1612,11 +1680,15 @@ const POSPage = () => {
         return false;
       }
       if (!selectedSaleClient) {
-        toast.error("Para boleta con tarjeta debes seleccionar un cliente registrado.");
+        toast.error(
+          "Para boleta con tarjeta debes seleccionar un cliente registrado.",
+        );
         return false;
       }
       if (customerDocument.length !== 8) {
-        toast.error("Para boleta con tarjeta ingresa un DNI valido de 8 digitos.");
+        toast.error(
+          "Para boleta con tarjeta ingresa un DNI valido de 8 digitos.",
+        );
         return false;
       }
     }
@@ -1772,7 +1844,9 @@ const POSPage = () => {
         resetCart?: boolean;
         saleSettings?: Partial<PosSaleSettings>;
       } | null) ?? null;
-    const restoredSaleSettings = normalizePosSaleSettings(routeState?.saleSettings);
+    const restoredSaleSettings = normalizePosSaleSettings(
+      routeState?.saleSettings,
+    );
     const preserveCart = routeState?.preserveCart === true;
     const resetCart = routeState?.resetCart === true;
     if (resetCart) {
@@ -2716,7 +2790,6 @@ const POSPage = () => {
         setMobileCartOpen(false);
         setViewMode("cards");
         window.setTimeout(focusSearchInput, 0);
-        toast.success("Carrito limpiado");
       },
       confirmText: "Vaciar",
       cancelText: "Cancelar",
@@ -3187,14 +3260,7 @@ const POSPage = () => {
                 }));
                 return;
               }
-              setSaleCustomerInput(client.label);
-              setSaleSettings((prev) => ({
-                ...prev,
-                clienteId: client.id,
-                customerName: client.label,
-                ...customerFieldsFromClient(client, prev.docTypeCode),
-              }));
-              focusSaleField(nextSaleAfterCustomerRef, true);
+              selectSaleClientOption(client);
             }}
             renderInput={(params) => {
               const inputProps =
@@ -3236,7 +3302,18 @@ const POSPage = () => {
                     "data-autocomplete": "off",
                     onKeyDown: (event: KeyboardEvent<HTMLInputElement>) => {
                       inputProps.onKeyDown?.(event);
-                      if (!event.defaultPrevented) {
+                      if (
+                        !event.defaultPrevented &&
+                        !(event as MuiInputKeyboardEvent).defaultMuiPrevented
+                      ) {
+                        if (
+                          event.key === "Enter" &&
+                          !event.shiftKey &&
+                          selectOnlySaleClientMatch(event.currentTarget.value)
+                        ) {
+                          event.preventDefault();
+                          return;
+                        }
                         handleSaleEnterFocus(
                           nextSaleAfterCustomerRef,
                           true,
@@ -3250,211 +3327,201 @@ const POSPage = () => {
           />
 
           <>
-              <Autocomplete
-                fullWidth
-                size="small"
-                loading={clientsLoading}
-                loadingText="Cargando clientes..."
-                options={saleDniOptions}
-                value={
-                  saleDniOptions.find(
-                    (option) => option.value === saleSettings.customerDni,
-                  ) ?? null
-                }
-                inputValue={saleSettings.customerDni}
-                getOptionLabel={(option) =>
-                  typeof option === "string" ? option : option.label
-                }
-                isOptionEqualToValue={(option, value) =>
-                  option.value === value.value
-                }
-                filterOptions={(options, state) =>
-                  filterSaleDocumentOptions(options, state.inputValue)
-                }
-                onInputChange={(_, value, reason) => {
-                  if (reason === "reset") return;
-                  const numericValue = value.replace(/\D/g, "");
-                  setSaleSettings((prev) => ({
-                    ...prev,
-                    customerDni: numericValue,
-                    customerId:
-                      prev.docTypeCode === "01"
-                        ? prev.customerRuc
-                        : numericValue,
-                    clienteId: null,
-                  }));
-                }}
-                onChange={(_, option) => {
-                  if (!option) return;
-                  setSaleCustomerInput(option.client.label);
-                  setSaleSettings((prev) => ({
-                    ...prev,
-                    clienteId: option.client.id,
-                    customerName: option.client.label,
-                    ...customerFieldsFromClient(
-                      option.client,
-                      prev.docTypeCode,
-                    ),
-                    customerDni: option.value,
-                    customerId:
-                      prev.docTypeCode === "01"
-                        ? safeTrim(option.client.ruc)
-                        : option.value,
-                  }));
-                  focusSaleField(saleRucInputRef, true);
-                }}
-                onBlur={() =>
-                  ensureExistingSaleDocument("dni", saleSettings.customerDni)
-                }
-                renderInput={(params) => {
-                  const inputProps =
-                    params.inputProps as InputHTMLAttributes<HTMLInputElement>;
-                  return (
-                    <TextField
-                      {...params}
-                      variant="outlined"
-                      label="DNI"
-                      placeholder="Número de DNI"
-                      sx={POS_PAYMENT_TEXT_FIELD_SX}
-                      inputRef={saleDniInputRef}
-                      InputProps={{
-                        ...params.InputProps,
-                        endAdornment: (
-                          <>
-                            {clientsLoading ? (
-                              <CircularProgress color="inherit" size={16} />
-                            ) : null}
-                            {params.InputProps.endAdornment}
-                          </>
-                        ),
-                      }}
-                      inputProps={{
-                        ...params.inputProps,
-                        "data-no-uppercase": "true",
-                        "data-auto-next": "true",
-                        inputMode: "numeric",
-                        pattern: "[0-9]*",
-                        autoComplete: "one-time-code",
-                        autoCorrect: "off",
-                        autoCapitalize: "off",
-                        spellCheck: false,
-                        onKeyDown: (
-                          event: KeyboardEvent<HTMLInputElement>,
-                        ) => {
-                          inputProps.onKeyDown?.(event);
-                          if (!event.defaultPrevented) {
-                            handleSaleEnterFocus(saleRucInputRef, true)(event);
+            <Autocomplete
+              fullWidth
+              size="small"
+              loading={clientsLoading}
+              loadingText="Cargando clientes..."
+              options={saleDniOptions}
+              value={
+                saleDniOptions.find(
+                  (option) => option.value === saleSettings.customerDni,
+                ) ?? null
+              }
+              inputValue={saleSettings.customerDni}
+              getOptionLabel={(option) =>
+                typeof option === "string" ? option : option.label
+              }
+              isOptionEqualToValue={(option, value) =>
+                option.value === value.value
+              }
+              filterOptions={(options, state) =>
+                filterSaleDocumentOptions(options, state.inputValue)
+              }
+              onInputChange={(_, value, reason) => {
+                if (reason === "reset") return;
+                const numericValue = value.replace(/\D/g, "");
+                setSaleSettings((prev) => ({
+                  ...prev,
+                  customerDni: numericValue,
+                  customerId:
+                    prev.docTypeCode === "01" ? prev.customerRuc : numericValue,
+                  clienteId: null,
+                }));
+              }}
+              onChange={(_, option) => {
+                if (!option) return;
+                selectSaleDocumentOption("dni", option);
+              }}
+              onBlur={() =>
+                ensureExistingSaleDocument("dni", saleSettings.customerDni)
+              }
+              renderInput={(params) => {
+                const inputProps =
+                  params.inputProps as InputHTMLAttributes<HTMLInputElement>;
+                return (
+                  <TextField
+                    {...params}
+                    variant="outlined"
+                    label="DNI"
+                    placeholder="Número de DNI"
+                    sx={POS_PAYMENT_TEXT_FIELD_SX}
+                    inputRef={saleDniInputRef}
+                    InputProps={{
+                      ...params.InputProps,
+                      endAdornment: (
+                        <>
+                          {clientsLoading ? (
+                            <CircularProgress color="inherit" size={16} />
+                          ) : null}
+                          {params.InputProps.endAdornment}
+                        </>
+                      ),
+                    }}
+                    inputProps={{
+                      ...params.inputProps,
+                      "data-no-uppercase": "true",
+                      "data-auto-next": "true",
+                      inputMode: "numeric",
+                      pattern: "[0-9]*",
+                      autoComplete: "one-time-code",
+                      autoCorrect: "off",
+                      autoCapitalize: "off",
+                      spellCheck: false,
+                      onKeyDown: (event: KeyboardEvent<HTMLInputElement>) => {
+                        inputProps.onKeyDown?.(event);
+                        if (
+                          !event.defaultPrevented &&
+                          !(event as MuiInputKeyboardEvent).defaultMuiPrevented
+                        ) {
+                          if (
+                            event.key === "Enter" &&
+                            !event.shiftKey &&
+                            selectOnlySaleDocumentMatch(
+                              "dni",
+                              event.currentTarget.value,
+                            )
+                          ) {
+                            event.preventDefault();
+                            return;
                           }
-                        },
-                      }}
-                    />
-                  );
-                }}
-              />
+                          handleSaleEnterFocus(saleRucInputRef, true)(event);
+                        }
+                      },
+                    }}
+                  />
+                );
+              }}
+            />
 
-              <Autocomplete
-                fullWidth
-                size="small"
-                loading={clientsLoading}
-                loadingText="Cargando clientes..."
-                options={saleRucOptions}
-                value={
-                  saleRucOptions.find(
-                    (option) => option.value === saleSettings.customerRuc,
-                  ) ?? null
-                }
-                inputValue={saleSettings.customerRuc}
-                getOptionLabel={(option) =>
-                  typeof option === "string" ? option : option.label
-                }
-                isOptionEqualToValue={(option, value) =>
-                  option.value === value.value
-                }
-                filterOptions={(options, state) =>
-                  filterSaleDocumentOptions(options, state.inputValue)
-                }
-                onInputChange={(_, value, reason) => {
-                  if (reason === "reset") return;
-                  const numericValue = value.replace(/\D/g, "");
-                  setSaleSettings((prev) => ({
-                    ...prev,
-                    customerRuc: numericValue,
-                    customerId:
-                      prev.docTypeCode === "01"
-                        ? numericValue
-                        : prev.customerDni,
-                    clienteId: null,
-                  }));
-                }}
-                onChange={(_, option) => {
-                  if (!option) return;
-                  setSaleCustomerInput(option.client.label);
-                  setSaleSettings((prev) => ({
-                    ...prev,
-                    clienteId: option.client.id,
-                    customerName: option.client.label,
-                    ...customerFieldsFromClient(
-                      option.client,
-                      prev.docTypeCode,
-                    ),
-                    customerRuc: option.value,
-                    customerId:
-                      prev.docTypeCode === "01"
-                        ? option.value
-                        : safeTrim(option.client.dni),
-                  }));
-                  focusSaleField(saleFiscalAddressInputRef);
-                }}
-                onBlur={() =>
-                  ensureExistingSaleDocument("ruc", saleSettings.customerRuc)
-                }
-                renderInput={(params) => {
-                  const inputProps =
-                    params.inputProps as InputHTMLAttributes<HTMLInputElement>;
-                  return (
-                    <TextField
-                      {...params}
-                      variant="outlined"
-                      label="RUC"
-                      placeholder="Número de RUC"
-                      sx={POS_PAYMENT_TEXT_FIELD_SX}
-                      inputRef={saleRucInputRef}
-                      InputProps={{
-                        ...params.InputProps,
-                        endAdornment: (
-                          <>
-                            {clientsLoading ? (
-                              <CircularProgress color="inherit" size={16} />
-                            ) : null}
-                            {params.InputProps.endAdornment}
-                          </>
-                        ),
-                      }}
-                      inputProps={{
-                        ...params.inputProps,
-                        "data-no-uppercase": "true",
-                        "data-auto-next": "true",
-                        inputMode: "numeric",
-                        pattern: "[0-9]*",
-                        autoComplete: "one-time-code",
-                        autoCorrect: "off",
-                        autoCapitalize: "off",
-                        spellCheck: false,
-                        onKeyDown: (
-                          event: KeyboardEvent<HTMLInputElement>,
-                        ) => {
-                          inputProps.onKeyDown?.(event);
-                          if (!event.defaultPrevented) {
-                            handleSaleEnterFocus(saleFiscalAddressInputRef)(
-                              event,
-                            );
+            <Autocomplete
+              fullWidth
+              size="small"
+              loading={clientsLoading}
+              loadingText="Cargando clientes..."
+              options={saleRucOptions}
+              value={
+                saleRucOptions.find(
+                  (option) => option.value === saleSettings.customerRuc,
+                ) ?? null
+              }
+              inputValue={saleSettings.customerRuc}
+              getOptionLabel={(option) =>
+                typeof option === "string" ? option : option.label
+              }
+              isOptionEqualToValue={(option, value) =>
+                option.value === value.value
+              }
+              filterOptions={(options, state) =>
+                filterSaleDocumentOptions(options, state.inputValue)
+              }
+              onInputChange={(_, value, reason) => {
+                if (reason === "reset") return;
+                const numericValue = value.replace(/\D/g, "");
+                setSaleSettings((prev) => ({
+                  ...prev,
+                  customerRuc: numericValue,
+                  customerId:
+                    prev.docTypeCode === "01" ? numericValue : prev.customerDni,
+                  clienteId: null,
+                }));
+              }}
+              onChange={(_, option) => {
+                if (!option) return;
+                selectSaleDocumentOption("ruc", option);
+              }}
+              onBlur={() =>
+                ensureExistingSaleDocument("ruc", saleSettings.customerRuc)
+              }
+              renderInput={(params) => {
+                const inputProps =
+                  params.inputProps as InputHTMLAttributes<HTMLInputElement>;
+                return (
+                  <TextField
+                    {...params}
+                    variant="outlined"
+                    label="RUC"
+                    placeholder="Número de RUC"
+                    sx={POS_PAYMENT_TEXT_FIELD_SX}
+                    inputRef={saleRucInputRef}
+                    InputProps={{
+                      ...params.InputProps,
+                      endAdornment: (
+                        <>
+                          {clientsLoading ? (
+                            <CircularProgress color="inherit" size={16} />
+                          ) : null}
+                          {params.InputProps.endAdornment}
+                        </>
+                      ),
+                    }}
+                    inputProps={{
+                      ...params.inputProps,
+                      "data-no-uppercase": "true",
+                      "data-auto-next": "true",
+                      inputMode: "numeric",
+                      pattern: "[0-9]*",
+                      autoComplete: "one-time-code",
+                      autoCorrect: "off",
+                      autoCapitalize: "off",
+                      spellCheck: false,
+                      onKeyDown: (event: KeyboardEvent<HTMLInputElement>) => {
+                        inputProps.onKeyDown?.(event);
+                        if (
+                          !event.defaultPrevented &&
+                          !(event as MuiInputKeyboardEvent).defaultMuiPrevented
+                        ) {
+                          if (
+                            event.key === "Enter" &&
+                            !event.shiftKey &&
+                            selectOnlySaleDocumentMatch(
+                              "ruc",
+                              event.currentTarget.value,
+                            )
+                          ) {
+                            event.preventDefault();
+                            return;
                           }
-                        },
-                      }}
-                    />
-                  );
-                }}
-              />
+                          handleSaleEnterFocus(saleFiscalAddressInputRef)(
+                            event,
+                          );
+                        }
+                      },
+                    }}
+                  />
+                );
+              }}
+            />
           </>
 
           <TextField
@@ -3744,7 +3811,9 @@ const POSPage = () => {
         {saleDisplayIgv > 0 && (
           <div className="flex justify-between text-sm text-gray-700 md:text-lg xl:text-sm">
             <span>IGV (18%)</span>
-            <span className="font-semibold">S/ {saleDisplayIgv.toFixed(2)}</span>
+            <span className="font-semibold">
+              S/ {saleDisplayIgv.toFixed(2)}
+            </span>
           </div>
         )}
         <div className="flex justify-between text-base font-bold text-slate-800 md:text-xl xl:text-base">

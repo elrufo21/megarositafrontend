@@ -315,6 +315,17 @@ export function HookFormAutocomplete<
                   value: field.value,
                 } as unknown as TOption)
               : selectedOption;
+          const selectExistingOption = (option: TOption) => {
+            const nextValue =
+              typeof option === "object" &&
+              option !== null &&
+              "value" in option
+                ? option.value
+                : option;
+            field.onChange(nextValue);
+            setInputValue(defaultGetOptionLabel(option));
+            onOptionSelected?.(option);
+          };
 
           return (
             <Autocomplete
@@ -361,7 +372,6 @@ export function HookFormAutocomplete<
                 }
 
                 if (reason === "reset") {
-                  setInputValue(newInputValue);
                   return;
                 }
 
@@ -382,7 +392,7 @@ export function HookFormAutocomplete<
                   }
                 }
               }}
-              onChange={(event, option) => {
+              onChange={(event, option, reason) => {
                 const moveToNext = () => {
                   const source = event.target as HTMLElement;
                   const moved = focusNextInput(source);
@@ -397,6 +407,7 @@ export function HookFormAutocomplete<
                 };
 
                 if (!option) {
+                  if (reason !== "clear") return;
                   field.onChange(null);
                   setInputValue("");
                   onOptionSelected?.(null);
@@ -422,15 +433,7 @@ export function HookFormAutocomplete<
                   return;
                 }
 
-                const nextValue =
-                  typeof option === "object" &&
-                  option !== null &&
-                  "value" in option
-                    ? option.value
-                    : option;
-                field.onChange(nextValue);
-                setInputValue(defaultGetOptionLabel(option as TOption));
-                onOptionSelected?.(option as TOption);
+                selectExistingOption(option as TOption);
                 window.requestAnimationFrame(moveToNext);
               }}
               renderInput={(params) => (
@@ -521,6 +524,34 @@ export function HookFormAutocomplete<
                     params.inputProps?.onKeyDown?.(
                       event as unknown as KeyboardEvent<HTMLInputElement>,
                     );
+                    if (
+                      event.key === "Enter" &&
+                      !event.shiftKey &&
+                      !allowCreate &&
+                      !event.defaultPrevented &&
+                      !(event as MuiKeyboardEvent).defaultMuiPrevented
+                    ) {
+                      const input =
+                        inputElementRef.current ??
+                        (event.target as HTMLInputElement | null);
+                      const matches = appliedFilterOptions(
+                        options as (TOption & { inputValue?: string })[],
+                        {
+                          inputValue: input?.value ?? "",
+                        } as FilterOptionsState<
+                          TOption & { inputValue?: string }
+                        >,
+                      );
+                      if (matches.length === 1) {
+                        const source = input;
+                        event.preventDefault();
+                        selectExistingOption(matches[0] as TOption);
+                        window.requestAnimationFrame(() =>
+                          source && focusNextInput(source),
+                        );
+                        return;
+                      }
+                    }
                     handleKeyDown(event as KeyboardEvent<HTMLInputElement>);
                   }}
                 />
