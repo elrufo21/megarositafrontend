@@ -97,6 +97,10 @@ type CompanyDataPayload = {
   CompaniaNomUbg?: string;
   companiaDistrito?: string;
   CompaniaDistrito?: string;
+  descuento?: number | string | null;
+  Descuento?: number | string | null;
+  descuentoMax?: number | string | null;
+  DescuentoMax?: number | string | null;
   logoCompania?: string;
   LogoCompania?: string;
 };
@@ -200,6 +204,14 @@ const showPriceBelowMinimumToast = (minPrice: number) => {
     id: "payment-price-below-minimum",
   });
 };
+const showMissingPriceToast = () =>
+  toast.error("Ingresa el precio del producto.", {
+    id: "payment-price-required",
+  });
+const showInvalidQuantityToast = () =>
+  toast.error("La cantidad debe ser mayor a 0.", {
+    id: "payment-quantity-required",
+  });
 
 const UNITS = [
   "",
@@ -823,6 +835,7 @@ const PaymentPage = () => {
   const hasExecutedConfirmedSaleCleanupRef = useRef(false);
   const shouldCleanupOnExitAfterConfirmRef = useRef(false);
   const editRestrictionNotifiedRef = useRef(false);
+  const previousDocTypeCodeForCorrelativeRef = useRef<string | null>(null);
 
   const docTypeConfig: Record<
     "03" | "01" | "101" | "001",
@@ -967,7 +980,18 @@ const PaymentPage = () => {
       safeTrim(parsedSession?.user?.username) ||
       "";
     const discountMaxRaw =
-      parsedSession?.user?.maxDiscount ?? parsedSession?.descuentoMax ?? 0;
+      parsedSession?.user?.discount ??
+      parsedSession?.user?.descuento ??
+      parsedSession?.user?.Descuento ??
+      parsedSession?.descuento ??
+      parsedSession?.Descuento ??
+      parsedSession?.loginPayload?.descuento ??
+      parsedSession?.loginPayload?.Descuento ??
+      parsedSession?.user?.maxDiscount ??
+      parsedSession?.descuentoMax ??
+      parsedSession?.loginPayload?.descuentoMax ??
+      parsedSession?.loginPayload?.DescuentoMax ??
+      0;
     const discountMaxNumeric = Number(discountMaxRaw);
     const safeDiscountMax =
       Number.isFinite(discountMaxNumeric) && discountMaxNumeric > 0
@@ -1355,6 +1379,7 @@ const PaymentPage = () => {
     const parsed = Number(normalized);
     if (normalized === "" || Number.isNaN(parsed)) {
       applyQuantityToItem(item, 0);
+      showInvalidQuantityToast();
     } else {
       applyQuantityToItem(item, Math.max(0, parsed));
     }
@@ -1456,6 +1481,7 @@ const PaymentPage = () => {
         [itemKey]: formatCurrency(item.precio),
       }));
       setCorrectedPriceKeys((prev) => ({ ...prev, [itemKey]: true }));
+      showMissingPriceToast();
       return;
     }
 
@@ -1466,6 +1492,7 @@ const PaymentPage = () => {
         [itemKey]: formatCurrency(item.precio),
       }));
       setCorrectedPriceKeys((prev) => ({ ...prev, [itemKey]: true }));
+      showMissingPriceToast();
       return;
     }
     const minPrice = getMinAllowedPrice(item);
@@ -1511,7 +1538,7 @@ const PaymentPage = () => {
     );
     if (invalidItems.length) {
       setActiveTab("items");
-      toast.error("No puede agregar productos en 0.");
+      showInvalidQuantityToast();
       return false;
     }
 
@@ -1519,7 +1546,13 @@ const PaymentPage = () => {
     if (invalidPriceItem) {
       setActiveTab("items");
       const itemKey = getCartItemKey(invalidPriceItem);
-      correctPriceToMinimum(invalidPriceItem, itemKey);
+      const draftValue = priceDrafts[itemKey];
+      if (draftValue !== undefined && !draftValue.trim()) {
+        showMissingPriceToast();
+        focusPriceInput(itemKey);
+      } else {
+        correctPriceToMinimum(invalidPriceItem, itemKey);
+      }
       clearCorrectedPriceKey(itemKey);
       return false;
     }
@@ -1600,7 +1633,18 @@ const PaymentPage = () => {
   const documentCompanyId =
     notaId && loadedNotaCompanyId > 0 ? loadedNotaCompanyId : activeCompanyId;
   const docConfig = docTypeConfig[docTypeCode as keyof typeof docTypeConfig];
-  const notaSerie = (notaSerieOverride || docConfig?.serie || "BA01").trim();
+  const defaultNotaSerie = (docConfig?.serie || "BA01").trim();
+  const notaSerieOverrideValue = safeTrim(notaSerieOverride);
+  const notaSerieOverrideMatchesDocType =
+    Boolean(notaSerieOverrideValue) &&
+    (docTypeCode === "101" || docTypeCode === "001"
+      ? notaSerieOverrideValue === defaultNotaSerie
+      : resolveDocTypeCodeFromSerie(notaSerieOverrideValue) === docTypeCode);
+  const notaSerie = (
+    notaSerieOverrideMatchesDocType
+      ? notaSerieOverrideValue
+      : defaultNotaSerie
+  ).trim();
   const paddedNotaNumero = useMemo(() => {
     const digitsOnly = (notaNumero || "").replace(/\D/g, "");
     if (!digitsOnly) return "";
@@ -1656,6 +1700,17 @@ const PaymentPage = () => {
   const isFactura = docTypeCode === "01";
   const isBoleta = docTypeCode === "03";
   const isProforma = docTypeCode === "101" || docTypeCode === "001";
+
+  useEffect(() => {
+    const previous = previousDocTypeCodeForCorrelativeRef.current;
+    previousDocTypeCodeForCorrelativeRef.current = docTypeCode;
+    if (!hasLoadedNotaMeta || previous === null || previous === docTypeCode) {
+      return;
+    }
+    setNotaSerieOverride(null);
+    setNotaNumero("");
+  }, [docTypeCode, hasLoadedNotaMeta]);
+
   const shouldPrintOrderNoteAsProforma =
     isOrderNotesFlow &&
     Boolean(notaId) &&
@@ -1865,6 +1920,38 @@ const PaymentPage = () => {
     },
     [maxDiscount],
   );
+  const validatePaymentDiscountBeforeSubmit = () => {
+    if (!applyDiscount) return true;
+
+    const discount = Number(discountInput ?? 0);
+    const maxDiscountAllowed = maxDiscount;
+    const focusDiscount = () => {
+      setActiveTab("note");
+      window.setTimeout(() => setFocus("discount"), 0);
+    };
+
+    if (!Number.isFinite(discount)) {
+      toast.error("Descuento inválido.");
+      focusDiscount();
+      return false;
+    }
+    if (discount < 0) {
+      toast.error("El descuento no puede ser negativo.");
+      focusDiscount();
+      return false;
+    }
+    if (discount > maxDiscountAllowed) {
+      toast.error(
+        `El descuento no puede superar S/ ${formatCurrency(
+          maxDiscountAllowed,
+        )}.`,
+      );
+      focusDiscount();
+      return false;
+    }
+
+    return true;
+  };
   const viewTotalsOverride =
     isOrderNotesFlow &&
     (isReadOnlyNoteView || isConfirmed) &&
@@ -2272,7 +2359,7 @@ const PaymentPage = () => {
   }
 
   const fetchNotaFromServer = async (notaIdToLoad: number) => {
-    if (!Number.isFinite(notaIdToLoad) || notaIdToLoad <= 0) return;
+    if (!Number.isFinite(notaIdToLoad) || notaIdToLoad <= 0) return null;
     setNotaEstadoActual("");
     setDocuIdActual(null);
     setNotaCabeceraActual(null);
@@ -2593,11 +2680,13 @@ const PaymentPage = () => {
       if (!notaData && estadoSunatFromDetalles) {
         setNotaEstadoActual(resolveUiNotaStatus("", estadoSunatFromDetalles));
       }
+      return notaData as Record<string, unknown> | null;
     } catch (error) {
       console.error("Error al cargar la nota por id", error);
       toast.error("No se pudo sincronizar la nota.");
       setLoadedNotaMonetaryTotals(null);
       setLoadedNotePricesIncludeIgv(true);
+      return null;
     }
   };
 
@@ -2807,22 +2896,11 @@ const PaymentPage = () => {
   ]);
 
   useEffect(() => {
-    if (!applyDiscount) {
-      if (Number(discountInput ?? 0) !== 0) {
-        setValue("discount", 0, { shouldDirty: true, shouldValidate: true });
-      }
+    if (applyDiscount || Number(discountInput ?? 0) === 0) {
       return;
     }
-
-    const currentValue = Number(discountInput ?? 0);
-    const clampedValue = clampDiscount(discountInput);
-    if (!Number.isFinite(currentValue) || currentValue !== clampedValue) {
-      setValue("discount", clampedValue, {
-        shouldDirty: true,
-        shouldValidate: true,
-      });
-    }
-  }, [applyDiscount, discountInput, clampDiscount, setValue]);
+    setValue("discount", 0, { shouldDirty: true, shouldValidate: true });
+  }, [applyDiscount, discountInput, setValue]);
 
   useEffect(() => {
     // Solo resetea en flujo nuevo; en edicion o con cliente cargado no limpiar
@@ -4393,6 +4471,10 @@ const PaymentPage = () => {
 
   const confirmPayment = async () => {
     if (isReadOnlyNoteView) return;
+    const sourceItems = hasLiveItems ? items : purchasedItems;
+    if (!validatePaymentItemsBeforeSubmit(sourceItems)) return;
+    if (!validatePaymentDiscountBeforeSubmit()) return;
+
     if (
       !isProforma &&
       !isPaymentMethodAllowedForCompany(paymentMethod, activeCompanyId)
@@ -4421,9 +4503,6 @@ const PaymentPage = () => {
     }
     if (!ensureBoletaCustomerAndDni()) return;
     if (!ensureFacturaCustomerAndRuc()) return;
-
-    const sourceItems = hasLiveItems ? items : purchasedItems;
-    if (!validatePaymentItemsBeforeSubmit(sourceItems)) return;
 
     const sourceTotals = hasLiveItems ? totals : paidTotals;
     setPurchasedItems(sourceItems);
@@ -4872,13 +4951,14 @@ const PaymentPage = () => {
         replace: true,
       });
     }
+    let refreshedNotaAfterEdit: Record<string, unknown> | null = null;
     if (isEditingMode) {
       setEditingModeInStore(false);
     }
     if (isEditing && parsedNotaId) {
       const numericNotaId = Number(parsedNotaId);
       if (Number.isFinite(numericNotaId) && numericNotaId > 0) {
-        await fetchNotaFromServer(numericNotaId);
+        refreshedNotaAfterEdit = await fetchNotaFromServer(numericNotaId);
         if (isOrderNotesFlow) {
           navigate(`/sales/order_notes/${numericNotaId}/view`, {
             replace: true,
@@ -5187,9 +5267,28 @@ const PaymentPage = () => {
     } else {
       toast.success("Pedido registrado");
     }
-    const serieForImmediatePrint = safeTrim(parsedNotaSerie || notaSerie);
+    const refreshedNotaSerie = safeTrim(
+      refreshedNotaAfterEdit?.["notaSerie"] ??
+        refreshedNotaAfterEdit?.["NotaSerie"] ??
+        refreshedNotaAfterEdit?.["serie"] ??
+        refreshedNotaAfterEdit?.["Serie"] ??
+        "",
+    );
+    const refreshedNotaNumeroDigits = safeTrim(
+      refreshedNotaAfterEdit?.["notaNumero"] ??
+        refreshedNotaAfterEdit?.["NotaNumero"] ??
+        refreshedNotaAfterEdit?.["numero"] ??
+        refreshedNotaAfterEdit?.["Numero"] ??
+        "",
+    ).replace(/\D/g, "");
+    const refreshedNotaNumero = refreshedNotaNumeroDigits
+      ? refreshedNotaNumeroDigits.padStart(8, "0")
+      : "";
+    const serieForImmediatePrint = safeTrim(
+      parsedNotaSerie || refreshedNotaSerie || notaSerie,
+    );
     const numeroForImmediatePrint = safeTrim(
-      parsedNotaCorrelative || paddedNotaNumero,
+      parsedNotaCorrelative || refreshedNotaNumero || paddedNotaNumero,
     );
     const immediateDocumentNumber =
       serieForImmediatePrint && numeroForImmediatePrint
@@ -7558,37 +7657,19 @@ const PaymentPage = () => {
                   label=""
                   type="number"
                   min={0}
-                  max={roundCurrency(maxDiscount)}
                   step="0.01"
                   data-discount-input="true"
-                  rules={{
-                    validate: (value: any) => {
-                      const numeric = Number(value ?? 0);
-                      if (!Number.isFinite(numeric))
-                        return "Descuento inválido";
-                      if (numeric < 0)
-                        return "El descuento no puede ser negativo";
-                      return (
-                        numeric <= maxDiscount ||
-                        `No puede superar S/ ${formatCurrency(maxDiscount)}`
-                      );
-                    },
-                  }}
+                  rules={{ validate: () => true }}
                   className="text-right appearance-none [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
                   style={{ MozAppearance: "textfield" }}
                   onFocus={(e) => e.target.select()}
                   onBlur={(e) => {
                     const currentValue = Number(e.currentTarget.value ?? 0);
-                    const clampedValue = clampDiscount(e.currentTarget.value);
-                    if (
-                      !Number.isFinite(currentValue) ||
-                      currentValue !== clampedValue
-                    ) {
-                      setValue("discount", clampedValue, {
-                        shouldDirty: true,
-                        shouldValidate: true,
-                      });
-                    }
+                    if (!Number.isFinite(currentValue)) return;
+                    setValue("discount", roundCurrency(currentValue), {
+                      shouldDirty: true,
+                      shouldValidate: true,
+                    });
                   }}
                   disabled={formLocked}
                 />

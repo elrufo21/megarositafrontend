@@ -27,6 +27,7 @@ export interface AuthUser {
   claveCertificado: string;
   entorno: string;
   maxDiscount: number;
+  discount: number;
   cardPercentage: number;
   boletaPorLote: boolean;
 }
@@ -85,6 +86,8 @@ interface LoginResponse {
   Entorno?: string | number | null;
   FechaVencimientoClave?: string | null;
   DescuentoMax?: string | number | null;
+  Descuento?: string | number | null;
+  descuento?: string | number | null;
   TarjetaPorcentaje?: string | number | null;
   BoletaPorLote?: string | number | boolean | null;
   Token?: string | null;
@@ -288,7 +291,12 @@ const normalizeAuthUser = (user: AuthUser): AuthUser => ({
   ),
   entorno: normalizeText((user as AuthUser & { entorno?: unknown }).entorno),
   maxDiscount: normalizeMaxDiscount(
-    (user as AuthUser & { maxDiscount?: unknown }).maxDiscount,
+    (user as AuthUser & { discount?: unknown; maxDiscount?: unknown }).discount ??
+      (user as AuthUser & { discount?: unknown; maxDiscount?: unknown }).maxDiscount,
+  ),
+  discount: normalizeMaxDiscount(
+    (user as AuthUser & { discount?: unknown; maxDiscount?: unknown }).discount ??
+      (user as AuthUser & { discount?: unknown; maxDiscount?: unknown }).maxDiscount,
   ),
   cardPercentage: normalizeCardPercentage(
     (user as AuthUser & { cardPercentage?: unknown }).cardPercentage,
@@ -486,6 +494,10 @@ export const useAuthStore = create<AuthState>((set, get) => {
         readLoginValue(parsed, "TarjetaPorcentaje", "tarjetaPorcentaje"),
         5,
       );
+      const discountValue = normalizeMaxDiscount(
+        readLoginValue(parsed, "Descuento", "descuento") ??
+          readLoginValue(parsed, "DescuentoMax", "descuentoMax"),
+      );
       const normalizedEmail = email.trim();
       const resolvedUsername =
         normalizeText(readLoginValue(parsed, "Usuario", "usuario")) ||
@@ -535,9 +547,8 @@ export const useAuthStore = create<AuthState>((set, get) => {
             readLoginValue(parsed, "ClaveCertificado", "claveCertificado"),
           ),
           entorno: normalizeText(readLoginValue(parsed, "Entorno", "entorno")),
-          maxDiscount: normalizeMaxDiscount(
-            readLoginValue(parsed, "DescuentoMax", "descuentoMax"),
-          ),
+          maxDiscount: discountValue,
+          discount: discountValue,
           cardPercentage,
           boletaPorLote,
         },
@@ -574,6 +585,11 @@ export const useAuthStore = create<AuthState>((set, get) => {
             ) || null,
           DescuentoMax: (() => {
             const raw = readLoginValue(parsed, "DescuentoMax", "descuentoMax");
+            return raw === null || raw === undefined ? null : String(raw);
+          })(),
+          Descuento: (() => {
+            const raw =
+              readLoginValue(parsed, "Descuento", "descuento") ?? discountValue;
             return raw === null || raw === undefined ? null : String(raw);
           })(),
           TarjetaPorcentaje: String(cardPercentage),
@@ -613,6 +629,7 @@ export const useAuthStore = create<AuthState>((set, get) => {
             const raw = readLoginValue(parsed, "DescuentoMax", "descuentoMax");
             return raw === null || raw === undefined ? null : String(raw);
           })(),
+          descuento: String(discountValue),
           tarjetaPorcentaje: String(cardPercentage),
           boletaPorLote: boletaPorLote ? "1" : "0",
         },

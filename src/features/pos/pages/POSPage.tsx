@@ -106,16 +106,25 @@ type AuthSessionPayload = {
     companyName?: unknown;
     displayName?: unknown;
     username?: unknown;
+    discount?: unknown;
+    descuento?: unknown;
+    Descuento?: unknown;
     maxDiscount?: unknown;
     cardPercentage?: unknown;
     tarjetaPorcentaje?: unknown;
     TarjetaPorcentaje?: unknown;
   };
+  descuento?: unknown;
+  Descuento?: unknown;
   descuentoMax?: unknown;
   razonSocial?: unknown;
   tarjetaPorcentaje?: unknown;
   TarjetaPorcentaje?: unknown;
   loginPayload?: {
+    descuento?: unknown;
+    Descuento?: unknown;
+    descuentoMax?: unknown;
+    DescuentoMax?: unknown;
     tarjetaPorcentaje?: unknown;
     TarjetaPorcentaje?: unknown;
   };
@@ -758,7 +767,18 @@ const POSPage = () => {
       safeTrim(parsedSession?.user?.username) ||
       "USUARIO";
     const discountMaxRaw =
-      parsedSession?.user?.maxDiscount ?? parsedSession?.descuentoMax ?? 0;
+      parsedSession?.user?.discount ??
+      parsedSession?.user?.descuento ??
+      parsedSession?.user?.Descuento ??
+      parsedSession?.descuento ??
+      parsedSession?.Descuento ??
+      parsedSession?.loginPayload?.descuento ??
+      parsedSession?.loginPayload?.Descuento ??
+      parsedSession?.user?.maxDiscount ??
+      parsedSession?.descuentoMax ??
+      parsedSession?.loginPayload?.descuentoMax ??
+      parsedSession?.loginPayload?.DescuentoMax ??
+      0;
     const discountMaxNumeric = Number(discountMaxRaw);
     const discountMaxFromSession =
       Number.isFinite(discountMaxNumeric) && discountMaxNumeric > 0
@@ -864,7 +884,6 @@ const POSPage = () => {
         Math.min(
           Math.max(0, toDecimal(saleSettings.discount)),
           Math.max(0, Number(discountMaxFromSession ?? 0)),
-          Math.max(0, Number(totals.total ?? 0)),
         ),
       )
     : 0;
@@ -1599,6 +1618,26 @@ const POSPage = () => {
     const discount = saleSettings.applyDiscount
       ? toDecimal(saleSettings.discount)
       : 0;
+    const maxDiscountAllowed = Math.max(0, Number(discountMaxFromSession ?? 0));
+    const focusSaleDiscount = () => {
+      setCartTab("payment");
+      window.setTimeout(() => saleDiscountInputRef.current?.focus(), 0);
+    };
+
+    if (discount < 0) {
+      toast.error("El descuento no puede ser negativo.");
+      focusSaleDiscount();
+      return false;
+    }
+    if (discount > maxDiscountAllowed) {
+      toast.error(
+        `El descuento no puede superar S/ ${roundCurrency(
+          maxDiscountAllowed,
+        ).toFixed(2)}.`,
+      );
+      focusSaleDiscount();
+      return false;
+    }
 
     if (saleSettings.docTypeCode === "SELECCIONAR") {
       toast.error("Selecciona el tipo de documento.");
@@ -1685,19 +1724,6 @@ const POSPage = () => {
       customerDocument.length !== 8
     ) {
       toast.error("El DNI debe tener 8 digitos.");
-      return false;
-    }
-
-    if (discount < 0) {
-      toast.error("El descuento no puede ser negativo.");
-      return false;
-    }
-    if (discount > Math.max(0, Number(discountMaxFromSession ?? 0))) {
-      toast.error(
-        `El descuento no puede superar S/ ${roundCurrency(
-          Number(discountMaxFromSession ?? 0),
-        ).toFixed(2)}.`,
-      );
       return false;
     }
 
@@ -1904,6 +1930,20 @@ const POSPage = () => {
     }
 
     return true;
+  };
+
+  const showInvalidQuantityMessage = () => {
+    toast.error("La cantidad debe ser mayor a 0.");
+  };
+
+  const showInvalidPriceMessage = (item: PosCartItem, value: string) => {
+    toast.error(
+      !value.trim()
+        ? "Ingresa el precio del producto."
+        : `El precio no debe ser menor a: S/ ${formatPrice(
+            getMinAllowedPrice(item),
+          )}`,
+    );
   };
 
   const requestPersonalAuthorizationForPayment = () =>
@@ -2260,6 +2300,7 @@ const POSPage = () => {
   };
 
   const goToPayment = () => {
+    if (!validateCartItemsBeforePayment()) return;
     void confirmFromPos();
   };
 
@@ -2676,6 +2717,7 @@ const POSPage = () => {
 
     if (normalized === "" || Number.isNaN(parsed)) {
       updateQuantity(itemKey, 0);
+      showInvalidQuantityMessage();
     } else {
       const desired = Math.max(0, parsed);
       updateQuantity(itemKey, desired);
@@ -2736,17 +2778,20 @@ const POSPage = () => {
     const itemKey = getCartItemKey(item);
     if (value.trim() === "") {
       setInvalidPriceKeys((prev) => ({ ...prev, [itemKey]: true }));
+      showInvalidPriceMessage(item, value);
       return;
     }
 
     const parsed = Number(value);
     if (Number.isNaN(parsed)) {
       setInvalidPriceKeys((prev) => ({ ...prev, [itemKey]: true }));
+      showInvalidPriceMessage(item, value);
       return;
     }
     const minPrice = getMinAllowedPrice(item);
     if (parsed < minPrice) {
       setInvalidPriceKeys((prev) => ({ ...prev, [itemKey]: true }));
+      showInvalidPriceMessage(item, value);
       return;
     }
 
@@ -3815,16 +3860,12 @@ const POSPage = () => {
                     setSaleSettings((prev) => ({ ...prev, discount: "" }));
                     return;
                   }
-                  const clamped = roundCurrency(
-                    Math.min(
-                      Math.max(0, toDecimal(event.currentTarget.value)),
-                      Math.max(0, Number(discountMaxFromSession ?? 0)),
-                      Math.max(0, Number(totals.total ?? 0)),
-                    ),
+                  const normalized = roundCurrency(
+                    toDecimal(event.currentTarget.value),
                   );
                   setSaleSettings((prev) => ({
                     ...prev,
-                    discount: String(clamped),
+                    discount: String(normalized),
                   }));
                 }}
                 sx={{

@@ -74,6 +74,13 @@ const toCompanyUserPatch = (
     value === 1 ||
     ["1", "true", "si", "sí", "s"].includes(normalizeText(value).toLowerCase());
 
+  const discount = numberOrZero(
+    record.Descuento ??
+      record.descuento ??
+      record.DescuentoMax ??
+      record.descuentoMax,
+  );
+
   return {
     companyId: normalizeText(
       record.CompaniaId ?? record.companiaId ?? record.companyId ?? fallback.id,
@@ -122,7 +129,8 @@ const toCompanyUserPatch = (
         record.CompaniaClave,
     ),
     entorno: normalizeText(record.Entorno ?? record.entorno),
-    maxDiscount: numberOrZero(record.DescuentoMax ?? record.descuentoMax),
+    maxDiscount: discount,
+    discount,
     boletaPorLote: boolValue(record.BoletaPorLote ?? record.boletaPorLote),
   };
 };
