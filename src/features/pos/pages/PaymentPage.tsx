@@ -185,8 +185,18 @@ const roundCurrency = (value: number) => {
   if (!Number.isFinite(numeric)) return 0;
   return Math.round((numeric + Number.EPSILON) * 100) / 100;
 };
+const validationToastLastShownAt = new Map<string, number>();
+const VALIDATION_TOAST_DEBOUNCE_MS = 900;
 const formatCurrency = (value: unknown) =>
   roundCurrency(Number(value ?? 0)).toFixed(2);
+const showSingleValidationToast = (id: string, message: string) => {
+  const now = Date.now();
+  const lastShownAt = validationToastLastShownAt.get(id) ?? 0;
+  if (now - lastShownAt < VALIDATION_TOAST_DEBOUNCE_MS) return;
+  validationToastLastShownAt.set(id, now);
+  toast.dismiss(id);
+  toast.error(message, { id });
+};
 const hasInvalidQuantityOrStockForPayment = (item: PosCartItem) => {
   const quantity = Number(item.cantidad ?? 0);
   if (!Number.isFinite(quantity) || quantity <= 0) return true;
@@ -200,18 +210,21 @@ const getMinAllowedPrice = (item: PosCartItem) => {
   );
 };
 const showPriceBelowMinimumToast = (minPrice: number) => {
-  toast.error(`El precio no debe ser menor a: S/ ${formatCurrency(minPrice)}`, {
-    id: "payment-price-below-minimum",
-  });
+  showSingleValidationToast(
+    "payment-validation",
+    `El precio no debe ser menor a: S/ ${formatCurrency(minPrice)}`,
+  );
 };
 const showMissingPriceToast = () =>
-  toast.error("Ingresa el precio del producto.", {
-    id: "payment-price-required",
-  });
+  showSingleValidationToast(
+    "payment-validation",
+    "Ingresa el precio del producto.",
+  );
 const showInvalidQuantityToast = () =>
-  toast.error("La cantidad debe ser mayor a 0.", {
-    id: "payment-quantity-required",
-  });
+  showSingleValidationToast(
+    "payment-validation",
+    "La cantidad debe ser mayor a 0.",
+  );
 
 const UNITS = [
   "",
@@ -1931,17 +1944,21 @@ const PaymentPage = () => {
     };
 
     if (!Number.isFinite(discount)) {
-      toast.error("Descuento inválido.");
+      showSingleValidationToast("payment-validation", "Descuento inválido.");
       focusDiscount();
       return false;
     }
     if (discount < 0) {
-      toast.error("El descuento no puede ser negativo.");
+      showSingleValidationToast(
+        "payment-validation",
+        "El descuento no puede ser negativo.",
+      );
       focusDiscount();
       return false;
     }
     if (discount > maxDiscountAllowed) {
-      toast.error(
+      showSingleValidationToast(
+        "payment-validation",
         `El descuento no puede superar S/ ${formatCurrency(
           maxDiscountAllowed,
         )}.`,

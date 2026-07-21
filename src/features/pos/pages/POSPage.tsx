@@ -261,6 +261,16 @@ const POS_PAYMENT_METHODS: Array<{ value: PosPaymentMethod; label: string }> = [
   { value: "DEPO. SCOTIABANK", label: "DEPO. SCOTIABANK" },
   { value: "DEPO. CONTINENTAL", label: "DEPO. CONTINENTAL" },
 ];
+const validationToastLastShownAt = new Map<string, number>();
+const VALIDATION_TOAST_DEBOUNCE_MS = 900;
+const showSingleValidationToast = (message: string) => {
+  const now = Date.now();
+  const lastShownAt = validationToastLastShownAt.get("pos-validation") ?? 0;
+  if (now - lastShownAt < VALIDATION_TOAST_DEBOUNCE_MS) return;
+  validationToastLastShownAt.set("pos-validation", now);
+  toast.dismiss("pos-validation");
+  toast.error(message, { id: "pos-validation" });
+};
 const normalizePosSaleSettings = (value: unknown): PosSaleSettings | null => {
   const record =
     value && typeof value === "object"
@@ -1625,12 +1635,12 @@ const POSPage = () => {
     };
 
     if (discount < 0) {
-      toast.error("El descuento no puede ser negativo.");
+      showSingleValidationToast("El descuento no puede ser negativo.");
       focusSaleDiscount();
       return false;
     }
     if (discount > maxDiscountAllowed) {
-      toast.error(
+      showSingleValidationToast(
         `El descuento no puede superar S/ ${roundCurrency(
           maxDiscountAllowed,
         ).toFixed(2)}.`,
@@ -1909,7 +1919,7 @@ const POSPage = () => {
     const invalidQuantityItem = items.find(hasInvalidQuantityForPayment);
     if (invalidQuantityItem) {
       setCartTab("products");
-      toast.error("La cantidad debe ser mayor a 0.");
+      showSingleValidationToast("La cantidad debe ser mayor a 0.");
       return false;
     }
 
@@ -1918,7 +1928,7 @@ const POSPage = () => {
       const itemKey = getCartItemKey(invalidPriceItem);
       const draftValue = priceDrafts[itemKey];
       setCartTab("products");
-      toast.error(
+      showSingleValidationToast(
         draftValue !== undefined && !draftValue.trim()
           ? "Ingresa el precio del producto."
           : `El precio no debe ser menor a: S/ ${formatPrice(
@@ -1933,11 +1943,11 @@ const POSPage = () => {
   };
 
   const showInvalidQuantityMessage = () => {
-    toast.error("La cantidad debe ser mayor a 0.");
+    showSingleValidationToast("La cantidad debe ser mayor a 0.");
   };
 
   const showInvalidPriceMessage = (item: PosCartItem, value: string) => {
-    toast.error(
+    showSingleValidationToast(
       !value.trim()
         ? "Ingresa el precio del producto."
         : `El precio no debe ser menor a: S/ ${formatPrice(
