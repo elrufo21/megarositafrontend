@@ -3548,6 +3548,7 @@ const POSPage = () => {
             minRows={2}
             value={saleSettings.shippingAddress}
             InputLabelProps={{ shrink: true }}
+            inputProps={{ "data-no-uppercase": "true" }}
             inputRef={saleShippingAddressInputRef}
             onKeyDown={handleSaleEnterFocus(salePhoneInputRef)}
             onChange={(event) =>
@@ -3566,6 +3567,7 @@ const POSPage = () => {
             size="small"
             label="Teléfono/Cel."
             value={saleSettings.phone}
+            inputProps={{ "data-no-uppercase": "true" }}
             inputRef={salePhoneInputRef}
             onKeyDown={handleSaleEnterFocus(nextSaleAfterPhoneRef, true)}
             onChange={(event) =>
