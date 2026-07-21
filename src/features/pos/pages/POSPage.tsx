@@ -2930,7 +2930,8 @@ const POSPage = () => {
           const isZeroOrNegative = (item.cantidad ?? 0) <= 0;
           const stockValue = Number(item.stock ?? 0);
           const isStockNegative =
-            stockValue < 0 || Number(item.cantidad ?? 0) > stockValue;
+            item.stock !== undefined &&
+            (stockValue < 0 || Number(item.cantidad ?? 0) > stockValue);
           const minPrice = getMinAllowedPrice(item);
           const itemPriceA = getCartItemPriceA(item);
           const itemPriceB = getCartItemPriceB(item);

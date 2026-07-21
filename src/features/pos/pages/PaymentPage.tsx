@@ -765,6 +765,8 @@ const PaymentPage = () => {
   > | null>(null);
   const [notaCompaniaActual, setNotaCompaniaActual] =
     useState<CompanyDataPayload | null>(null);
+  const [previewCompaniaActual, setPreviewCompaniaActual] =
+    useState<CompanyDataPayload | null>(null);
   const [notaEstadoActual, setNotaEstadoActual] = useState("");
   const [docuIdActual, setDocuIdActual] = useState<number | null>(null);
   const [loadedNotaMonetaryTotals, setLoadedNotaMonetaryTotals] =
@@ -1538,8 +1540,10 @@ const PaymentPage = () => {
   const activeCustomerDocument =
     docTypeCode === "01" ? customerRuc : customerDni;
   const loadedNotaCompanyId = useMemo(
-    () => resolveCompanyIdFromNota(notaCabeceraActual),
-    [notaCabeceraActual],
+    () =>
+      resolveCompanyIdFromNota(notaCabeceraActual) ||
+      resolveCompanyIdFromNota(orderNoteFromRouteState),
+    [notaCabeceraActual, orderNoteFromRouteState],
   );
   const activeCompanyId = useMemo(() => {
     if (isReadOnlyNoteView && loadedNotaCompanyId > 0) {
@@ -1547,6 +1551,8 @@ const PaymentPage = () => {
     }
     return companyId;
   }, [companyId, isReadOnlyNoteView, loadedNotaCompanyId]);
+  const documentCompanyId =
+    notaId && loadedNotaCompanyId > 0 ? loadedNotaCompanyId : activeCompanyId;
   const docConfig = docTypeConfig[docTypeCode as keyof typeof docTypeConfig];
   const notaSerie = (notaSerieOverride || docConfig?.serie || "BA01").trim();
   const paddedNotaNumero = useMemo(() => {
@@ -1765,7 +1771,7 @@ const PaymentPage = () => {
     }
 
     if (isOrderNotesFlow && forcedMode === "edit" && notaId) {
-      navigate(`/sales/order_notes/${notaId}?mode=view`, { replace: true });
+      navigate(`/sales/order_notes/${notaId}/view`, { replace: true });
     }
   }, [
     forcedMode,
@@ -1814,7 +1820,9 @@ const PaymentPage = () => {
     [maxDiscount],
   );
   const viewTotalsOverride =
-    isReadOnlyNoteView && loadedNotaMonetaryTotals
+    isOrderNotesFlow &&
+    (isReadOnlyNoteView || isConfirmed) &&
+    loadedNotaMonetaryTotals
       ? loadedNotaMonetaryTotals
       : null;
   const descuento = viewTotalsOverride
@@ -2217,41 +2225,6 @@ const PaymentPage = () => {
     return { subTotal, total: subTotal, itemCount };
   }
 
-  const normalizeUnidadForEdit = (value: unknown) => {
-    const normalized = safeTrim(value).toUpperCase();
-    if (!normalized) return "UND";
-    if (
-      normalized === "UND" ||
-      normalized === "UNIDAD" ||
-      normalized === "UNIDADES" ||
-      normalized === "NIU"
-    ) {
-      return "UND";
-    }
-    return normalized.length > 3 ? normalized.slice(0, 3) : normalized;
-  };
-
-  const buildRequestDetalle = (currentDetails: NotaDetallePayload[]) =>
-    currentDetails.map((detalle) => {
-      const detalleId = Number(detalle.detalleId ?? 0);
-      const valorUM = Number(detalle.valorUM ?? 1);
-      return {
-        ...(Number.isFinite(detalleId) && detalleId > 0
-          ? { DetalleId: detalleId }
-          : {}),
-        IdProducto: Number(detalle.idProducto ?? 0),
-        DetalleCantidad: Number(detalle.detalleCantidad ?? 0),
-        DetalleUm: normalizeUnidadForEdit(detalle.detalleUm),
-        DetalleDescripcion:
-          safeTrim(detalle.detalleDescripcion ?? "") || "ITEM",
-        DetalleCosto: Number(detalle.detalleCosto ?? 0),
-        DetallePrecio: Number(detalle.detallePrecio ?? 0),
-        DetalleImporte: Number(detalle.detalleImporte ?? 0),
-        DetalleEstado:
-          safeTrim(detalle.detalleEstado ?? "PENDIENTE") || "PENDIENTE",
-        ValorUM: Number.isFinite(valorUM) && valorUM > 0 ? valorUM : 1,
-      };
-    });
   const fetchNotaFromServer = async (notaIdToLoad: number) => {
     if (!Number.isFinite(notaIdToLoad) || notaIdToLoad <= 0) return;
     setNotaEstadoActual("");
@@ -3755,6 +3728,17 @@ const PaymentPage = () => {
     resolveCompanyIdFromNota(rawSelectedCompanyRecord) === activeCompanyId
       ? rawSelectedCompanyRecord
       : null;
+  const rawPreviewCompanyRecord = previewCompaniaActual as Record<
+    string,
+    unknown
+  > | null;
+  const previewCompanyRecord =
+    resolveCompanyIdFromNota(rawPreviewCompanyRecord) === documentCompanyId
+      ? rawPreviewCompanyRecord
+      : null;
+  const previewSelectedCompanyName =
+    companyOptions.find((company) => Number(company.id) === documentCompanyId)
+      ?.nombre ?? "";
   const companyCommercialFromNota = readRecordField(
     selectedCompanyRecord,
     "companiaComercial",
@@ -3866,6 +3850,66 @@ const PaymentPage = () => {
     localCompanyLogo(activeCompanyId) ||
     companyLogoFromNota ||
     (activeCompanyId === Number(companyId) ? companyLogoFromSession : "");
+  const previewCompanyNameForDocument =
+    readRecordField(
+      previewCompanyRecord,
+      "companiaComercial",
+      "CompaniaComercial",
+    ) ||
+    readRecordField(
+      previewCompanyRecord,
+      "companiaRazonSocial",
+      "CompaniaRazonSocial",
+    ) ||
+    (documentCompanyId === activeCompanyId
+      ? effectiveCompanyNameForDocument
+      : "") ||
+    previewSelectedCompanyName ||
+    "CONSORCIO FERRETERO ROSITA E.I.R.L.";
+  const previewCompanyRucForDocument =
+    readRecordField(
+      previewCompanyRecord,
+      "companiaRUC",
+      "companiaRuc",
+      "CompaniaRUC",
+      "CompaniaRuc",
+    ) ||
+    (documentCompanyId === activeCompanyId
+      ? effectiveCompanyRucForDocument
+      : "") ||
+    "20601070155";
+  const previewCompanyAddressForDocument =
+    readRecordField(
+      previewCompanyRecord,
+      "companiaDirecSunat",
+      "CompaniaDirecSunat",
+      "companiaDireccion",
+      "CompaniaDireccion",
+    ) ||
+    (documentCompanyId === activeCompanyId
+      ? effectiveCompanyAddressForDocument
+      : "") ||
+    "Calle 2 Mz B Lote 1";
+  const previewCompanyDistrictForDocument =
+    readRecordField(
+      previewCompanyRecord,
+      "companiaDistrito",
+      "CompaniaDistrito",
+      "companiaNomUBG",
+      "companiaNomUbg",
+      "CompaniaNomUBG",
+      "CompaniaNomUbg",
+    ) ||
+    (documentCompanyId === activeCompanyId
+      ? effectiveCompanyDistrictForDocument
+      : "") ||
+    "LIMA";
+  const previewCompanyLogoForDocument =
+    localCompanyLogo(documentCompanyId) ||
+    readRecordField(previewCompanyRecord, "logoCompania", "LogoCompania") ||
+    (documentCompanyId === activeCompanyId
+      ? effectiveCompanyLogoForDocument
+      : "");
 
   const ticketPreviewProps = useMemo(() => {
     const safeItems = itemsToRender.length ? itemsToRender : purchasedItems;
@@ -3916,11 +3960,11 @@ const PaymentPage = () => {
         total: roundCurrency(totalAPagar),
       },
       documentNumber,
-      companyName: effectiveCompanyNameForDocument,
-      companyRuc: effectiveCompanyRucForDocument,
-      companyAddress: effectiveCompanyAddressForDocument,
-      companyDistrict: effectiveCompanyDistrictForDocument,
-      companyLogo: effectiveCompanyLogoForDocument,
+      companyName: previewCompanyNameForDocument,
+      companyRuc: previewCompanyRucForDocument,
+      companyAddress: previewCompanyAddressForDocument,
+      companyDistrict: previewCompanyDistrictForDocument,
+      companyLogo: previewCompanyLogoForDocument,
     };
   }, [
     selectedDocument,
@@ -3953,27 +3997,35 @@ const PaymentPage = () => {
     totalAPagar,
     notaAdicional,
     cardPercentageFromSession,
-    effectiveCompanyNameForDocument,
-    effectiveCompanyRucForDocument,
-    effectiveCompanyAddressForDocument,
-    effectiveCompanyDistrictForDocument,
-    effectiveCompanyLogoForDocument,
+    previewCompanyNameForDocument,
+    previewCompanyRucForDocument,
+    previewCompanyAddressForDocument,
+    previewCompanyDistrictForDocument,
+    previewCompanyLogoForDocument,
   ]);
   const [pdfPreviewProps, setPdfPreviewProps] =
     useState<TicketDocumentProps>(ticketPreviewProps);
-  const syncedNotaPreviewIdRef = useRef<number | null>(null);
+  const syncedNotaPreviewKeyRef = useRef<string | null>(null);
 
   useEffect(() => {
     if (!notaId || !hasLoadedNotaMeta) return;
-    if (syncedNotaPreviewIdRef.current === notaId) return;
-    syncedNotaPreviewIdRef.current = notaId;
+    if (documentCompanyId && !previewCompanyRecord) return;
+    const previewKey = `${notaId}:${documentCompanyId || 0}`;
+    if (syncedNotaPreviewKeyRef.current === previewKey) return;
+    syncedNotaPreviewKeyRef.current = previewKey;
     setPdfPreviewProps(ticketPreviewProps);
-  }, [hasLoadedNotaMeta, notaId, ticketPreviewProps]);
+  }, [
+    documentCompanyId,
+    hasLoadedNotaMeta,
+    notaId,
+    previewCompanyRecord,
+    ticketPreviewProps,
+  ]);
 
   const previewKey = useMemo(
     () =>
       [
-        docTypeCode,
+        pdfPreviewProps.docType,
         pdfPreviewProps.paymentMethod,
         pdfPreviewProps.summary?.showDiscount ? "discount-on" : "discount-off",
         pdfPreviewProps.clientName,
@@ -3986,9 +4038,9 @@ const PaymentPage = () => {
         pdfPreviewProps.items?.length ?? 0,
       ].join("|"),
     [
-      docTypeCode,
       pdfPreviewProps.clientId,
       pdfPreviewProps.clientName,
+      pdfPreviewProps.docType,
       pdfPreviewProps.documentNumber,
       pdfPreviewProps.items?.length,
       pdfPreviewProps.paymentMethod,
@@ -4080,10 +4132,10 @@ const PaymentPage = () => {
         notaNumero: paddedNotaNumero || "00000000",
         notaGanancia: roundCurrency(notaGananciaCalculada),
         icbper: 0,
-        docuSubtotal: roundCurrency(displaySubtotal),
+        docuSubtotal: roundCurrency(isProforma ? gravada : displaySubtotal),
         docuIgv: roundCurrency(displayIgv),
         docuAdicional: roundCurrency(notaAdicional),
-        docuGravada: roundCurrency(displayOperacionGravada),
+        docuGravada: roundCurrency(grossMonetarySummary.subtotalWithoutIgv),
         docuDescuento: roundCurrency(displayDescuento),
         entidadBancaria: "",
         nroOperacion: "",
@@ -4147,6 +4199,7 @@ const PaymentPage = () => {
     dirtyFields?.customerId,
     hasLoadedNotaMeta,
     isEditingMode,
+    isProforma,
     notaSerie,
     docTypeName,
     paddedNotaNumero,
@@ -4158,8 +4211,9 @@ const PaymentPage = () => {
     commercialSubtotal,
     displaySubtotal,
     displayIgv,
-    displayOperacionGravada,
     displayDescuento,
+    gravada,
+    grossMonetarySummary.subtotalWithoutIgv,
     notaAdicional,
     resolvedNotaUsuario,
     paymentMethod,
@@ -4228,6 +4282,65 @@ const PaymentPage = () => {
       isCancelled = true;
     };
   }, [activeCompanyId, notaId, hasLoadedNotaMeta]);
+
+  useEffect(() => {
+    if (notaId && !hasLoadedNotaMeta) return;
+    if (!documentCompanyId) {
+      setPreviewCompaniaActual(null);
+      return;
+    }
+    if (
+      documentCompanyId === activeCompanyId &&
+      notaCompaniaActual &&
+      resolveCompanyIdFromNota(notaCompaniaActual as Record<string, unknown>) ===
+        documentCompanyId
+    ) {
+      setPreviewCompaniaActual(notaCompaniaActual);
+      return;
+    }
+
+    let isCancelled = false;
+    void (async () => {
+      try {
+        const response = await apiRequest<CompanyDataPayload | null>({
+          url: buildApiUrl(`/Compania/${documentCompanyId}`),
+          method: "GET",
+          config: { headers: { Accept: "text/plain" } },
+          fallback: null,
+          blockUi: false,
+        });
+        if (isCancelled) return;
+
+        const responseRecord = parseRecordLikeValue(response);
+        const nestedDataRecord = parseRecordLikeValue(responseRecord?.data);
+        const companyData = (nestedDataRecord ??
+          responseRecord) as CompanyDataPayload | null;
+        const companyIdFromResponse = resolveCompanyIdFromNota(
+          companyData as Record<string, unknown> | null,
+        );
+        setPreviewCompaniaActual(
+          companyData && companyIdFromResponse === documentCompanyId
+            ? companyData
+            : null,
+        );
+      } catch (error) {
+        console.error("Error al cargar la compania del documento", error);
+        if (!isCancelled) {
+          setPreviewCompaniaActual(null);
+        }
+      }
+    })();
+
+    return () => {
+      isCancelled = true;
+    };
+  }, [
+    activeCompanyId,
+    documentCompanyId,
+    hasLoadedNotaMeta,
+    notaCompaniaActual,
+    notaId,
+  ]);
 
   const confirmPayment = async () => {
     if (isReadOnlyNoteView) return;
@@ -4331,9 +4444,15 @@ const PaymentPage = () => {
           notaNumero: baseNota.notaNumero,
           companiaId: baseNota.companiaId,
           icbper: baseNota.icbper,
+          docuSubtotal: baseNota.docuSubtotal,
+          docuIgv: baseNota.docuIgv,
+          docuAdicional: baseNota.docuAdicional,
+          docuGravada: baseNota.docuGravada,
+          docuDescuento: baseNota.docuDescuento,
           entidadBancaria: baseNota.entidadBancaria,
           efectivo: baseNota.efectivo,
           deposito: baseNota.deposito,
+          flagMovil: baseNota.flagMovil,
           notaGanancia: baseNota.notaGanancia,
           notaConcepto: baseNota.notaConcepto,
           notaEstado: baseNota.notaEstado,
@@ -4410,10 +4529,6 @@ const PaymentPage = () => {
       detalles: detallesPayload,
     };
 
-    const requestDetallePayload = isEditing
-      ? buildRequestDetalle(detallesPayload as any)
-      : undefined;
-
     const extractApiMessage = (val: any): string => {
       if (!val) return "";
       if (typeof val === "string") return val;
@@ -4432,70 +4547,7 @@ const PaymentPage = () => {
       return "";
     };
 
-    const notaFechaEdicionRaw = safeTrim(
-      (notaCabeceraActual as any)?.notaFecha ?? "",
-    );
-    const nowForNotaFechaEdicion = new Date();
-    const currentTimeForNotaFechaEdicion = getLocalDateTimeISO(
-      nowForNotaFechaEdicion,
-    ).slice(11);
-    const isoDateTimeMatch = notaFechaEdicionRaw.match(
-      /^(\d{4}-\d{2}-\d{2})[T\s](\d{2}:\d{2})(?::(\d{2}))?/,
-    );
-    const isoDateOnlyMatch = notaFechaEdicionRaw.match(/^(\d{4}-\d{2}-\d{2})$/);
-    const slashDateTimeMatch = notaFechaEdicionRaw.match(
-      /^(\d{1,2})\/(\d{1,2})\/(\d{4})[T\s,]+(\d{2}:\d{2})(?::(\d{2}))?/,
-    );
-    const slashDateOnlyMatch = notaFechaEdicionRaw.match(
-      /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/,
-    );
-    const slashDate = slashDateTimeMatch ?? slashDateOnlyMatch;
-    const notaFechaEdicionDate =
-      isoDateTimeMatch?.[1] ??
-      isoDateOnlyMatch?.[1] ??
-      (slashDate
-        ? `${slashDate[3]}-${slashDate[2].padStart(2, "0")}-${slashDate[1].padStart(2, "0")}`
-        : "");
-    const notaFechaEdicionTime = isoDateTimeMatch
-      ? `${isoDateTimeMatch[2]}:${isoDateTimeMatch[3] ?? "00"}`
-      : slashDateTimeMatch
-        ? `${slashDateTimeMatch[4]}:${slashDateTimeMatch[5] ?? "00"}`
-        : "";
-    const notaFechaEdicion = notaFechaEdicionDate
-      ? `${notaFechaEdicionDate}T${
-          notaFechaEdicionTime && !/^00:00:00$/.test(notaFechaEdicionTime)
-            ? notaFechaEdicionTime
-            : currentTimeForNotaFechaEdicion
-        }`
-      : getLocalDateTimeISO(nowForNotaFechaEdicion);
-    const clienteIdEdicionRaw = Number(editNota.clienteId ?? 0);
-    const clienteIdEdicion =
-      Number.isFinite(clienteIdEdicionRaw) && clienteIdEdicionRaw > 0
-        ? clienteIdEdicionRaw
-        : isProforma
-          ? PROFORMA_DEFAULT_CONTACT_ID
-          : 1;
     const flagMovil = 1;
-
-    const editPayloadForApi = isEditing
-      ? {
-          NotaId: editNota.notaId ?? 0,
-          NotaDocu: editNota.notaDocu,
-          ClienteId: clienteIdEdicion,
-          NotaFecha: notaFechaEdicion,
-          Usuario: resolvedPaymentUsername,
-          FormaPago:
-            safeTrim(editNota.notaFormaPago ?? paymentMethod) || "EFECTIVO",
-          CompaniaId: Number(editNota.companiaId ?? activeCompanyId) || 1,
-          Condicion:
-            safeTrim(editNota.notaCondicion ?? "ALCONTADO") || "ALCONTADO",
-          NotaEstado: notaEstadoForSave,
-          ModificadoPor: resolvedPaymentUsername,
-          FechaEdita: editTimestamp.toISOString(),
-          FlagMovil: flagMovil,
-          requestDetalle: requestDetallePayload ?? [],
-        }
-      : basePayload;
 
     const createPayloadForApi = {
       nota: {
@@ -4553,7 +4605,7 @@ const PaymentPage = () => {
         ? buildApiUrl("/Nota/editarOrden")
         : buildApiUrl("/Nota/register-with-detail"),
       method: isEditing ? "PUT" : "POST",
-      data: isEditing ? editPayloadForApi : createPayloadForApi,
+      data: isEditing ? basePayload : createPayloadForApi,
       config: {
         headers: {
           Accept: "*/*",
@@ -4809,6 +4861,21 @@ const PaymentPage = () => {
       const numericNotaId = Number(parsedNotaId);
       if (Number.isFinite(numericNotaId) && numericNotaId > 0) {
         await fetchNotaFromServer(numericNotaId);
+        if (isOrderNotesFlow) {
+          navigate(`/sales/order_notes/${numericNotaId}/view`, {
+            replace: true,
+          });
+        } else {
+          const isSalesPaymentPath = pathname
+            .toLowerCase()
+            .includes("/sales/pos/payment");
+          const paymentBasePath = isSalesPaymentPath
+            ? "/sales/pos/payment"
+            : "/pos/payment";
+          navigate(`${paymentBasePath}/${numericNotaId}?mode=view`, {
+            replace: true,
+          });
+        }
       }
     }
 
@@ -5110,19 +5177,26 @@ const PaymentPage = () => {
       serieForImmediatePrint && numeroForImmediatePrint
         ? `${serieForImmediatePrint}-${numeroForImmediatePrint}`
         : safeTrim(documentNumber);
-    setPdfPreviewProps({
+    const savedCompanyPreviewOverride = {
+      companyName: effectiveCompanyNameForDocument,
+      companyRuc: effectiveCompanyRucForDocument,
+      companyAddress: effectiveCompanyAddressForDocument,
+      companyDistrict: effectiveCompanyDistrictForDocument,
+      companyLogo: effectiveCompanyLogoForDocument,
+    };
+    const savedPreviewProps = {
       ...ticketPreviewProps,
+      ...savedCompanyPreviewOverride,
       ...(immediateDocumentNumber
         ? { documentNumber: immediateDocumentNumber }
         : {}),
-    });
+    };
+    setPdfPreviewProps(savedPreviewProps);
     if (!isFactura) {
       void handlePrint({
         skipConfirmedCheck: true,
         silent: true,
-        previewPropsOverride: immediateDocumentNumber
-          ? { documentNumber: immediateDocumentNumber }
-          : undefined,
+        previewPropsOverride: savedPreviewProps,
       });
     }
   };
@@ -6174,14 +6248,14 @@ const PaymentPage = () => {
     async (previewPropsOverride?: Partial<typeof ticketPreviewProps>) => {
       const effectiveTicketPreviewProps = previewPropsOverride
         ? {
-            ...ticketPreviewProps,
+            ...pdfPreviewProps,
             ...previewPropsOverride,
             summary: {
-              ...ticketPreviewProps.summary,
+              ...pdfPreviewProps.summary,
               ...(previewPropsOverride.summary ?? {}),
             },
           }
-        : ticketPreviewProps;
+        : pdfPreviewProps;
       const clean = (value: unknown) => String(value ?? "").trim();
       const now = new Date();
       const emissionDateISO = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
@@ -6224,7 +6298,7 @@ const PaymentPage = () => {
         />,
       ).toBlob();
     },
-    [ticketPreviewProps],
+    [pdfPreviewProps],
   );
 
   const getComprobanteFileName = useCallback(() => {
@@ -6499,6 +6573,47 @@ const PaymentPage = () => {
     return () =>
       document.removeEventListener("keydown", onKeyDown, { capture: true });
   }, [handleMobileTopConfirm, handleNewSaleShortcut, handlePrintShortcut]);
+
+  const PdfViewerCard = useMemo(() => (
+    <div className="relative overflow-hidden rounded-xl border border-slate-200 bg-white">
+      {isPdfEnabled ? (
+        canPreviewPdf ? (
+          <div className="h-[68vh] min-h-[420px] overflow-auto bg-slate-100 p-3 sm:h-[620px] sm:p-4">
+            <div className="mx-auto h-full w-full overflow-hidden rounded-md bg-white shadow-sm">
+              <PDFViewer
+                key={previewKey}
+                style={{ width: "100%", height: "100%", border: "none" }}
+                showToolbar={false}
+              >
+                <TicketDocument {...pdfPreviewProps} />
+              </PDFViewer>
+            </div>
+          </div>
+        ) : (
+          <div className="flex h-[180px] items-center justify-center p-4">
+            <button
+              type="button"
+              className="rounded-lg bg-slate-800 px-4 py-2 text-sm font-medium text-white hover:bg-slate-700"
+              onClick={() => setCanPreviewPdf(true)}
+            >
+              Ver comprobante
+            </button>
+          </div>
+        )
+      ) : (
+        <div className="p-4 text-xs text-gray-500">
+          Vista PDF deshabilitada en celular.
+        </div>
+      )}
+      {isNotaAnulada ? (
+        <div className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center">
+          <span className="select-none rounded-xl border-4 border-red-500/70 bg-white/45 px-8 py-3 text-5xl font-black tracking-[0.22em] text-red-600/85 [transform:rotate(-24deg)]">
+            ANULADO
+          </span>
+        </div>
+      ) : null}
+    </div>
+  ), [canPreviewPdf, isNotaAnulada, isPdfEnabled, pdfPreviewProps, previewKey]);
 
   if (routeNotaId && !hasLoadedNotaMeta) {
     return (
@@ -6812,47 +6927,6 @@ const PaymentPage = () => {
           </div>
         </div>
       </div>
-    </div>
-  );
-
-  const PdfViewerCard = (
-    <div className="relative overflow-hidden rounded-xl border border-slate-200 bg-white">
-      {isPdfEnabled ? (
-        canPreviewPdf ? (
-          <div className="h-[68vh] min-h-[420px] overflow-auto bg-slate-100 p-3 sm:h-[620px] sm:p-4">
-            <div className="mx-auto h-full w-full overflow-hidden rounded-md bg-white shadow-sm">
-              <PDFViewer
-                key={previewKey}
-                style={{ width: "100%", height: "100%", border: "none" }}
-                showToolbar={false}
-              >
-                <TicketDocument {...pdfPreviewProps} />
-              </PDFViewer>
-            </div>
-          </div>
-        ) : (
-          <div className="flex h-[180px] items-center justify-center p-4">
-            <button
-              type="button"
-              className="rounded-lg bg-slate-800 px-4 py-2 text-sm font-medium text-white hover:bg-slate-700"
-              onClick={() => setCanPreviewPdf(true)}
-            >
-              Ver comprobante
-            </button>
-          </div>
-        )
-      ) : (
-        <div className="p-4 text-xs text-gray-500">
-          Vista PDF deshabilitada en celular.
-        </div>
-      )}
-      {isNotaAnulada ? (
-        <div className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center">
-          <span className="select-none rounded-xl border-4 border-red-500/70 bg-white/45 px-8 py-3 text-5xl font-black tracking-[0.22em] text-red-600/85 [transform:rotate(-24deg)]">
-            ANULADO
-          </span>
-        </div>
-      ) : null}
     </div>
   );
 

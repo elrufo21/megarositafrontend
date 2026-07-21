@@ -134,7 +134,7 @@ export default function MainLayout() {
   const [userMenuOpen, setUserMenuOpen] = useState(false);
   const userMenuContainerRef = useRef<HTMLDivElement | null>(null);
   const [search, setSearch] = useState(""); // 🔍 buscador
-  const { pathname } = useLocation();
+  const { pathname, search: locationSearch } = useLocation();
   const pendingRequests = useSyncExternalStore(
     subscribeToPendingRequests,
     getPendingRequests,
@@ -144,8 +144,12 @@ export default function MainLayout() {
     pendingRequests > 0 &&
     (pathname.startsWith("/sales/order_notes") ||
       pathname.startsWith("/customers"));
+  const routeMode = new URLSearchParams(locationSearch).get("mode") ?? "";
   const isPaymentViewCompanyLocked =
-    /^\/sales\/order_notes\/[^/]+\/view$/i.test(pathname);
+    /^\/(?:sales\/pos|pos)\/payment\/\d+/i.test(pathname) ||
+    /^\/sales\/order_notes\/[^/]+\/view$/i.test(pathname) ||
+    (/^\/sales\/order_notes\/[^/]+$/i.test(pathname) &&
+      /^view$/i.test(routeMode));
 
   const user = useAuthStore((state) => state.user);
   const logout = useAuthStore((state) => state.logout);
@@ -250,6 +254,8 @@ export default function MainLayout() {
 
   const handleSelectCompany = useCallback(
     async (company: CompanyOption) => {
+      if (isPaymentViewCompanyLocked) return;
+
       setSelectedCompanyId(company.id);
 
       const response = await apiRequest<unknown>({
@@ -264,7 +270,7 @@ export default function MainLayout() {
         window.location.reload();
       }
     },
-    [pathname, setSessionCompany],
+    [isPaymentViewCompanyLocked, pathname, setSessionCompany],
   );
 
   const navItems = useMemo(() => {

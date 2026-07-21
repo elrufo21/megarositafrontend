@@ -1273,7 +1273,9 @@ const TicketDocument = ({
             </>
           )}
           <View style={styles.footer}>
-            <Text style={styles.footerText}>SON: {ticketData.son}</Text>
+            {!ticketData.isProforma && (
+              <Text style={styles.footerText}>SON: {ticketData.son}</Text>
+            )}
             {ticketData.authorization ? (
               <Text style={styles.footerText}>{ticketData.authorization}</Text>
             ) : null}

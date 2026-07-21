@@ -834,7 +834,9 @@ const TicketHTML = ({
 
       {/* ── FOOTER ── */}
       <div style={s.footer}>
-        <span style={s.footerText}>SON: {ticketData.son}</span>
+        {!ticketData.isProforma && (
+          <span style={s.footerText}>SON: {ticketData.son}</span>
+        )}
         {ticketData.authorization && (
           <span style={s.footerText}>{ticketData.authorization}</span>
         )}

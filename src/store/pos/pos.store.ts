@@ -9,14 +9,34 @@ const toNumber = (value: unknown, fallback = 0): number => {
 };
 
 const toNonNegative = (value: unknown): number => Math.max(toNumber(value, 0), 0);
-const normalizeText = (value: unknown): string =>
-  String(value ?? "").trim().toLowerCase();
 const normalizeOptionalText = (value: unknown): string =>
   String(value ?? "").trim();
+const normalizeUnitKey = (value: unknown): string => {
+  const unit = normalizeOptionalText(value).toUpperCase();
+  return ["UND", "UNIDAD", "UNIDADES", "NIU"].includes(unit) ? "UND" : unit;
+};
 const resolveProductBrand = (product: Product): string =>
   normalizeOptionalText((product as any).productoMarca ?? "");
 const getItemKey = (item: Pick<PosCartItem, "productId" | "detalleId">): number =>
   toNumber(item.detalleId, 0) || toNumber(item.productId, 0);
+const cartItemMatchesProduct = (
+  item: Pick<PosCartItem, "productId" | "codigo" | "detalleId" | "unidadMedida">,
+  productId: number,
+  productCode: string,
+  productDetalleId: number,
+  productUnit: string
+) => {
+  const sameProduct =
+    item.productId === productId ||
+    (normalizeOptionalText(item.codigo) !== "" &&
+      normalizeOptionalText(item.codigo) === productCode);
+  if (!sameProduct) return false;
+  if (normalizeUnitKey(item.unidadMedida) !== productUnit) return false;
+
+  const itemDetalleId = toNumber(item.detalleId, 0);
+  // Positive detalleId comes from the saved note row, not the catalog variation.
+  return itemDetalleId > 0 || itemDetalleId === productDetalleId;
+};
 const resolveItemMinPrice = (item: Partial<PosCartItem> & Record<string, unknown>) =>
   toNonNegative(item.precioCosto ?? item.costo ?? item.precioMinimo ?? 0);
 
@@ -158,17 +178,20 @@ export const usePosStore = create<PosState>()(
             (product as any).codigoSunat,
           );
           const productMarca = resolveProductBrand(product);
+          const productCode = normalizeOptionalText(product.codigo);
           const normalizedDetailId =
             Number.isFinite(productDetailId) && productDetailId !== 0
               ? productDetailId
               : undefined;
-          const productUnit = normalizeText((product as any).unidadMedida);
+          const productUnit = normalizeUnitKey((product as any).unidadMedida);
           const existing = state.items.find(
-            (item) =>
-              item.productId === product.id &&
-              (toNumber(item.detalleId, 0) || 0) ===
-                (normalizedDetailId ?? 0) &&
-              normalizeText(item.unidadMedida) === productUnit
+            (item) => cartItemMatchesProduct(
+              item,
+              product.id,
+              productCode,
+              normalizedDetailId ?? 0,
+              productUnit
+            )
           );
           const currentQty = toNonNegative(existing?.cantidad ?? 0);
           const desiredQty = currentQty + quantity;
@@ -191,10 +214,7 @@ export const usePosStore = create<PosState>()(
 
           const nextItems = existing
             ? state.items.map((item) =>
-                item.productId === product.id &&
-                (toNumber(item.detalleId, 0) || 0) ===
-                  (normalizedDetailId ?? 0) &&
-                normalizeText(item.unidadMedida) === productUnit
+                item === existing
                   ? {
                       ...item,
                       productoMarca: item.productoMarca || productMarca || undefined,
