@@ -146,7 +146,8 @@ export default function MainLayout() {
       pathname.startsWith("/customers"));
   const routeMode = new URLSearchParams(locationSearch).get("mode") ?? "";
   const isPaymentViewCompanyLocked =
-    /^\/(?:sales\/pos|pos)\/payment\/\d+/i.test(pathname) ||
+    (/^\/(?:sales\/pos|pos)\/payment\/\d+/i.test(pathname) &&
+      !/^edit$/i.test(routeMode)) ||
     /^\/sales\/order_notes\/[^/]+\/view$/i.test(pathname) ||
     (/^\/sales\/order_notes\/[^/]+$/i.test(pathname) &&
       /^view$/i.test(routeMode));

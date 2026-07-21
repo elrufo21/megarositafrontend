@@ -1455,6 +1455,7 @@ const PaymentPage = () => {
         ...prev,
         [itemKey]: formatCurrency(item.precio),
       }));
+      setCorrectedPriceKeys((prev) => ({ ...prev, [itemKey]: true }));
       return;
     }
 
@@ -1464,6 +1465,7 @@ const PaymentPage = () => {
         ...prev,
         [itemKey]: formatCurrency(item.precio),
       }));
+      setCorrectedPriceKeys((prev) => ({ ...prev, [itemKey]: true }));
       return;
     }
     const minPrice = getMinAllowedPrice(item);
@@ -1479,6 +1481,50 @@ const PaymentPage = () => {
       [itemKey]: formatCurrency(roundedPrice),
     }));
     applyPriceToItem(item, roundedPrice);
+  };
+
+  const findInvalidPriceItemForPayment = (sourceItems: PosCartItem[]) =>
+    sourceItems.find((item) => {
+      const minPrice = getMinAllowedPrice(item);
+      const itemKey = getCartItemKey(item);
+      if (correctedPriceKeys[itemKey]) return true;
+
+      const draftValue = priceDrafts[itemKey];
+      if (draftValue === undefined) {
+        const storedPrice = Number(item.precio ?? 0);
+        return !Number.isFinite(storedPrice) || storedPrice < minPrice;
+      }
+
+      const normalizedDraft = draftValue.trim();
+      if (!normalizedDraft) return true;
+      const draftPrice = Number(normalizedDraft);
+      return (
+        !Number.isFinite(draftPrice) || roundCurrency(draftPrice) < minPrice
+      );
+    });
+
+  const validatePaymentItemsBeforeSubmit = (
+    sourceItems = hasLiveItems ? items : purchasedItems,
+  ) => {
+    const invalidItems = sourceItems.filter(
+      hasInvalidQuantityOrStockForPayment,
+    );
+    if (invalidItems.length) {
+      setActiveTab("items");
+      toast.error("No puede agregar productos en 0.");
+      return false;
+    }
+
+    const invalidPriceItem = findInvalidPriceItemForPayment(sourceItems);
+    if (invalidPriceItem) {
+      setActiveTab("items");
+      const itemKey = getCartItemKey(invalidPriceItem);
+      correctPriceToMinimum(invalidPriceItem, itemKey);
+      clearCorrectedPriceKey(itemKey);
+      return false;
+    }
+
+    return true;
   };
 
   const formMethods = useForm({
@@ -2647,6 +2693,9 @@ const PaymentPage = () => {
       setValue("customerId", "", { shouldDirty });
       setValue("customerDni", "", { shouldDirty });
       setValue("customerRuc", "", { shouldDirty });
+      setValue("fiscalAddress", "", { shouldDirty });
+      setValue("shippingAddress", "", { shouldDirty });
+      setValue("phone", "", { shouldDirty });
     },
     [setValue],
   );
@@ -4374,38 +4423,7 @@ const PaymentPage = () => {
     if (!ensureFacturaCustomerAndRuc()) return;
 
     const sourceItems = hasLiveItems ? items : purchasedItems;
-    const invalidItems = sourceItems.filter(
-      hasInvalidQuantityOrStockForPayment,
-    );
-    if (invalidItems.length) {
-      toast.error("No puede agregar productos en 0.");
-      return;
-    }
-
-    const invalidPriceItem = sourceItems.find((item) => {
-      const minPrice = getMinAllowedPrice(item);
-      const itemKey = getCartItemKey(item);
-      if (correctedPriceKeys[itemKey]) return true;
-
-      const draftValue = priceDrafts[itemKey];
-      if (draftValue === undefined) {
-        const storedPrice = Number(item.precio ?? 0);
-        return !Number.isFinite(storedPrice) || storedPrice < minPrice;
-      }
-
-      const normalizedDraft = draftValue.trim();
-      if (!normalizedDraft) return true;
-      const draftPrice = Number(normalizedDraft);
-      return (
-        !Number.isFinite(draftPrice) || roundCurrency(draftPrice) < minPrice
-      );
-    });
-    if (invalidPriceItem) {
-      const itemKey = getCartItemKey(invalidPriceItem);
-      correctPriceToMinimum(invalidPriceItem, itemKey);
-      clearCorrectedPriceKey(itemKey);
-      return;
-    }
+    if (!validatePaymentItemsBeforeSubmit(sourceItems)) return;
 
     const sourceTotals = hasLiveItems ? totals : paidTotals;
     setPurchasedItems(sourceItems);
@@ -5213,6 +5231,8 @@ const PaymentPage = () => {
       return;
     }
 
+    if (!validatePaymentItemsBeforeSubmit()) return;
+
     const selectedDocType = safeTrim(String(getValues("docTypeCode") ?? ""));
     const selectedPaymentMethod = safeTrim(
       String(getValues("paymentMethod") ?? ""),
@@ -5467,6 +5487,12 @@ const PaymentPage = () => {
       setEditingModeInStore(true);
       const itemsForEditing = serverItems.length ? serverItems : purchasedItems;
       setServerItemsInStore(itemsForEditing);
+      const nextSearchParams = new URLSearchParams(search);
+      nextSearchParams.set("mode", "edit");
+      nextSearchParams.delete("autoprint");
+      navigate(`${pathname}?${nextSearchParams.toString()}`, {
+        replace: true,
+      });
     } catch (error) {
       console.error("Error validando estado para edición", error);
       toast.error("No se pudo validar el estado de la nota para edición.");
@@ -7303,8 +7329,7 @@ const PaymentPage = () => {
               toast.error(
                 "El DNI no existe. Agrega el cliente y seleccionalo.",
               );
-              setValue("customerDni", "", { shouldDirty: true });
-              setClienteIdFromOption(null, { shouldDirty: true });
+              clearCustomerSelection(true);
             }}
           />
         )}
@@ -7354,8 +7379,7 @@ const PaymentPage = () => {
               toast.error(
                 "El RUC no existe. Agrega el cliente y seleccionalo.",
               );
-              setValue("customerRuc", "", { shouldDirty: true });
-              setClienteIdFromOption(null, { shouldDirty: true });
+              clearCustomerSelection(true);
             }}
           />
         )}
@@ -7798,7 +7822,14 @@ const PaymentPage = () => {
                       ? "text-white bg-gradient-to-r from-slate-700 to-slate-800 shadow-md"
                       : "text-slate-600 hover:text-slate-800 hover:bg-slate-100"
                   }`}
-                  onClick={() => setActiveTab("note")}
+                  onClick={() => {
+                    if (
+                      activeTab === "items" &&
+                      !validatePaymentItemsBeforeSubmit()
+                    )
+                      return;
+                    setActiveTab("note");
+                  }}
                 >
                   Detalle de nota
                 </button>
@@ -7835,6 +7866,11 @@ const PaymentPage = () => {
                           : "text-slate-600 hover:text-slate-800 hover:bg-slate-100"
                       }`}
                       onClick={() => {
+                        if (
+                          activeTab === "items" &&
+                          !validatePaymentItemsBeforeSubmit()
+                        )
+                          return;
                         setCanPreviewPdf(true);
                         setActiveTab("pdf");
                       }}

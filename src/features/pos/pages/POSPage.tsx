@@ -570,6 +570,9 @@ const POSPage = () => {
   const saleMovementCostInputRef = useRef<SaleFocusableElement | null>(null);
   const saleDiscountInputRef = useRef<SaleFocusableElement | null>(null);
   const [priceDrafts, setPriceDrafts] = useState<Record<number, string>>({});
+  const [invalidPriceKeys, setInvalidPriceKeys] = useState<
+    Record<number, boolean>
+  >({});
   const priceMode: PosPriceMode = "A";
   const [cartPriceMode, setCartPriceMode] = useState<PosPriceMode>("A");
   const [quantityDrafts, setQuantityDrafts] = useState<Record<number, string>>(
@@ -1524,6 +1527,9 @@ const POSPage = () => {
       customerId: "",
       customerRuc: "",
       customerDni: "",
+      fiscalAddress: "",
+      shippingAddress: "",
+      phone: "",
     }));
   };
 
@@ -1848,7 +1854,10 @@ const POSPage = () => {
 
   const hasInvalidPriceForPayment = (item: PosCartItem) => {
     const minPrice = getMinAllowedPrice(item);
-    const draftValue = priceDrafts[getCartItemKey(item)];
+    const itemKey = getCartItemKey(item);
+    if (invalidPriceKeys[itemKey]) return true;
+
+    const draftValue = priceDrafts[itemKey];
     if (draftValue === undefined) {
       const storedPrice = Number(item.precio ?? 0);
       return !Number.isFinite(storedPrice) || storedPrice < minPrice;
@@ -1858,6 +1867,43 @@ const POSPage = () => {
     if (!normalizedDraft) return true;
     const draftPrice = Number(normalizedDraft);
     return !Number.isFinite(draftPrice) || draftPrice < minPrice;
+  };
+
+  const focusPosPriceInput = (itemKey: number) => {
+    window.setTimeout(() => {
+      const input = document.querySelector<HTMLInputElement>(
+        `[data-pos-price-key="${itemKey}"]`,
+      );
+      input?.focus();
+      input?.select();
+    }, 0);
+  };
+
+  const validateCartItemsBeforePayment = () => {
+    const invalidQuantityItem = items.find(hasInvalidQuantityForPayment);
+    if (invalidQuantityItem) {
+      setCartTab("products");
+      toast.error("La cantidad debe ser mayor a 0.");
+      return false;
+    }
+
+    const invalidPriceItem = items.find(hasInvalidPriceForPayment);
+    if (invalidPriceItem) {
+      const itemKey = getCartItemKey(invalidPriceItem);
+      const draftValue = priceDrafts[itemKey];
+      setCartTab("products");
+      toast.error(
+        draftValue !== undefined && !draftValue.trim()
+          ? "Ingresa el precio del producto."
+          : `El precio no debe ser menor a: S/ ${formatPrice(
+              getMinAllowedPrice(invalidPriceItem),
+            )}`,
+      );
+      focusPosPriceInput(itemKey);
+      return false;
+    }
+
+    return true;
   };
 
   const requestPersonalAuthorizationForPayment = () =>
@@ -2023,15 +2069,7 @@ const POSPage = () => {
       Number.isFinite(editingNotaIdNumber) &&
       editingNotaIdNumber > 0;
 
-    if (items.some(hasInvalidQuantityForPayment)) {
-      toast.error("La cantidad debe ser mayor a 0.");
-      return;
-    }
-
-    if (items.some(hasInvalidPriceForPayment)) {
-      toast.error("El precio no debe ser menor al precio costo.");
-      return;
-    }
+    if (!validateCartItemsBeforePayment()) return;
 
     if (!validateSaleSettings()) return;
 
@@ -2672,39 +2710,58 @@ const POSPage = () => {
     const itemKey = getCartItemKey(item);
     setPriceDrafts((prev) => ({ ...prev, [itemKey]: value }));
 
-    const parsed = Number(value);
-    if (!Number.isNaN(parsed)) {
-      const minPrice = getMinAllowedPrice(item);
-      const safePrice = roundPrice(Math.max(parsed, minPrice));
-      updatePrice(itemKey, safePrice);
+    const normalized = value.trim();
+    if (!normalized) {
+      setInvalidPriceKeys((prev) => ({ ...prev, [itemKey]: true }));
+      return;
     }
+
+    const parsed = Number(value);
+    const minPrice = getMinAllowedPrice(item);
+    if (Number.isNaN(parsed) || parsed < minPrice) {
+      setInvalidPriceKeys((prev) => ({ ...prev, [itemKey]: true }));
+      return;
+    }
+
+    setInvalidPriceKeys((prev) => {
+      if (!(itemKey in prev)) return prev;
+      const next = { ...prev };
+      delete next[itemKey];
+      return next;
+    });
+    updatePrice(itemKey, roundPrice(parsed));
   };
 
   const handlePriceBlur = (item: PosCartItem, value: string) => {
     const itemKey = getCartItemKey(item);
     if (value.trim() === "") {
-      setPriceDrafts((prev) => ({
-        ...prev,
-        [itemKey]: formatPrice(item.precio),
-      }));
+      setInvalidPriceKeys((prev) => ({ ...prev, [itemKey]: true }));
       return;
     }
 
     const parsed = Number(value);
     if (Number.isNaN(parsed)) {
-      setPriceDrafts((prev) => ({
-        ...prev,
-        [itemKey]: formatPrice(item.precio),
-      }));
+      setInvalidPriceKeys((prev) => ({ ...prev, [itemKey]: true }));
       return;
     }
     const minPrice = getMinAllowedPrice(item);
-    const safePrice = roundPrice(Math.max(parsed, minPrice));
+    if (parsed < minPrice) {
+      setInvalidPriceKeys((prev) => ({ ...prev, [itemKey]: true }));
+      return;
+    }
+
+    const safePrice = roundPrice(parsed);
 
     setPriceDrafts((prev) => ({
       ...prev,
       [itemKey]: safePrice.toFixed(2),
     }));
+    setInvalidPriceKeys((prev) => {
+      if (!(itemKey in prev)) return prev;
+      const next = { ...prev };
+      delete next[itemKey];
+      return next;
+    });
     updatePrice(itemKey, safePrice);
   };
 
@@ -2717,6 +2774,12 @@ const POSPage = () => {
     const safePrice = roundPrice(Math.max(nextPrice, getMinAllowedPrice(item)));
     updatePrice(itemKey, safePrice);
     setPriceDrafts((prev) => ({ ...prev, [itemKey]: safePrice.toFixed(2) }));
+    setInvalidPriceKeys((prev) => {
+      if (!(itemKey in prev)) return prev;
+      const next = { ...prev };
+      delete next[itemKey];
+      return next;
+    });
   };
 
   const applyCartPriceMode = (mode: PosPriceMode) => {
@@ -2742,7 +2805,16 @@ const POSPage = () => {
     if (window.matchMedia("(max-width: 1279px)").matches) {
       setMobileCartOpen(true);
     }
-    if (changed) setPriceDrafts((prev) => ({ ...prev, ...nextDrafts }));
+    if (changed) {
+      setPriceDrafts((prev) => ({ ...prev, ...nextDrafts }));
+      setInvalidPriceKeys((prev) => {
+        const next = { ...prev };
+        Object.keys(nextDrafts).forEach((key) => {
+          delete next[Number(key)];
+        });
+        return next;
+      });
+    }
   };
 
   useEffect(() => {
@@ -2751,6 +2823,15 @@ const POSPage = () => {
       items.forEach((item) => {
         const itemKey = getCartItemKey(item);
         next[itemKey] = prev[itemKey] ?? formatPrice(item.precio);
+      });
+      return next;
+    });
+    setInvalidPriceKeys((prev) => {
+      const currentKeys = new Set(items.map((item) => getCartItemKey(item)));
+      const next: Record<number, boolean> = {};
+      Object.entries(prev).forEach(([key, value]) => {
+        const numericKey = Number(key);
+        if (value && currentKeys.has(numericKey)) next[numericKey] = true;
       });
       return next;
     });
@@ -2874,7 +2955,11 @@ const POSPage = () => {
                 ? "bg-slate-800 text-white shadow-sm"
                 : "text-slate-600 hover:bg-white"
             }`}
-            onClick={() => setCartTab("payment")}
+            onClick={() => {
+              if (cartTab === "products" && !validateCartItemsBeforePayment())
+                return;
+              setCartTab("payment");
+            }}
           >
             Pago
           </button>
@@ -3028,6 +3113,7 @@ const POSPage = () => {
                         priceDrafts[getCartItemKey(item)] ??
                         formatPrice(item.precio)
                       }
+                      data-pos-price-key={getCartItemKey(item)}
                       onChange={(value) => handlePriceChange(item, value)}
                       onBlur={(event) =>
                         handlePriceBlur(item, event.currentTarget.value)
