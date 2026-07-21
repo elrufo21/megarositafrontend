@@ -1035,6 +1035,25 @@ const POSPage = () => {
     }),
     [documentForClient],
   );
+  const customerFieldsForSaleUpdate = useCallback(
+    (
+      prev: PosSaleSettings,
+      client: (typeof clientOptions)[number] | null,
+    ) => {
+      const fields = customerFieldsFromClient(client, prev.docTypeCode);
+      const isSameClient =
+        client !== null && Number(prev.clienteId) === Number(client.id);
+
+      return {
+        ...fields,
+        shippingAddress:
+          isSameClient && safeTrim(prev.shippingAddress)
+            ? prev.shippingAddress
+            : fields.shippingAddress,
+      };
+    },
+    [customerFieldsFromClient],
+  );
 
   const applyClientToSale = useCallback(
     (client: Client) => {
@@ -1047,10 +1066,10 @@ const POSPage = () => {
         ...prev,
         clienteId: option.id,
         customerName: option.label,
-        ...customerFieldsFromClient(option, prev.docTypeCode),
+        ...customerFieldsForSaleUpdate(prev, option),
       }));
     },
-    [customerFieldsFromClient],
+    [customerFieldsForSaleUpdate],
   );
 
   const handleSelectClientFromDialog = useCallback(
@@ -1351,7 +1370,7 @@ const POSPage = () => {
       ...prev,
       clienteId: client.id,
       customerName: client.label,
-      ...customerFieldsFromClient(client, prev.docTypeCode),
+      ...customerFieldsForSaleUpdate(prev, client),
     }));
     focusSaleField(nextSaleAfterCustomerRef, true);
   };
@@ -1364,7 +1383,7 @@ const POSPage = () => {
       ...prev,
       clienteId: option.client.id,
       customerName: option.client.label,
-      ...customerFieldsFromClient(option.client, prev.docTypeCode),
+      ...customerFieldsForSaleUpdate(prev, option.client),
       ...(type === "ruc"
         ? {
           customerRuc: option.value,
@@ -1432,11 +1451,11 @@ const POSPage = () => {
         clienteId: matchedClient?.id ?? null,
         customerName: value,
         ...(matchedClient
-          ? customerFieldsFromClient(matchedClient, prev.docTypeCode)
+          ? customerFieldsForSaleUpdate(prev, matchedClient)
           : {}),
       }));
     },
-    [customerFieldsFromClient, saleClientByName],
+    [customerFieldsForSaleUpdate, saleClientByName],
   );
   const ensureExistingSaleCustomer = (rawName: string) => {
     const typedName = safeTrim(rawName);
@@ -1450,7 +1469,7 @@ const POSPage = () => {
         ...prev,
         clienteId: matchedClient.id,
         customerName: matchedClient.label,
-        ...customerFieldsFromClient(matchedClient, prev.docTypeCode),
+        ...customerFieldsForSaleUpdate(prev, matchedClient),
       }));
       return;
     }
@@ -1487,7 +1506,7 @@ const POSPage = () => {
         ...prev,
         clienteId: matchedOption.client.id,
         customerName: matchedOption.client.label,
-        ...customerFieldsFromClient(matchedOption.client, prev.docTypeCode),
+        ...customerFieldsForSaleUpdate(prev, matchedOption.client),
         ...(type === "ruc"
           ? { customerRuc: matchedOption.value }
           : { customerDni: matchedOption.value }),
@@ -1527,10 +1546,10 @@ const POSPage = () => {
       ...prev,
       clienteId: defaultClient.id,
       customerName: defaultClient.label,
-      ...customerFieldsFromClient(defaultClient, prev.docTypeCode),
+      ...customerFieldsForSaleUpdate(prev, defaultClient),
     }));
     saleDefaultClientInitializedRef.current = true;
-  }, [clientOptions, customerFieldsFromClient]);
+  }, [clientOptions, customerFieldsForSaleUpdate]);
 
   const handleSaleDocTypeChange = (docTypeCode: PosDocTypeCode) => {
     setSaleSettings((prev) => {
