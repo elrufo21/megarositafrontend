@@ -21,6 +21,7 @@ type HookFormInputProps<T extends FieldValues> = {
   rules?: RegisterOptions<T>;
   helperText?: string;
   endAdornment?: ReactNode;
+  uppercase?: boolean;
 } & Omit<InputHTMLAttributes<HTMLInputElement>, "name">;
 
 export function HookFormInput<T extends FieldValues>({
@@ -36,6 +37,7 @@ export function HookFormInput<T extends FieldValues>({
   disabled,
   placeholder,
   endAdornment,
+  uppercase = false,
   ...inputProps
 }: HookFormInputProps<T>) {
   const isComposingRef = useRef(false);
@@ -94,6 +96,9 @@ export function HookFormInput<T extends FieldValues>({
               : field.value;
 
           const handleChange = (event: ChangeEvent<HTMLInputElement>) => {
+            if (uppercase) {
+              event.target.value = event.target.value.toUpperCase();
+            }
             field.onChange(event.target.value);
             onChange?.(event);
           };
@@ -238,6 +243,7 @@ export function HookFormInput<T extends FieldValues>({
                   ...(shouldMaskPassword
                     ? { WebkitTextSecurity: "disc" }
                     : {}),
+                  ...(uppercase ? { textTransform: "uppercase" } : {}),
                 },
                 ...(isNumberType
                   ? {

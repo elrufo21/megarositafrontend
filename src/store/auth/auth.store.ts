@@ -291,12 +291,16 @@ const normalizeAuthUser = (user: AuthUser): AuthUser => ({
   ),
   entorno: normalizeText((user as AuthUser & { entorno?: unknown }).entorno),
   maxDiscount: normalizeMaxDiscount(
-    (user as AuthUser & { discount?: unknown; maxDiscount?: unknown }).discount ??
-      (user as AuthUser & { discount?: unknown; maxDiscount?: unknown }).maxDiscount,
+    (user as AuthUser & { discount?: unknown; maxDiscount?: unknown })
+      .maxDiscount ??
+      (user as AuthUser & { discount?: unknown; maxDiscount?: unknown })
+        .discount,
   ),
   discount: normalizeMaxDiscount(
-    (user as AuthUser & { discount?: unknown; maxDiscount?: unknown }).discount ??
-      (user as AuthUser & { discount?: unknown; maxDiscount?: unknown }).maxDiscount,
+    (user as AuthUser & { discount?: unknown; maxDiscount?: unknown })
+      .maxDiscount ??
+      (user as AuthUser & { discount?: unknown; maxDiscount?: unknown })
+        .discount,
   ),
   cardPercentage: normalizeCardPercentage(
     (user as AuthUser & { cardPercentage?: unknown }).cardPercentage,
@@ -495,8 +499,8 @@ export const useAuthStore = create<AuthState>((set, get) => {
         5,
       );
       const discountValue = normalizeMaxDiscount(
-        readLoginValue(parsed, "Descuento", "descuento") ??
-          readLoginValue(parsed, "DescuentoMax", "descuentoMax"),
+        readLoginValue(parsed, "DescuentoMax", "descuentoMax") ??
+          readLoginValue(parsed, "Descuento", "descuento"),
       );
       const normalizedEmail = email.trim();
       const resolvedUsername =
@@ -584,13 +588,10 @@ export const useAuthStore = create<AuthState>((set, get) => {
               readLoginValue(parsed, "FechaVencimientoClave", "fechaVencimientoClave"),
             ) || null,
           DescuentoMax: (() => {
-            const raw = readLoginValue(parsed, "DescuentoMax", "descuentoMax");
-            return raw === null || raw === undefined ? null : String(raw);
+            return String(discountValue);
           })(),
           Descuento: (() => {
-            const raw =
-              readLoginValue(parsed, "Descuento", "descuento") ?? discountValue;
-            return raw === null || raw === undefined ? null : String(raw);
+            return String(discountValue);
           })(),
           TarjetaPorcentaje: String(cardPercentage),
           BoletaPorLote: boletaPorLote,
@@ -626,8 +627,7 @@ export const useAuthStore = create<AuthState>((set, get) => {
               readLoginValue(parsed, "FechaVencimientoClave", "fechaVencimientoClave"),
             ) || null,
           descuentoMax: (() => {
-            const raw = readLoginValue(parsed, "DescuentoMax", "descuentoMax");
-            return raw === null || raw === undefined ? null : String(raw);
+            return String(discountValue);
           })(),
           descuento: String(discountValue),
           tarjetaPorcentaje: String(cardPercentage),

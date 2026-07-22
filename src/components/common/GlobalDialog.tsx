@@ -27,6 +27,7 @@ export function GlobalDialog() {
     disableBackdropClose,
     disableClose,
     hideCancelButton,
+    hideActions,
     hideMobileConfirmButton,
     mobileFullScreen,
     mobileActions,
@@ -73,6 +74,10 @@ export function GlobalDialog() {
   };
 
   const showTitleActionsOnMobile = isMobile && mobileActions !== null;
+  const showFooterActions =
+    !hideActions &&
+    !showTitleActionsOnMobile &&
+    ((isMobile && mobileActions !== null) || !hideCancelButton || !!onConfirm);
 
   return (
     <Dialog
@@ -84,13 +89,15 @@ export function GlobalDialog() {
       disableEscapeKeyDown={disableClose || disableBackdropClose}
       scroll="paper"
       PaperProps={{
-        sx: isMobile
-          ? {
-              width: "calc(100% - 16px)",
-              maxHeight: "calc(100dvh - 16px)",
-              m: 1,
-            }
-          : undefined,
+        sx: {
+          maxHeight: isMobile ? "calc(100dvh - 48px)" : "86vh",
+          ...(isMobile
+            ? {
+                width: "calc(100% - 24px)",
+                m: 1.5,
+              }
+            : {}),
+        },
       }}
     >
       {title || showTitleActionsOnMobile ? (
@@ -139,10 +146,16 @@ export function GlobalDialog() {
           )}
         </DialogTitle>
       ) : null}
-      <DialogContent dividers sx={isMobile ? { p: 2 } : undefined}>
+      <DialogContent
+        dividers
+        sx={{
+          ...(isMobile ? { p: 2 } : {}),
+          ...(!showFooterActions ? { p: 0, overflow: "hidden" } : {}),
+        }}
+      >
         {content}
       </DialogContent>
-      {!showTitleActionsOnMobile ? (
+      {showFooterActions ? (
         <DialogActions
         sx={
           isMobile

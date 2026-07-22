@@ -49,15 +49,15 @@ const mapApiToClient = (item: unknown): Client => {
 
 const mapClientToApi = (client: Partial<Client>): ApiClient => ({
   clienteId: client.id ?? 0,
-  clienteRazon: client.nombreRazon ?? "",
+  clienteRazon: String(client.nombreRazon ?? "").toUpperCase(),
   clienteRuc: client.ruc ?? "",
   clienteDni: client.dni ?? "",
-  clienteDireccion: client.direccionFiscal ?? "",
-  clienteTelefono: client.telefonoMovil ?? "",
+  clienteDireccion: String(client.direccionFiscal ?? "").toUpperCase(),
+  clienteTelefono: String(client.telefonoMovil ?? "").toUpperCase(),
   clienteCorreo: client.email ?? "",
-  clienteEstado: client.estado ?? "ACTIVO",
-  clienteDespacho: client.direccionDespacho ?? "",
-  clienteUsuario: client.registradoPor ?? "",
+  clienteEstado: String(client.estado ?? "ACTIVO").toUpperCase(),
+  clienteDespacho: String(client.direccionDespacho ?? "").toUpperCase(),
+  clienteUsuario: String(client.registradoPor ?? "").toUpperCase(),
   clienteFecha: client.fecha ?? null,
 });
 

@@ -8,6 +8,7 @@ import {
   type HTMLAttributes,
   type InputHTMLAttributes,
   type KeyboardEvent,
+  type PointerEvent,
   type RefObject,
 } from "react";
 import { useLocation, useNavigate } from "react-router";
@@ -31,9 +32,7 @@ import {
   X,
 } from "lucide-react";
 import DataTable from "@/components/DataTable";
-import CustomerDialogContent, {
-  CUSTOMER_DIALOG_FORM_ID,
-} from "@/features/pos/components/CustomerDialogContent";
+import CustomerDialogContent from "@/features/pos/components/CustomerDialogContent";
 import NavigableNumberInput from "@/components/inputs/NavigableNumberInput";
 import { useClientsStore } from "@/store/customers/customers.store";
 import { useProductsStore } from "@/store/products/products.store";
@@ -54,6 +53,8 @@ import {
   buildSaleMonetarySummary,
   roundCurrency,
 } from "@/shared/helpers/saleMonetary";
+
+const POS_RESET_CART_STORAGE_KEY = "sgo.pos.resetCart";
 
 type PosCatalogProduct = Product & {
   catalogKey: string;
@@ -263,12 +264,11 @@ const POS_PAYMENT_METHODS: Array<{ value: PosPaymentMethod; label: string }> = [
 ];
 const validationToastLastShownAt = new Map<string, number>();
 const VALIDATION_TOAST_DEBOUNCE_MS = 900;
-const showSingleValidationToast = (message: string) => {
+const showSingleValidationToast = (message: string, force = false) => {
   const now = Date.now();
   const lastShownAt = validationToastLastShownAt.get("pos-validation") ?? 0;
-  if (now - lastShownAt < VALIDATION_TOAST_DEBOUNCE_MS) return;
+  if (!force && now - lastShownAt < VALIDATION_TOAST_DEBOUNCE_MS) return;
   validationToastLastShownAt.set("pos-validation", now);
-  toast.dismiss("pos-validation");
   toast.error(message, { id: "pos-validation" });
 };
 const normalizePosSaleSettings = (value: unknown): PosSaleSettings | null => {
@@ -527,6 +527,19 @@ const POSPage = () => {
   const [warehousePage, setWarehousePage] = useState(1);
   const navigate = useNavigate();
   const location = useLocation();
+  const routeState = useMemo(
+    () =>
+      (location.state as {
+        preserveCart?: boolean;
+        resetCart?: boolean;
+        saleSettings?: Partial<PosSaleSettings>;
+      } | null) ?? null,
+    [location.state],
+  );
+  const shouldResetCartOnEntry =
+    routeState?.resetCart === true ||
+    (typeof window !== "undefined" &&
+      window.sessionStorage.getItem(POS_RESET_CART_STORAGE_KEY) === "1");
   const {
     products,
     warehouseProducts,
@@ -563,7 +576,7 @@ const POSPage = () => {
   const { resetDraftForNewSale } = usePosCartDraftPersistence({
     enabled: true,
     autosave: true,
-    hydrateFromStorage: true,
+    hydrateFromStorage: !shouldResetCartOnEntry,
   });
   const isCardsView = viewMode === "cards";
   const searchInputRef = useRef<HTMLInputElement | null>(null);
@@ -777,6 +790,10 @@ const POSPage = () => {
       safeTrim(parsedSession?.user?.username) ||
       "USUARIO";
     const discountMaxRaw =
+      parsedSession?.user?.maxDiscount ??
+      parsedSession?.descuentoMax ??
+      parsedSession?.loginPayload?.descuentoMax ??
+      parsedSession?.loginPayload?.DescuentoMax ??
       parsedSession?.user?.discount ??
       parsedSession?.user?.descuento ??
       parsedSession?.user?.Descuento ??
@@ -784,10 +801,6 @@ const POSPage = () => {
       parsedSession?.Descuento ??
       parsedSession?.loginPayload?.descuento ??
       parsedSession?.loginPayload?.Descuento ??
-      parsedSession?.user?.maxDiscount ??
-      parsedSession?.descuentoMax ??
-      parsedSession?.loginPayload?.descuentoMax ??
-      parsedSession?.loginPayload?.DescuentoMax ??
       0;
     const discountMaxNumeric = Number(discountMaxRaw);
     const discountMaxFromSession =
@@ -946,7 +959,6 @@ const POSPage = () => {
   const saleDocumentGravada = roundCurrency(
     saleMonetarySummary.subtotalWithoutIgv,
   );
-  const saleDocumentTotal = roundCurrency(saleMonetarySummary.totalWithIgv);
   const saleMovementAmount = roundCurrency(
     Math.max(0, toDecimal(saleSettings.movementCost)),
   );
@@ -963,12 +975,8 @@ const POSPage = () => {
             (Math.max(0, Number(cardPercentageFromSession ?? 0)) / 100),
         )
       : 0;
-  const saleTotalAmount = roundCurrency(
-    saleDocumentTotal + saleMovementAmount + saleCardAdditional,
-  );
-  const saleTaxableTotal = roundCurrency(
-    saleDocumentTotal + saleMovementAmount,
-  );
+  const saleTaxableTotal = saleCardChargeBase;
+  const saleTotalAmount = roundCurrency(saleTaxableTotal + saleCardAdditional);
   const saleAdjustmentBase = isSaleProforma
     ? 0
     : roundCurrency(saleMovementAmount / IGV_FACTOR);
@@ -1061,9 +1069,9 @@ const POSPage = () => {
       customerId: documentForClient(client, docTypeCode),
       customerRuc: safeTrim(client?.ruc),
       customerDni: safeTrim(client?.dni),
-      fiscalAddress: safeTrim(client?.direccionFiscal),
-      shippingAddress: safeTrim(client?.direccionDespacho),
-      phone: safeTrim(client?.telefonoMovil),
+      fiscalAddress: safeTrim(client?.direccionFiscal).toUpperCase(),
+      shippingAddress: safeTrim(client?.direccionDespacho).toUpperCase(),
+      phone: safeTrim(client?.telefonoMovil).toUpperCase(),
     }),
     [documentForClient],
   );
@@ -1080,7 +1088,7 @@ const POSPage = () => {
         ...fields,
         shippingAddress:
           isSameClient && safeTrim(prev.shippingAddress)
-            ? prev.shippingAddress
+            ? prev.shippingAddress.toUpperCase()
             : fields.shippingAddress,
       };
     },
@@ -1234,24 +1242,10 @@ const POSPage = () => {
     openDialog({
       maxWidth: "lg",
       fullWidth: true,
-      cancelText: "Cerrar",
-      confirmText: "Guardar",
-      onConfirm: () => {
-        (
-          document.getElementById(CUSTOMER_DIALOG_FORM_ID) as
-            | HTMLFormElement
-            | null
-        )?.requestSubmit();
-        return false;
-      },
+      hideCancelButton: true,
+      hideActions: true,
       content: (
         <CustomerDialogContent
-          initialEditingClient={
-            selectedSaleClient &&
-            !isGenericVariosCustomer(selectedSaleClient.label)
-              ? selectedSaleClient
-              : null
-          }
           initialQuery={
             safeTrim(saleCustomerInput).toUpperCase() === "VARIOS"
               ? ""
@@ -1269,7 +1263,6 @@ const POSPage = () => {
     handleUpdateClientFromDialog,
     openDialog,
     saleCustomerInput,
-    selectedSaleClient,
   ]);
   const saleDniOptions = useMemo(() => {
     const byDocument = new Map<
@@ -1569,6 +1562,7 @@ const POSPage = () => {
   useEffect(() => {
     if (saleDefaultClientInitializedRef.current || !clientOptions.length)
       return;
+    if (isEditingMode) return;
     const defaultClient =
       clientOptions.find(
         (client) => Number(client.id) === PROFORMA_DEFAULT_CONTACT_ID,
@@ -1584,7 +1578,7 @@ const POSPage = () => {
       ...customerFieldsForSaleUpdate(prev, defaultClient),
     }));
     saleDefaultClientInitializedRef.current = true;
-  }, [clientOptions, customerFieldsForSaleUpdate]);
+  }, [clientOptions, customerFieldsForSaleUpdate, isEditingMode]);
 
   const handleSaleDocTypeChange = (docTypeCode: PosDocTypeCode) => {
     setSaleSettings((prev) => {
@@ -1619,23 +1613,21 @@ const POSPage = () => {
     }
   };
 
-  const validateSaleSettings = () => {
-    const customerName = safeTrim(saleSettings.customerName);
-    const customerDocument = safeTrim(saleSettings.customerId).replace(
-      /\D/g,
-      "",
-    );
+  const validateSaleSettings = (forceToast = false) => {
     const discount = saleSettings.applyDiscount
       ? toDecimal(saleSettings.discount)
       : 0;
     const maxDiscountAllowed = Math.max(0, Number(discountMaxFromSession ?? 0));
     const focusSaleDiscount = () => {
       setCartTab("payment");
-      window.setTimeout(() => saleDiscountInputRef.current?.focus(), 0);
+      focusSaleField(saleDiscountInputRef, true);
     };
 
     if (discount < 0) {
-      showSingleValidationToast("El descuento no puede ser negativo.");
+      showSingleValidationToast(
+        "El descuento no puede ser negativo.",
+        forceToast,
+      );
       focusSaleDiscount();
       return false;
     }
@@ -1644,10 +1636,17 @@ const POSPage = () => {
         `El descuento no puede superar S/ ${roundCurrency(
           maxDiscountAllowed,
         ).toFixed(2)}.`,
+        forceToast,
       );
       focusSaleDiscount();
       return false;
     }
+
+    const customerName = safeTrim(saleSettings.customerName);
+    const customerDocument = safeTrim(saleSettings.customerId).replace(
+      /\D/g,
+      "",
+    );
 
     if (saleSettings.docTypeCode === "SELECCIONAR") {
       toast.error("Selecciona el tipo de documento.");
@@ -1859,18 +1858,13 @@ const POSPage = () => {
   );
 
   useEffect(() => {
-    const routeState =
-      (location.state as {
-        preserveCart?: boolean;
-        resetCart?: boolean;
-        saleSettings?: Partial<PosSaleSettings>;
-      } | null) ?? null;
     const restoredSaleSettings = normalizePosSaleSettings(
       routeState?.saleSettings,
     );
     const preserveCart = routeState?.preserveCart === true;
-    const resetCart = routeState?.resetCart === true;
+    const resetCart = shouldResetCartOnEntry;
     if (resetCart) {
+      window.sessionStorage.removeItem(POS_RESET_CART_STORAGE_KEY);
       clearCart();
       clearEditingNota();
       setSaleSettings(DEFAULT_POS_SALE_SETTINGS);
@@ -1886,7 +1880,13 @@ const POSPage = () => {
     if (preserveCart) return;
 
     clearEditingNota();
-  }, [clearCart, clearEditingNota, location.state, resetDraftForNewSale]);
+  }, [
+    clearCart,
+    clearEditingNota,
+    resetDraftForNewSale,
+    routeState,
+    shouldResetCartOnEntry,
+  ]);
 
   const hasInvalidPriceForPayment = (item: PosCartItem) => {
     const minPrice = getMinAllowedPrice(item);
@@ -1904,22 +1904,37 @@ const POSPage = () => {
     const draftPrice = Number(normalizedDraft);
     return !Number.isFinite(draftPrice) || draftPrice < minPrice;
   };
+  const hasInsufficientKnownStock = (item: PosCartItem, quantity: number) => {
+    if (item.stock === undefined || item.stock === null) return false;
+    const stock = Number(item.stock);
+    return Number.isFinite(stock) && quantity > Math.max(0, stock);
+  };
 
-  const focusPosPriceInput = (itemKey: number) => {
+  const focusCartInput = (selector: string, force = true) => {
     window.setTimeout(() => {
-      const input = document.querySelector<HTMLInputElement>(
-        `[data-pos-price-key="${itemKey}"]`,
-      );
+      const input = document.querySelector<HTMLInputElement>(selector);
+      const active = document.activeElement;
+      const activeIsOtherInput =
+        active instanceof HTMLElement &&
+        active !== input &&
+        active.matches("input, textarea, select");
+      if (!force && activeIsOtherInput) return;
       input?.focus();
       input?.select();
     }, 0);
   };
+  const focusPosPriceInput = (itemKey: number, force = true) =>
+    focusCartInput(`[data-pos-price-key="${itemKey}"]`, force);
+  const focusPosQuantityInput = (itemKey: number, force = true) =>
+    focusCartInput(`[data-pos-quantity-key="${itemKey}"]`, force);
 
   const validateCartItemsBeforePayment = () => {
     const invalidQuantityItem = items.find(hasInvalidQuantityForPayment);
     if (invalidQuantityItem) {
+      const itemKey = getCartItemKey(invalidQuantityItem);
       setCartTab("products");
       showSingleValidationToast("La cantidad debe ser mayor a 0.");
+      focusPosQuantityInput(itemKey);
       return false;
     }
 
@@ -1941,12 +1956,52 @@ const POSPage = () => {
 
     return true;
   };
+  const validateSaleDiscountInput = (rawValue: string, forceToast = false) => {
+    const normalizedRaw = rawValue.trim();
+    if (!normalizedRaw) return true;
 
-  const showInvalidQuantityMessage = () => {
+    const discount = toDecimal(normalizedRaw);
+    const maxDiscountAllowed = Math.max(0, Number(discountMaxFromSession ?? 0));
+    if (discount < 0) {
+      showSingleValidationToast(
+        "El descuento no puede ser negativo.",
+        forceToast,
+      );
+      setCartTab("payment");
+      focusSaleField(saleDiscountInputRef, true);
+      return false;
+    }
+    if (discount > maxDiscountAllowed) {
+      showSingleValidationToast(
+        `El descuento no puede superar S/ ${roundCurrency(
+          maxDiscountAllowed,
+        ).toFixed(2)}.`,
+        forceToast,
+      );
+      setCartTab("payment");
+      focusSaleField(saleDiscountInputRef, true);
+      return false;
+    }
+
+    return true;
+  };
+  const blockInvalidSaleDiscountAction = (event: PointerEvent<HTMLElement>) => {
+    if (
+      saleSettings.applyDiscount &&
+      !validateSaleDiscountInput(saleSettings.discount, true)
+    ) {
+      event.preventDefault();
+      event.stopPropagation();
+    }
+  };
+
+  const showInvalidQuantityMessage = (itemKey?: number) => {
     showSingleValidationToast("La cantidad debe ser mayor a 0.");
+    if (itemKey !== undefined) focusPosQuantityInput(itemKey);
   };
 
   const showInvalidPriceMessage = (item: PosCartItem, value: string) => {
+    const itemKey = getCartItemKey(item);
     showSingleValidationToast(
       !value.trim()
         ? "Ingresa el precio del producto."
@@ -1954,6 +2009,7 @@ const POSPage = () => {
             getMinAllowedPrice(item),
           )}`,
     );
+    focusPosPriceInput(itemKey);
   };
 
   const requestPersonalAuthorizationForPayment = () =>
@@ -2072,36 +2128,6 @@ const POSPage = () => {
       });
     });
 
-  const updateMissingSaleClientContact = async () => {
-    if (!selectedSaleClient) return;
-    if (safeTrim(selectedSaleClient.label).toUpperCase() === "VARIOS") return;
-
-    const nextShippingAddress = safeTrim(saleSettings.shippingAddress);
-    const nextPhone = safeTrim(saleSettings.phone);
-    const patch: Partial<typeof selectedSaleClient> = {};
-
-    if (
-      !safeTrim(selectedSaleClient.direccionDespacho) &&
-      nextShippingAddress
-    ) {
-      patch.direccionDespacho = nextShippingAddress;
-    }
-    if (!safeTrim(selectedSaleClient.telefonoMovil) && nextPhone) {
-      patch.telefonoMovil = nextPhone;
-    }
-    if (!Object.keys(patch).length) return;
-
-    const result = await updateClient(selectedSaleClient.id, {
-      ...selectedSaleClient,
-      ...patch,
-    });
-    if (!result.ok) {
-      toast.error(result.error ?? "No se pudo actualizar el cliente.");
-      return;
-    }
-    await fetchClients("ACTIVO");
-  };
-
   const confirmFromPos = async () => {
     if (isSubmittingQuickSale) return;
     if (!items.length) {
@@ -2121,7 +2147,7 @@ const POSPage = () => {
 
     if (!validateCartItemsBeforePayment()) return;
 
-    if (!validateSaleSettings()) return;
+    if (!validateSaleSettings(true)) return;
 
     const authorizedPersonalName =
       await requestPersonalAuthorizationForPayment();
@@ -2163,8 +2189,8 @@ const POSPage = () => {
         notaUsuario: resolvedPaymentUsername,
         notaFormaPago: saleSettings.paymentMethod,
         notaCondicion: "ALCONTADO",
-        notaDireccion: safeTrim(saleSettings.shippingAddress),
-        notaTelefono: safeTrim(saleSettings.phone),
+        notaDireccion: safeTrim(saleSettings.shippingAddress).toUpperCase(),
+        notaTelefono: safeTrim(saleSettings.phone).toUpperCase(),
         notaSubtotal: safeCommercialSubtotal,
         notaMovilidad: saleMovementAmount,
         notaDescuento: safeDiscount,
@@ -2230,7 +2256,6 @@ const POSPage = () => {
 
     setIsSubmittingQuickSale(true);
     try {
-      await updateMissingSaleClientContact();
       const result = await apiRequest({
         url: buildApiUrl(
           hasEditingNota ? "/Nota/editarOrden" : "/Nota/register-with-detail",
@@ -2604,7 +2629,12 @@ const POSPage = () => {
       (product) =>
         (Number(product.detalleId ?? 0) || Number(product.id ?? 0)) === itemKey,
     );
-    return catalogProduct ? priceBValue(catalogProduct) : 0;
+    const productMatch =
+      catalogProduct ??
+      catalogProducts.find(
+        (product) => Number(product.id ?? 0) === Number(item.productId ?? 0),
+      );
+    return productMatch ? priceBValue(productMatch) : 0;
   };
   const getCartItemPriceA = (item: PosCartItem) => {
     const savedPriceA = priceAValue(item);
@@ -2614,7 +2644,12 @@ const POSPage = () => {
       (product) =>
         (Number(product.detalleId ?? 0) || Number(product.id ?? 0)) === itemKey,
     );
-    return catalogProduct ? productPrice(catalogProduct, "A") : 0;
+    const productMatch =
+      catalogProduct ??
+      catalogProducts.find(
+        (product) => Number(product.id ?? 0) === Number(item.productId ?? 0),
+      );
+    return productMatch ? productPrice(productMatch, "A") : 0;
   };
 
   useEffect(() => {
@@ -2676,7 +2711,7 @@ const POSPage = () => {
       return next;
     });
     updateQuantity(itemKey, desired);
-    if (desired > Math.max(0, Number(item.stock ?? 0))) {
+    if (hasInsufficientKnownStock(item, desired)) {
       confirmStockInquiry(
         {
           id: item.productId,
@@ -2727,11 +2762,11 @@ const POSPage = () => {
 
     if (normalized === "" || Number.isNaN(parsed)) {
       updateQuantity(itemKey, 0);
-      showInvalidQuantityMessage();
+      showInvalidQuantityMessage(itemKey);
     } else {
       const desired = Math.max(0, parsed);
       updateQuantity(itemKey, desired);
-      if (desired > Math.max(0, Number(item.stock ?? 0))) {
+      if (hasInsufficientKnownStock(item, desired)) {
         confirmStockInquiry(
           {
             id: item.productId,
@@ -3025,7 +3060,16 @@ const POSPage = () => {
                 ? "bg-slate-800 text-white shadow-sm"
                 : "text-slate-600 hover:bg-white"
             }`}
-            onClick={() => setCartTab("products")}
+            onPointerDown={blockInvalidSaleDiscountAction}
+            onClick={() => {
+              if (
+                saleSettings.applyDiscount &&
+                !validateSaleDiscountInput(saleSettings.discount, true)
+              ) {
+                return;
+              }
+              setCartTab("products");
+            }}
           >
             Productos
           </button>
@@ -3046,6 +3090,7 @@ const POSPage = () => {
             type="button"
             className={`${mobile ? "hidden" : "inline-flex"} shrink-0 items-center justify-center gap-1 rounded-lg bg-emerald-500 px-3 py-2 text-sm font-semibold text-white transition-colors hover:bg-emerald-600 disabled:cursor-not-allowed disabled:opacity-50`}
             disabled={!items.length || isSubmittingQuickSale}
+            onPointerDown={blockInvalidSaleDiscountAction}
             onClick={goToPayment}
             title="Confirmar"
           >
@@ -3089,8 +3134,8 @@ const POSPage = () => {
           const isZeroOrNegative = (item.cantidad ?? 0) <= 0;
           const stockValue = Number(item.stock ?? 0);
           const isStockNegative =
-            item.stock !== undefined &&
-            (stockValue < 0 || Number(item.cantidad ?? 0) > stockValue);
+            stockValue < 0 ||
+            hasInsufficientKnownStock(item, Number(item.cantidad ?? 0));
           const minPrice = getMinAllowedPrice(item);
           const itemPriceA = getCartItemPriceA(item);
           const itemPriceB = getCartItemPriceB(item);
@@ -3186,6 +3231,7 @@ const POSPage = () => {
                         <button
                           type="button"
                           className="w-full rounded-md border border-blue-200 bg-blue-50 px-2 py-1 text-xs font-semibold text-blue-700 hover:bg-blue-100"
+                          onMouseDown={(event) => event.preventDefault()}
                           onClick={() => handleToggleCartPrice(item)}
                         >
                           Cambiar a {nextPriceMode} S/{" "}
@@ -3205,14 +3251,15 @@ const POSPage = () => {
                   >
                     <Minus className="h-4 w-4 md:h-5 md:w-5 xl:h-4 xl:w-4" />
                   </button>
-                  <NavigableNumberInput
-                    min="0"
-                    step="any"
-                    value={
-                      quantityDrafts[getCartItemKey(item)] ??
-                      (item.cantidad === 0 ? "" : item.cantidad)
-                    }
-                    onChange={(value) => handleManualQuantity(item, value)}
+                    <NavigableNumberInput
+                      min="0"
+                      step="any"
+                      value={
+                        quantityDrafts[getCartItemKey(item)] ??
+                        (item.cantidad === 0 ? "" : item.cantidad)
+                      }
+                      data-pos-quantity-key={getCartItemKey(item)}
+                      onChange={(value) => handleManualQuantity(item, value)}
                     onBlur={(event) =>
                       handleQuantityBlur(item, event.currentTarget.value)
                     }
@@ -3673,7 +3720,7 @@ const POSPage = () => {
             onChange={(event) =>
               setSaleSettings((prev) => ({
                 ...prev,
-                fiscalAddress: event.target.value,
+                fiscalAddress: event.target.value.toUpperCase(),
               }))
             }
             sx={POS_PAYMENT_TEXT_FIELD_SX}
@@ -3689,13 +3736,13 @@ const POSPage = () => {
             minRows={2}
             value={saleSettings.shippingAddress}
             InputLabelProps={{ shrink: true }}
-            inputProps={{ "data-no-uppercase": "true" }}
+            inputProps={{ style: { textTransform: "uppercase" } }}
             inputRef={saleShippingAddressInputRef}
             onKeyDown={handleSaleEnterFocus(salePhoneInputRef)}
             onChange={(event) =>
               setSaleSettings((prev) => ({
                 ...prev,
-                shippingAddress: event.target.value,
+                shippingAddress: event.target.value.toUpperCase(),
               }))
             }
             sx={POS_PAYMENT_TEXT_FIELD_SX}
@@ -3708,13 +3755,13 @@ const POSPage = () => {
             size="small"
             label="Teléfono/Cel."
             value={saleSettings.phone}
-            inputProps={{ "data-no-uppercase": "true" }}
+            inputProps={{ style: { textTransform: "uppercase" } }}
             inputRef={salePhoneInputRef}
             onKeyDown={handleSaleEnterFocus(nextSaleAfterPhoneRef, true)}
             onChange={(event) =>
               setSaleSettings((prev) => ({
                 ...prev,
-                phone: event.target.value,
+                phone: event.target.value.toUpperCase(),
               }))
             }
             sx={POS_PAYMENT_TEXT_FIELD_SX}
@@ -3870,6 +3917,8 @@ const POSPage = () => {
                     setSaleSettings((prev) => ({ ...prev, discount: "" }));
                     return;
                   }
+                  if (!validateSaleDiscountInput(event.currentTarget.value))
+                    return;
                   const normalized = roundCurrency(
                     toDecimal(event.currentTarget.value),
                   );
@@ -3954,6 +4003,7 @@ const POSPage = () => {
         <button
           className="mt-3 inline-flex w-full items-center justify-center gap-2 rounded-lg bg-emerald-500 py-2.5 text-white transition-colors hover:bg-emerald-600 disabled:opacity-50 md:py-3 md:text-lg xl:py-2.5 xl:text-base"
           disabled={!items.length || isSubmittingQuickSale}
+          onPointerDown={blockInvalidSaleDiscountAction}
           onClick={goToPayment}
         >
           {isSubmittingQuickSale ? (

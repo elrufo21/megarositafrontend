@@ -33,9 +33,7 @@ import { HookForm } from "@/components/forms/HookForm";
 import { HookFormSelect } from "@/components/forms/HookFormSelect";
 import { HookFormInput } from "@/components/forms/HookFormInput";
 import { HookFormAutocomplete } from "@/components/forms/HookFormAutocomplete";
-import CustomerDialogContent, {
-  CUSTOMER_DIALOG_FORM_ID,
-} from "@/features/pos/components/CustomerDialogContent";
+import CustomerDialogContent from "@/features/pos/components/CustomerDialogContent";
 import { usePosCartDraftPersistence } from "@/features/pos/hooks/usePosCartDraftPersistence";
 import { useClientsStore } from "@/store/customers/customers.store";
 import { useProductsStore } from "@/store/products/products.store";
@@ -993,6 +991,10 @@ const PaymentPage = () => {
       safeTrim(parsedSession?.user?.username) ||
       "";
     const discountMaxRaw =
+      parsedSession?.user?.maxDiscount ??
+      parsedSession?.descuentoMax ??
+      parsedSession?.loginPayload?.descuentoMax ??
+      parsedSession?.loginPayload?.DescuentoMax ??
       parsedSession?.user?.discount ??
       parsedSession?.user?.descuento ??
       parsedSession?.user?.Descuento ??
@@ -1000,10 +1002,6 @@ const PaymentPage = () => {
       parsedSession?.Descuento ??
       parsedSession?.loginPayload?.descuento ??
       parsedSession?.loginPayload?.Descuento ??
-      parsedSession?.user?.maxDiscount ??
-      parsedSession?.descuentoMax ??
-      parsedSession?.loginPayload?.descuentoMax ??
-      parsedSession?.loginPayload?.DescuentoMax ??
       0;
     const discountMaxNumeric = Number(discountMaxRaw);
     const safeDiscountMax =
@@ -2231,6 +2229,15 @@ const PaymentPage = () => {
         detalle?.PrecioB ??
         0,
     );
+    const precioB = Number(
+      detalle?.precioB ??
+        detalle?.PrecioB ??
+        detalle?.preVentaB ??
+        detalle?.PreVentaB ??
+        detalle?.productoVentaB ??
+        detalle?.ProductoVentaB ??
+        0,
+    );
     const productId = Number(
       detalle?.idProducto ??
         detalle?.productoId ??
@@ -2241,6 +2248,12 @@ const PaymentPage = () => {
     const valorUM = Number(
       detalle?.valorUM ?? detalle?.ValorUM ?? detalle?.factor ?? 1,
     );
+    const stockRaw =
+      detalle?.stock ??
+      detalle?.Stock ??
+      detalle?.productoCantidad ??
+      detalle?.ProductoCantidad;
+    const stock = Number(stockRaw);
     const precioFromImporte =
       Number.isFinite(detalleImporte) &&
       Number.isFinite(cantidad) &&
@@ -2287,9 +2300,13 @@ const PaymentPage = () => {
       precioMinimo: Number.isFinite(precioMinimo)
         ? Math.max(precioMinimo, 0)
         : 0,
+      precioB: Number.isFinite(precioB) && precioB > 0 ? precioB : undefined,
       cantidad: Number.isFinite(cantidad) ? cantidad : 0,
       valorUM: Number.isFinite(valorUM) && valorUM > 0 ? valorUM : 1,
-      stock: Number(detalle?.stock ?? detalle?.cantidadSaldo ?? 0) || undefined,
+      stock:
+        stockRaw !== undefined && Number.isFinite(stock)
+          ? Math.max(0, stock)
+          : undefined,
       detalleId:
         Number.isFinite(detalleId) && detalleId > 0 ? detalleId : undefined,
     };
@@ -2650,7 +2667,7 @@ const PaymentPage = () => {
             "DireccionFiscal",
             "clienteDireccion",
             "ClienteDireccion",
-          ),
+          ).toUpperCase(),
           { shouldDirty: false },
         );
         setValue(
@@ -2660,11 +2677,7 @@ const PaymentPage = () => {
             "NotaDireccion",
             "direccion",
             "Direccion",
-            "clienteDespacho",
-            "ClienteDespacho",
-            "clienteDireccion",
-            "ClienteDireccion",
-          ),
+          ).toUpperCase(),
           { shouldDirty: false },
         );
         setValue(
@@ -2674,15 +2687,16 @@ const PaymentPage = () => {
             "NotaTelefono",
             "telefono",
             "Telefono",
-            "clienteTelefono",
-            "ClienteTelefono",
-          ),
+          ).toUpperCase(),
           { shouldDirty: false },
         );
-        const movilidadNota = Number(
-          (notaData as any).notaMovilidad ?? (notaData as any).movilidad ?? 0,
-        );
-        if (Number.isFinite(movilidadNota) && movilidadNota > 0) {
+        const movilidadNota = getNotaAmount(notaData, [
+          "notaMovilidad",
+          "NotaMovilidad",
+          "movilidad",
+          "Movilidad",
+        ]);
+        if (Number.isFinite(movilidadNota)) {
           setValue("movementCost", movilidadNota, { shouldDirty: false });
         }
 
@@ -2765,13 +2779,13 @@ const PaymentPage = () => {
           : null;
       const source = fullClient ?? client;
 
-      setValue("fiscalAddress", safeTrim(source?.direccionFiscal), {
+      setValue("fiscalAddress", safeTrim(source?.direccionFiscal).toUpperCase(), {
         shouldDirty,
       });
-      setValue("shippingAddress", safeTrim(source?.direccionDespacho), {
+      setValue("shippingAddress", safeTrim(source?.direccionDespacho).toUpperCase(), {
         shouldDirty,
       });
-      setValue("phone", safeTrim(source?.telefonoMovil), { shouldDirty });
+      setValue("phone", safeTrim(source?.telefonoMovil).toUpperCase(), { shouldDirty });
     },
     [clients, setValue],
   );
@@ -2805,35 +2819,6 @@ const PaymentPage = () => {
     },
     [setValue],
   );
-  const updateMissingClientContact = useCallback(async () => {
-    const clientIdNumeric = Number(clienteId ?? 0);
-    if (!Number.isFinite(clientIdNumeric) || clientIdNumeric <= 0) return;
-
-    const client = clients.find((item) => Number(item.id) === clientIdNumeric);
-    if (!client || safeTrim(client.nombreRazon).toUpperCase() === "VARIOS") {
-      return;
-    }
-
-    const nextShippingAddress = safeTrim(shippingAddress);
-    const nextPhone = safeTrim(phone);
-    const patch: Partial<Client> = {};
-
-    if (!safeTrim(client.direccionDespacho) && nextShippingAddress) {
-      patch.direccionDespacho = nextShippingAddress;
-    }
-    if (!safeTrim(client.telefonoMovil) && nextPhone) {
-      patch.telefonoMovil = nextPhone;
-    }
-    if (!Object.keys(patch).length) return;
-
-    const result = await updateClient(client.id, { ...client, ...patch });
-    if (!result.ok) {
-      toast.error(result.error ?? "No se pudo actualizar el cliente.");
-      return;
-    }
-    await fetchClients("");
-  }, [clienteId, clients, fetchClients, phone, shippingAddress, updateClient]);
-
   // En nuevo registro, preselecciona cliente VARIOS (ID configurado) sin afectar edicion
   useEffect(() => {
     if (notaId || isEditingMode || hasLoadedNotaMeta) return;
@@ -2995,16 +2980,8 @@ const PaymentPage = () => {
     openDialog({
       maxWidth: "lg",
       fullWidth: true,
-      cancelText: "Cerrar",
-      confirmText: "Guardar",
-      onConfirm: () => {
-        (
-          document.getElementById(
-            CUSTOMER_DIALOG_FORM_ID,
-          ) as HTMLFormElement | null
-        )?.requestSubmit();
-        return false;
-      },
+      hideCancelButton: true,
+      hideActions: true,
       content: (
         <CustomerDialogContent
           initialEditingClient={editableCurrentClient}
@@ -3589,17 +3566,21 @@ const PaymentPage = () => {
       setValue("customerRuc", rucFromId, { shouldDirty: false });
     }
     if (!dirtyFields?.fiscalAddress && !safeTrim(fiscalAddress)) {
-      setValue("fiscalAddress", safeTrim(resolvedClient.direccionFiscal), {
+      setValue("fiscalAddress", safeTrim(resolvedClient.direccionFiscal).toUpperCase(), {
         shouldDirty: false,
       });
     }
-    if (!dirtyFields?.shippingAddress && !safeTrim(shippingAddress)) {
-      setValue("shippingAddress", safeTrim(resolvedClient.direccionDespacho), {
+    if (
+      !hasLoadedNotaMeta &&
+      !dirtyFields?.shippingAddress &&
+      !safeTrim(shippingAddress)
+    ) {
+      setValue("shippingAddress", safeTrim(resolvedClient.direccionDespacho).toUpperCase(), {
         shouldDirty: false,
       });
     }
-    if (!dirtyFields?.phone && !safeTrim(phone)) {
-      setValue("phone", safeTrim(resolvedClient.telefonoMovil), {
+    if (!hasLoadedNotaMeta && !dirtyFields?.phone && !safeTrim(phone)) {
+      setValue("phone", safeTrim(resolvedClient.telefonoMovil).toUpperCase(), {
         shouldDirty: false,
       });
     }
@@ -4255,8 +4236,8 @@ const PaymentPage = () => {
         notaCondicion: "ALCONTADO",
         notaDias: 1,
         notaFechaPago: now.toISOString(),
-        notaDireccion: safeTrim(shippingAddress),
-        notaTelefono: safeTrim(phone),
+        notaDireccion: safeTrim(shippingAddress).toUpperCase(),
+        notaTelefono: safeTrim(phone).toUpperCase(),
         notaSubtotal: commercialSubtotal,
         notaMovilidad: roundCurrency(notaMovilidad),
         notaDescuento: roundCurrency(descuento),
@@ -4711,8 +4692,6 @@ const PaymentPage = () => {
         valorUM: Number(detalle.valorUM ?? 1) || 1,
       })),
     };
-
-    await updateMissingClientContact();
 
     const result = await apiRequest({
       url: isEditing
@@ -5434,6 +5413,97 @@ const PaymentPage = () => {
     });
   };
 
+  const navigateToPosEdit = useCallback(() => {
+    if (!notaId) return false;
+    const itemsForEditing =
+      serverItems.length > 0
+        ? serverItems
+        : purchasedItems.length > 0
+          ? purchasedItems
+          : items;
+    if (!itemsForEditing.length) {
+      toast.error("No hay items para editar.");
+      return false;
+    }
+
+    shouldCleanupOnExitAfterConfirmRef.current = false;
+    setIsConfirmed(false);
+    setConfirmedFlowType(null);
+    setStoreItems(itemsForEditing);
+    setEditingNotaInStore(notaId);
+    setEditingModeInStore(true);
+    setServerItemsInStore(serverItems.length ? serverItems : itemsForEditing);
+    navigate(POS_ROUTE, {
+      state: {
+        preserveCart: true,
+        saleSettings: {
+          docTypeCode,
+          paymentMethod,
+          clienteId,
+          customerName,
+          customerId,
+          customerDni,
+          customerRuc,
+          fiscalAddress,
+          shippingAddress,
+          phone,
+          movementCost: String(notaMovilidad || ""),
+          bankEntity: safeTrim(getValues("bankEntity")),
+          nroOperacion: safeTrim(getValues("nroOperacion")),
+          applyDiscount: Boolean(applyDiscount && descuento > 0),
+          discount: String(descuento || ""),
+        },
+      },
+    });
+    return true;
+  }, [
+    applyDiscount,
+    clienteId,
+    customerDni,
+    customerId,
+    customerName,
+    customerRuc,
+    descuento,
+    docTypeCode,
+    fiscalAddress,
+    getValues,
+    items,
+    navigate,
+    notaId,
+    notaMovilidad,
+    paymentMethod,
+    phone,
+    purchasedItems,
+    serverItems,
+    setEditingModeInStore,
+    setEditingNotaInStore,
+    setServerItemsInStore,
+    setStoreItems,
+    shippingAddress,
+  ]);
+
+  useEffect(() => {
+    if (!isOrderNotesFlow || forcedMode !== "edit" || !hasLoadedNotaMeta) return;
+    if (
+      !isEditableDocumentType ||
+      isNotaAnulada ||
+      isNotaCancelada ||
+      isNotaEmitida
+    ) {
+      return;
+    }
+    navigateToPosEdit();
+  }, [
+    forcedMode,
+    hasLoadedNotaMeta,
+    isEditableDocumentType,
+    isNotaAnulada,
+    isNotaCancelada,
+    isNotaEmitida,
+    isOrderNotesFlow,
+    navigateToPosEdit,
+  ]);
+
   const handleBackToPos = (ev?: MouseEvent) => {
     ev?.preventDefault();
     if (!isOrderNotesFlow && isEditingMode && notaId) {
@@ -5592,23 +5662,7 @@ const PaymentPage = () => {
         return;
       }
 
-      if (isReadOnlyNoteView) {
-        navigate(`/sales/order_notes/${notaId}/edit`);
-        return;
-      }
-      shouldCleanupOnExitAfterConfirmRef.current = false;
-      setIsConfirmed(false);
-      setConfirmedFlowType(null);
-      setEditingNotaInStore(notaId);
-      setEditingModeInStore(true);
-      const itemsForEditing = serverItems.length ? serverItems : purchasedItems;
-      setServerItemsInStore(itemsForEditing);
-      const nextSearchParams = new URLSearchParams(search);
-      nextSearchParams.set("mode", "edit");
-      nextSearchParams.delete("autoprint");
-      navigate(`${pathname}?${nextSearchParams.toString()}`, {
-        replace: true,
-      });
+      navigateToPosEdit();
     } catch (error) {
       console.error("Error validando estado para edición", error);
       toast.error("No se pudo validar el estado de la nota para edición.");
@@ -7528,11 +7582,12 @@ const PaymentPage = () => {
           value={shippingAddress}
           InputLabelProps={{ shrink: true }}
           disabled={formLocked}
+          inputProps={{ style: { textTransform: "uppercase" } }}
           sx={{ mt: 2 }}
           onChange={(event) =>
-            setValue("shippingAddress", event.target.value, {
-              shouldDirty: true,
-            })
+              setValue("shippingAddress", event.target.value.toUpperCase(), {
+                shouldDirty: true,
+              })
           }
         />
         <div className="mt-6">
@@ -7541,6 +7596,7 @@ const PaymentPage = () => {
             label="Teléfono/Cel."
             disabled={formLocked}
             placeholder="Teléfono o celular"
+            uppercase
           />
         </div>
         {!formLocked && (

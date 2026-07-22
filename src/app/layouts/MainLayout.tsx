@@ -38,6 +38,7 @@ interface CompanyOption {
   name: string;
 }
 
+const POS_RESET_CART_STORAGE_KEY = "sgo.pos.resetCart";
 const normalizeText = (value: unknown): string => String(value ?? "").trim();
 
 const normalizeCompanyItems = (payload: unknown): CompanyOption[] => {
@@ -75,10 +76,11 @@ const toCompanyUserPatch = (
     ["1", "true", "si", "sí", "s"].includes(normalizeText(value).toLowerCase());
 
   const discount = numberOrZero(
-    record.Descuento ??
-      record.descuento ??
-      record.DescuentoMax ??
-      record.descuentoMax,
+    record.DescuentoMax ??
+      record.descuentoMax ??
+      record.maxDiscount ??
+      record.Descuento ??
+      record.descuento,
   );
 
   return {
@@ -312,12 +314,17 @@ export default function MainLayout() {
     alwaysShowLabel = false,
   ) => {
     const active = pathname === item.to || pathname.startsWith(item.to + "/");
+    const shouldResetPosCart =
+      item.to === "/sales/pos" &&
+      /^\/(?:sales\/pos|pos)\/payment(?:\/|$)/i.test(pathname);
+    const itemState =
+      shouldResetPosCart ? { resetCart: true } : item.state;
 
     return (
       <Link
         key={item.to}
         to={item.to}
-        state={item.state}
+        state={itemState}
         className={`group flex min-h-11 items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-all duration-200 ${
           !open && !alwaysShowLabel ? "justify-center" : "justify-start"
         } ${
@@ -326,7 +333,12 @@ export default function MainLayout() {
             : "text-slate-200 hover:bg-slate-700/70 hover:text-white"
         }`}
         title={!open && !alwaysShowLabel ? item.label : undefined}
-        onClick={() => setMobileOpen(false)}
+        onClick={() => {
+          if (shouldResetPosCart) {
+            window.sessionStorage.setItem(POS_RESET_CART_STORAGE_KEY, "1");
+          }
+          setMobileOpen(false);
+        }}
       >
         {item.icon}
         {(open || alwaysShowLabel) && (

@@ -185,20 +185,22 @@ export default function CustomerFormBase({
       setDialogData({
         ...values,
         nombreRazon: values.nombreRazon?.toUpperCase() ?? "",
+        direccionFiscal: values.direccionFiscal?.toUpperCase() ?? "",
+        direccionDespacho: values.direccionDespacho?.toUpperCase() ?? "",
+        telefonoMovil: values.telefonoMovil?.toUpperCase() ?? "",
       });
     });
     return () => subscription.unsubscribe();
   }, [variant, formMethods, setDialogData]);
 
   const handleSave = async (values: CustomerFormValues) => {
-    const nombreRazonUpper = values.nombreRazon?.toUpperCase() ?? "";
     const payload: Omit<Client, "id"> = {
-      nombreRazon: nombreRazonUpper,
+      nombreRazon: values.nombreRazon?.toUpperCase() ?? "",
       ruc: values.ruc,
       dni: values.dni,
-      direccionFiscal: values.direccionFiscal,
-      direccionDespacho: values.direccionDespacho,
-      telefonoMovil: values.telefonoMovil,
+      direccionFiscal: values.direccionFiscal?.toUpperCase() ?? "",
+      direccionDespacho: values.direccionDespacho?.toUpperCase() ?? "",
+      telefonoMovil: values.telefonoMovil?.toUpperCase() ?? "",
       email: values.email,
       registradoPor: values.registradoPor,
       estado: values.estado,
@@ -466,6 +468,7 @@ export default function CustomerFormBase({
                       label="Nombre o Razon Social"
                       placeholder="Ingrese nombre o razon social"
                       rules={{ required: "El nombre es obligatorio" }}
+                      uppercase
                     />
                   </div>
 
@@ -513,6 +516,7 @@ export default function CustomerFormBase({
                       name="direccionFiscal"
                       label="Direccion Fiscal"
                       placeholder="Ingrese direccion fiscal"
+                      uppercase
                     />
                   </div>
 
@@ -521,6 +525,7 @@ export default function CustomerFormBase({
                       name="direccionDespacho"
                       label="Direccion de Despacho"
                       placeholder="Ingrese direccion de despacho"
+                      uppercase
                     />
                   </div>
 

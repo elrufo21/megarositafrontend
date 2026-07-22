@@ -14,6 +14,7 @@ type DialogOptions = {
   disableBackdropClose?: boolean;
   disableClose?: boolean;
   hideCancelButton?: boolean;
+  hideActions?: boolean;
   hideMobileConfirmButton?: boolean;
   mobileFullScreen?: boolean;
   mobileActions?: ReactNode;
@@ -32,6 +33,7 @@ const defaults = {
   disableBackdropClose: false,
   disableClose: false,
   hideCancelButton: false,
+  hideActions: false,
   hideMobileConfirmButton: false,
   mobileFullScreen: false,
   mobileActions: null as ReactNode,

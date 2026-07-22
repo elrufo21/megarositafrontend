@@ -153,6 +153,13 @@ const mapLogoToDevProxyUrl = (source: string): string => {
   }
 };
 
+const resolveInitialLogoSource = (companyLogo?: string): string => {
+  const rawLogo = companyLogo?.trim() || readCompanyLogoFromStorage();
+  const fallbackAbsolute = toAbsoluteLogoUrl(FALLBACK_LOGO_SRC);
+  const normalizedLogo = toAbsoluteLogoUrl(rawLogo);
+  return mapLogoToDevProxyUrl(normalizedLogo) || fallbackAbsolute || FALLBACK_LOGO_SRC;
+};
+
 const loadImageElement = (
   source: string,
   options?: { crossOrigin?: boolean },
@@ -682,11 +689,6 @@ const TicketDocument = ({
   preGeneratedQrBase64,
 }: TicketDocumentProps) => {
   const [generatedQrBase64, setGeneratedQrBase64] = useState("");
-  const [resolvedCompanyLogoSrc, setResolvedCompanyLogoSrc] = useState(() =>
-    typeof window === "undefined"
-      ? FALLBACK_LOGO_SRC
-      : toAbsoluteLogoUrl(FALLBACK_LOGO_SRC),
-  );
   const companyPhoneFromStorage = useMemo(
     () => readCompanyPhoneFromStorage(),
     [],
@@ -695,6 +697,21 @@ const TicketDocument = ({
     () => readCompanyLogoFromStorage(),
     [],
   );
+  const initialLogoSrc = useMemo(
+    () =>
+      resolveInitialLogoSource(
+        companyLogo !== undefined ? companyLogo : companyLogoFromStorage,
+      ),
+    [companyLogo, companyLogoFromStorage],
+  );
+  const [resolvedCompanyLogo, setResolvedCompanyLogo] = useState({
+    source: initialLogoSrc,
+    value: "",
+  });
+  const effectiveCompanyLogoSrc =
+    resolvedCompanyLogo.source === initialLogoSrc && resolvedCompanyLogo.value
+      ? resolvedCompanyLogo.value
+      : initialLogoSrc;
 
   useEffect(() => {
     let active = true;
@@ -715,12 +732,20 @@ const TicketDocument = ({
       for (const candidate of candidates) {
         const resolvedCandidate = await resolvePdfLogoSource(candidate);
         if (!resolvedCandidate) continue;
-        if (active) setResolvedCompanyLogoSrc(resolvedCandidate);
+        if (active) {
+          setResolvedCompanyLogo({
+            source: initialLogoSrc,
+            value: resolvedCandidate,
+          });
+        }
         return;
       }
 
       if (active) {
-        setResolvedCompanyLogoSrc(fallbackAbsolute || FALLBACK_LOGO_SRC);
+        setResolvedCompanyLogo({
+          source: initialLogoSrc,
+          value: fallbackAbsolute || FALLBACK_LOGO_SRC,
+        });
       }
     };
     void resolveLogo();
@@ -728,7 +753,7 @@ const TicketDocument = ({
     return () => {
       active = false;
     };
-  }, [companyLogo, companyLogoFromStorage]);
+  }, [companyLogo, companyLogoFromStorage, initialLogoSrc]);
 
   const ticketData = useMemo(() => {
     const hasItems = Boolean(items?.length);
@@ -824,7 +849,7 @@ const TicketDocument = ({
     return {
       isFactura: docType === "factura",
       isProforma: docType === "proforma",
-      logo: resolvedCompanyLogoSrc || FALLBACK_LOGO_SRC,
+      logo: effectiveCompanyLogoSrc || FALLBACK_LOGO_SRC,
       qrData,
       companyName: companyName?.trim() || "CONSORCIO FERRETERO ROSITA E.I.R.L.",
       ruc: companyRuc?.trim() || "20601070155",
@@ -907,7 +932,7 @@ const TicketDocument = ({
     companyAddress,
     companyDistrict,
     companyPhoneFromStorage,
-    resolvedCompanyLogoSrc,
+    effectiveCompanyLogoSrc,
     summary,
   ]);
 

@@ -121,6 +121,9 @@ const getSignedTotal = (
   }
   return amount;
 };
+const getNoteDispatchAddress = (note: OrderNote) =>
+  note.notaDireccion || "-";
+const getNotePhone = (note: OrderNote) => note.notaTelefono || "-";
 
 const OrderNotesList = () => {
   const navigate = useNavigate();
@@ -325,6 +328,8 @@ const OrderNotesList = () => {
         { header: "N° Documento", key: "numeroDocumento", width: 18 },
         { header: "Fecha", key: "fecha", width: 14 },
         { header: "Cliente", key: "cliente", width: 34 },
+        { header: "Dirección despacho", key: "notaDireccion", width: 36 },
+        { header: "Teléfono", key: "notaTelefono", width: 16 },
         { header: "Forma Pago", key: "formaPago", width: 18 },
         { header: "Total", key: "total", width: 14 },
         { header: "A cuenta", key: "acuenta", width: 14 },
@@ -367,6 +372,8 @@ const OrderNotesList = () => {
           numeroDocumento: toExcelSafeText(numeroDocumento || "-"),
           fecha: toExcelSafeText(note.fecha),
           cliente: toExcelSafeText(note.cliente),
+          notaDireccion: toExcelSafeText(getNoteDispatchAddress(note)),
+          notaTelefono: toExcelSafeText(getNotePhone(note)),
           formaPago: toExcelSafeText(note.formaPago),
           total: Number(getSignedTotal(note, note.total).toFixed(2)),
           acuenta: Number(parseAmount(note.acuenta).toFixed(2)),
@@ -376,7 +383,7 @@ const OrderNotesList = () => {
         });
 
         excelRow.eachCell((cell, colNumber) => {
-          const isAmountColumn = colNumber >= 7 && colNumber <= 9;
+          const isAmountColumn = colNumber >= 9 && colNumber <= 11;
 
           cell.border = {
             top: { style: "thin", color: { argb: "FFE2E8F0" } },
@@ -388,7 +395,7 @@ const OrderNotesList = () => {
           cell.alignment = {
             vertical: "top",
             horizontal: isAmountColumn ? "right" : "left",
-            wrapText: colNumber === 5,
+            wrapText: colNumber === 5 || colNumber === 6,
           };
 
           if (isAmountColumn) {
@@ -433,8 +440,8 @@ const OrderNotesList = () => {
       });
 
       totalsRow.eachCell((cell, colNumber) => {
-        const isAmountColumn = colNumber >= 7 && colNumber <= 9;
-        const isLabelColumn = colNumber === 1 || colNumber === 6;
+        const isAmountColumn = colNumber >= 9 && colNumber <= 11;
+        const isLabelColumn = colNumber === 1 || colNumber === 8;
 
         cell.font = { bold: true };
         cell.border = {
@@ -587,6 +594,16 @@ const OrderNotesList = () => {
         header: "Cliente",
         cell: (info) => info.getValue(),
       }),
+      columnHelper.display({
+        id: "notaDireccion",
+        header: "Dirección despacho",
+        cell: ({ row }) => getNoteDispatchAddress(row.original),
+      }),
+      columnHelper.display({
+        id: "notaTelefono",
+        header: "Teléfono",
+        cell: ({ row }) => getNotePhone(row.original),
+      }),
       columnHelper.accessor("formaPago", {
         header: "Forma Pago",
         cell: (info) => info.getValue(),
@@ -617,6 +634,10 @@ const OrderNotesList = () => {
           const value = String(info.getValue() ?? "").toUpperCase() || "-";
           const stateClass = isAnnulledStatus(value)
             ? "bg-red-100 text-red-700 border-red-200"
+            : value.includes("CANCELAD")
+              ? "bg-emerald-100 text-emerald-700 border-emerald-200"
+              : value.includes("EMITID")
+                ? "bg-cyan-100 text-cyan-700 border-cyan-200"
             : value === "PENDIENTE"
               ? "bg-amber-100 text-amber-700 border-amber-200"
               : value === "-"
@@ -660,6 +681,8 @@ const OrderNotesList = () => {
           "estadoSunat",
           "fecha",
           "documento",
+          "notaDireccion",
+          "notaTelefono",
           "formaPago",
           "usuario",
         ]}
