@@ -22,6 +22,7 @@ export interface CrudListConfig<T> {
   createLabel?: string;
   deleteMessage?: string;
   filterKeys?: (keyof T & string)[];
+  initialPageSize?: number;
   renderFilters?: React.ReactNode;
   footerContent?: React.ReactNode;
   onFilteredDataChange?: (rows: T[]) => void;
@@ -59,6 +60,7 @@ interface CrudListProps<T> {
   createLabel?: string;
   deleteMessage?: string;
   filterKeys?: (keyof T & string)[];
+  initialPageSize?: number;
   renderFilters?: React.ReactNode;
   footerContent?: React.ReactNode;
   onFilteredDataChange?: (rows: T[]) => void;
@@ -77,6 +79,7 @@ export function CrudList<T>(props: CrudListProps<T>) {
     createLabel = "Nuevo",
     deleteMessage = "¿Seguro que deseas eliminar este elemento?",
     filterKeys,
+    initialPageSize,
     renderFilters,
     footerContent,
     onFilteredDataChange,
@@ -121,7 +124,7 @@ export function CrudList<T>(props: CrudListProps<T>) {
 
       if (col.key) {
         const accessorKey = col.key;
-        return columnHelper.accessor((row) => row[accessorKey], {
+        return columnHelper.accessor((row: T) => row[accessorKey], {
           id: col.id ?? String(accessorKey),
           header: col.header,
           cell: (info) => info.getValue() as ReactNode,
@@ -285,6 +288,7 @@ export function CrudList<T>(props: CrudListProps<T>) {
         data={data}
         columns={tableColumns}
         filterKeys={filterKeys}
+        initialPageSize={initialPageSize}
         toolbarLeading={
           !isMaintenanceList ? (
             <BackArrowButton

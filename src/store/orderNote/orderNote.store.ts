@@ -565,8 +565,6 @@ export const useOrderNoteStore = create<OrderNoteState>((set, get) => ({
     const query = new URLSearchParams();
     query.set("fechaInicio", fechaInicio);
     query.set("fechaFin", fechaFin);
-    query.set("page", String(nextPage));
-    query.set("pageSize", String(nextPageSize));
 
     set({ loading: true });
     try {

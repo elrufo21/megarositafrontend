@@ -6,7 +6,6 @@ import {
   ArrowLeft,
   ShoppingCart,
   Printer,
-  Download,
   MessageCircle,
   UserPlus,
   Trash2,
@@ -185,8 +184,20 @@ const roundCurrency = (value: number) => {
 };
 const validationToastLastShownAt = new Map<string, number>();
 const VALIDATION_TOAST_DEBOUNCE_MS = 900;
+const parseCurrency = (value: unknown) =>
+  Number(String(value ?? "").replace(/,/g, ""));
 const formatCurrency = (value: unknown) =>
-  roundCurrency(Number(value ?? 0)).toFixed(2);
+  roundCurrency(parseCurrency(value)).toLocaleString("en-US", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
+const formatCurrencyInput = (value: unknown) =>
+  roundCurrency(parseCurrency(value)).toFixed(2);
+const formatQuantity = (value: unknown) => {
+  const numeric = Number(value ?? 0);
+  if (!Number.isFinite(numeric)) return "0";
+  return numeric.toLocaleString("en-US", { maximumFractionDigits: 2 });
+};
 const showSingleValidationToast = (id: string, message: string) => {
   const now = Date.now();
   const lastShownAt = validationToastLastShownAt.get(id) ?? 0;
@@ -748,6 +759,13 @@ const PaymentPage = () => {
     if (!state || typeof state !== "object") return false;
     return (state as Record<string, unknown>).fromOrderNotesViewButton === true;
   }, [pathname, state]);
+  const orderNotesReturnState = useMemo(() => {
+    if (!state || typeof state !== "object") return null;
+    const value = (state as Record<string, unknown>).orderNotesReturnState;
+    return value && typeof value === "object"
+      ? (value as Record<string, unknown>)
+      : null;
+  }, [state]);
   const orderNoteFromRouteState = useMemo(() => {
     if (!state || typeof state !== "object") return null;
     const orderNote = (state as Record<string, unknown>).orderNote;
@@ -775,11 +793,10 @@ const PaymentPage = () => {
       : false,
   );
   const [isPrinting, setIsPrinting] = useState(false);
-  const [isDownloadingComprobante, setIsDownloadingComprobante] =
-    useState(false);
   const [isVoidingTicket, setIsVoidingTicket] = useState(false);
   const [isSendingCreditNote, setIsSendingCreditNote] = useState(false);
   const [isResendingDocument, setIsResendingDocument] = useState(false);
+  const orderNotesViewHadActionRef = useRef(false);
   const [isCheckingEditEligibility, setIsCheckingEditEligibility] =
     useState(false);
   const [notaCabeceraActual, setNotaCabeceraActual] = useState<Record<
@@ -1466,13 +1483,13 @@ const PaymentPage = () => {
 
   const handlePriceChange = (item: PosCartItem, value: string) => {
     if (!canEditItems) return;
-    if (!/^\d*\.?\d*$/.test(value)) return;
+    if (!/^[\d,]*\.?\d*$/.test(value)) return;
 
     const itemKey = getCartItemKey(item);
     clearCorrectedPriceKey(itemKey);
     setPriceDrafts((prev) => ({ ...prev, [itemKey]: value }));
 
-    const parsed = Number(value);
+    const parsed = parseCurrency(value);
     if (!Number.isNaN(parsed) && value.trim() !== "") {
       const minPrice = getMinAllowedPrice(item);
       const roundedPrice = roundCurrency(parsed);
@@ -1489,18 +1506,18 @@ const PaymentPage = () => {
     if (value.trim() === "") {
       setPriceDrafts((prev) => ({
         ...prev,
-        [itemKey]: formatCurrency(item.precio),
+        [itemKey]: formatCurrencyInput(item.precio),
       }));
       setCorrectedPriceKeys((prev) => ({ ...prev, [itemKey]: true }));
       showMissingPriceToast();
       return;
     }
 
-    const parsed = Number(value);
+    const parsed = parseCurrency(value);
     if (Number.isNaN(parsed)) {
       setPriceDrafts((prev) => ({
         ...prev,
-        [itemKey]: formatCurrency(item.precio),
+        [itemKey]: formatCurrencyInput(item.precio),
       }));
       setCorrectedPriceKeys((prev) => ({ ...prev, [itemKey]: true }));
       showMissingPriceToast();
@@ -1516,7 +1533,7 @@ const PaymentPage = () => {
     clearCorrectedPriceKey(itemKey);
     setPriceDrafts((prev) => ({
       ...prev,
-      [itemKey]: formatCurrency(roundedPrice),
+      [itemKey]: formatCurrencyInput(roundedPrice),
     }));
     applyPriceToItem(item, roundedPrice);
   };
@@ -1535,7 +1552,7 @@ const PaymentPage = () => {
 
       const normalizedDraft = draftValue.trim();
       if (!normalizedDraft) return true;
-      const draftPrice = Number(normalizedDraft);
+      const draftPrice = parseCurrency(normalizedDraft);
       return (
         !Number.isFinite(draftPrice) || roundCurrency(draftPrice) < minPrice
       );
@@ -1726,6 +1743,8 @@ const PaymentPage = () => {
     isOrderNotesFlow &&
     Boolean(notaId) &&
     (docTypeCode === "03" || docTypeCode === "01");
+  const shouldPrintAsProforma =
+    isFactura || shouldPrintOrderNoteAsProforma || (isConfirmed && isBoleta);
   const showNewSaleShortcut =
     isEditingMode || (isConfirmed && (isBoleta || isProforma));
   const loadedNoteDocTypeCodeForEdit = (() => {
@@ -1848,6 +1867,7 @@ const PaymentPage = () => {
   const orderNotesDocumentActionLabel = "Anular";
   const allowLegacyOrderNoteActions = false;
   const handleOrderNotesDocumentAction = () => {
+    orderNotesViewHadActionRef.current = true;
     if (allowLegacyOrderNoteActions && isNotaRechazada) {
       void handleResendDocument();
       return;
@@ -4060,12 +4080,25 @@ const PaymentPage = () => {
       docTypeForTicket === "factura"
         ? safeTrim(selectedClient?.ruc)
         : safeTrim(selectedClient?.dni);
+    const selectedDocumentDigits = safeTrim(selectedDocument).replace(/\D/g, "");
+    const ticketClientDni =
+      safeTrim(selectedClient?.dni) ||
+      safeTrim((notaCabeceraActual as any)?.clienteDni) ||
+      safeTrim((notaCabeceraActual as any)?.ClienteDni) ||
+      (selectedDocumentDigits.length === 8 ? selectedDocumentDigits : "");
+    const ticketClientRuc =
+      safeTrim(selectedClient?.ruc) ||
+      safeTrim((notaCabeceraActual as any)?.clienteRuc) ||
+      safeTrim((notaCabeceraActual as any)?.ClienteRuc) ||
+      (selectedDocumentDigits.length === 11 ? selectedDocumentDigits : "");
     return {
       clientName:
         safeTrim(customerName) ||
         safeTrim(selectedClient?.nombreRazon) ||
         "Ultimo cliente",
       clientId: safeTrim(selectedDocument) || selectedClientDocument,
+      clientDni: ticketClientDni,
+      clientRuc: ticketClientRuc,
       clientAddress:
         safeTrim(shippingAddress) ||
         safeTrim(fiscalAddress) ||
@@ -4111,9 +4144,9 @@ const PaymentPage = () => {
     uniqueClients,
     clienteId,
     customerName,
+    notaCabeceraActual,
     shippingAddress,
     fiscalAddress,
-    notaCabeceraActual,
     resolvedNotaUsuario,
     docTypeForTicket,
     docTypeName,
@@ -4483,6 +4516,7 @@ const PaymentPage = () => {
   ]);
 
   const confirmPayment = async () => {
+    orderNotesViewHadActionRef.current = true;
     if (isReadOnlyNoteView) return;
     const sourceItems = hasLiveItems ? items : purchasedItems;
     if (!validatePaymentItemsBeforeSubmit(sourceItems)) return;
@@ -5013,32 +5047,6 @@ const PaymentPage = () => {
       return "";
     };
 
-    const createResponse =
-      !isEditing && result && typeof result === "object"
-        ? (result as Record<string, unknown>)
-        : null;
-    const sunatResponse = parseRecordLikeValue(
-      createResponse?.sunat ?? createResponse?.Sunat,
-    );
-    const facturaCodSunat = resolveSunatCode(createResponse, sunatResponse);
-    const facturaMsjSunat = resolveSunatMessage(createResponse, sunatResponse);
-    const facturaRegistroBdMessage = resolveRegistroBdMessage(
-      createResponse,
-      sunatResponse,
-    );
-    const facturaApiMessage = resolveApiMessage(createResponse, sunatResponse);
-    const facturaAcceptedState = resolveAcceptedState(
-      createResponse,
-      sunatResponse,
-    );
-    const facturaAceptada = facturaAcceptedState.hasAccepted
-      ? facturaAcceptedState.accepted
-      : parseBooleanLikeValue(
-          sunatResponse?.ok ?? sunatResponse?.Ok ?? sunatResponse?.OK,
-        ) ||
-        safeTrim(sunatResponse?.flg_rta ?? sunatResponse?.FlgRta) === "1" ||
-        facturaCodSunat === "0" ||
-        facturaCodSunat === "0000";
     let boletaLoteStatus: "success" | "warning" | null = null;
     let boletaLoteMessage = "";
 
@@ -5245,6 +5253,13 @@ const PaymentPage = () => {
           "Boleta registrada, pero falló el envío/consulta del resumen en SUNAT.";
       }
     }
+    if (boletaLoteMessage) {
+      console.info(
+        boletaLoteStatus === "success"
+          ? boletaLoteMessage
+          : `Advertencia boleta lote: ${boletaLoteMessage}`,
+      );
+    }
 
     if (!isEditing && isPosSaleDraftFlow) {
       const finalNoteId = parsedNotaId ? Number(parsedNotaId) : null;
@@ -5322,13 +5337,12 @@ const PaymentPage = () => {
         : {}),
     };
     setPdfPreviewProps(savedPreviewProps);
-    if (!isFactura) {
-      void handlePrint({
-        skipConfirmedCheck: true,
-        silent: true,
-        previewPropsOverride: savedPreviewProps,
-      });
-    }
+    void handlePrint({
+      skipConfirmedCheck: true,
+      silent: true,
+      previewPropsOverride: savedPreviewProps,
+      printOriginalDocument: true,
+    });
   };
 
   const handleMobileTopConfirm = () => {
@@ -5409,6 +5423,9 @@ const PaymentPage = () => {
     navigate(POS_ROUTE, {
       state: {
         preserveCart: true,
+        cartItems: itemsForReturn,
+        editingNotaId: notaId,
+        isEditingMode: Boolean(isEditingMode && notaId),
         saleSettings: {
           docTypeCode,
           paymentMethod,
@@ -5431,6 +5448,7 @@ const PaymentPage = () => {
   };
 
   const navigateToPosEdit = useCallback(() => {
+    orderNotesViewHadActionRef.current = true;
     if (!notaId) return false;
     const itemsForEditing =
       serverItems.length > 0
@@ -5453,6 +5471,9 @@ const PaymentPage = () => {
     navigate(POS_ROUTE, {
       state: {
         preserveCart: true,
+        cartItems: itemsForEditing,
+        editingNotaId: notaId,
+        isEditingMode: true,
         saleSettings: {
           docTypeCode,
           paymentMethod,
@@ -5530,7 +5551,16 @@ const PaymentPage = () => {
 
     if (shouldBackToOrderNotesList || cameFromOrderNotesViewButton) {
       clearEditingNota();
-      navigate("/sales/order_notes");
+      const shouldRestoreOrderNotesState =
+        orderNotesReturnState && !orderNotesViewHadActionRef.current;
+      navigate(
+        "/sales/order_notes",
+        shouldRestoreOrderNotesState
+          ? { state: { orderNotesReturnState } }
+          : orderNotesViewHadActionRef.current
+            ? { state: { resetOrderNotesFilters: true } }
+          : undefined,
+      );
       return;
     }
     if (isOrderNotesFlow) {
@@ -5586,6 +5616,7 @@ const PaymentPage = () => {
     navigate(backRoute, { state: { preserveCart: true } });
   };
   const handleNewSaleShortcut = useCallback(() => {
+    orderNotesViewHadActionRef.current = true;
     if (isPersistingToDb) return;
     if (isEditingMode || (isConfirmed && docTypeCode === "03")) {
       runConfirmedSaleCleanup();
@@ -5689,6 +5720,7 @@ const PaymentPage = () => {
   };
 
   const handleVoidTicket = async () => {
+    orderNotesViewHadActionRef.current = true;
     if (isNotaAnulada || isNotaCancelada) {
       toast.info(
         "Si notaEstado es ANULADO o CANCELADO no se puede anular ni editar.",
@@ -6182,6 +6214,7 @@ const PaymentPage = () => {
   };
 
   const handleOpenCreditNote = async () => {
+    orderNotesViewHadActionRef.current = true;
     if (!hasTicketId) {
       toast.info("No hay documento para generar nota de credito.");
       return;
@@ -6224,26 +6257,6 @@ const PaymentPage = () => {
         ? Math.floor(tipoProcesoParsed)
         : 3;
     const formaPagoNc = safeTrim(paymentMethod) || "EFECTIVO";
-
-    const missingCodigoSunat = detallesFuente
-      .map((item, index) => ({
-        index,
-        codigo: safeTrim(item.codigo) || `ITEM-${index + 1}`,
-        nombre: safeTrim(item.nombre) || `Producto ${index + 1}`,
-        codigoSunat: safeTrim((item as any).codigoSunat ?? ""),
-      }))
-      .filter((row) => !row.codigoSunat);
-
-    if (missingCodigoSunat.length) {
-      const resume = missingCodigoSunat
-        .slice(0, 3)
-        .map((row) => `${row.codigo} - ${row.nombre}`)
-        .join(", ");
-      const suffix =
-        missingCodigoSunat.length > 3
-          ? ` y ${missingCodigoSunat.length - 3} mas`
-          : "";
-    }
 
     const detalle = detallesFuente.map((item, index) => {
       const line = grossMonetarySummary.lines[index];
@@ -6576,57 +6589,14 @@ const PaymentPage = () => {
     totalAPagar,
   ]);
 
-  const handleDownloadComprobante = useCallback(async () => {
-    if (isNotaAnulada) {
-      toast.error("Documento anulado. Descarga no permitida.");
-      return;
-    }
-
-    try {
-      setIsDownloadingComprobante(true);
-      const downloadPreviewOverride = shouldPrintOrderNoteAsProforma
-        ? {
-            docType: "proforma" as const,
-            documentTitle: "PROFORMA V",
-            documentNumber: ORDER_NOTE_PROFORMA_PREVIEW_NUMBER,
-          }
-        : undefined;
-      const blob = await createComprobanteBlob(downloadPreviewOverride);
-      const fileName = getComprobanteFileName();
-      const url = URL.createObjectURL(blob);
-      const anchor = document.createElement("a");
-      anchor.href = url;
-      anchor.download = fileName;
-      document.body.appendChild(anchor);
-      anchor.click();
-      anchor.remove();
-      window.setTimeout(() => URL.revokeObjectURL(url), 1200);
-    } catch (error) {
-      console.error("No se pudo descargar comprobante", error);
-      toast.error("No se pudo descargar el comprobante.");
-    } finally {
-      setIsDownloadingComprobante(false);
-    }
-  }, [
-    createComprobanteBlob,
-    getComprobanteFileName,
-    isNotaAnulada,
-    shouldPrintOrderNoteAsProforma,
-  ]);
-
   const handlePrint = async (options?: {
     skipConfirmedCheck?: boolean;
     previewPropsOverride?: Partial<typeof ticketPreviewProps>;
     silent?: boolean;
+    printOriginalDocument?: boolean;
   }): Promise<boolean> => {
+    orderNotesViewHadActionRef.current = true;
     const silent = options?.silent === true;
-    if (isFactura && !shouldPrintOrderNoteAsProforma) {
-      if (!silent) {
-        toast.error("Las facturas no se imprimen en ticketera.");
-      }
-      return false;
-    }
-
     if (isNotaAnulada) {
       if (!silent) {
         toast.error("Documento anulado. Impresión no permitida.");
@@ -6649,14 +6619,58 @@ const PaymentPage = () => {
 
     try {
       setIsPrinting(true);
-      const printPreviewOverride = shouldPrintOrderNoteAsProforma
+      const basePrintPreviewProps =
+        options?.previewPropsOverride ?? ticketPreviewProps;
+      const baseSummary = basePrintPreviewProps.summary;
+      const cardAdditionalForProforma = roundCurrency(
+        baseSummary?.cardAdditional ?? 0,
+      );
+      const proformaGrossTotal = roundCurrency(
+        (basePrintPreviewProps.items ?? []).reduce(
+          (sum, item) =>
+            sum + Number(item.precio ?? 0) * Number(item.cantidad ?? 0),
+          0,
+        ),
+      );
+      const proformaBaseTotal =
+        proformaGrossTotal ||
+        roundCurrency(
+          Math.max(
+            0,
+            Number(baseSummary?.total ?? 0) - cardAdditionalForProforma,
+          ),
+        );
+      const proformaDiscount = roundCurrency(descuento);
+      const proformaMovement = roundCurrency(notaMovilidad);
+      const proformaTotal = roundCurrency(
+        Math.max(
+          0,
+          proformaBaseTotal + proformaMovement - proformaDiscount,
+        ),
+      );
+      const printAsProforma =
+        shouldPrintAsProforma && !options?.printOriginalDocument;
+      const printPreviewOverride = printAsProforma
         ? {
-            ...options?.previewPropsOverride,
+            ...basePrintPreviewProps,
             docType: "proforma" as const,
             documentTitle: "PROFORMA V",
             documentNumber: ORDER_NOTE_PROFORMA_PREVIEW_NUMBER,
+            summary: {
+              ...baseSummary,
+              cardAdditional: 0,
+              cardPercentage: 0,
+              showCardAdditional: false,
+              operacionGravada: proformaTotal,
+              movilidad: proformaMovement,
+              descuento: proformaDiscount,
+              showDiscount: proformaDiscount > 0,
+              subtotal: proformaBaseTotal,
+              igv: 0,
+              total: proformaTotal,
+            },
           }
-        : options?.previewPropsOverride;
+        : basePrintPreviewProps;
       const blob = await createComprobanteBlob(printPreviewOverride);
       const fileName = getComprobanteFileName();
       const file = new File([blob], fileName, { type: "application/pdf" });
@@ -6715,7 +6729,6 @@ const PaymentPage = () => {
 
   useEffect(() => {
     if (!shouldAutoPrintOnLoad) return;
-    if (isFactura) return;
     if (!routeNotaId) return;
     if (autoPrintTriggeredRef.current) return;
     if (!hasLoadedNotaMeta) return;
@@ -6727,13 +6740,15 @@ const PaymentPage = () => {
 
     autoPrintTriggeredRef.current = true;
     void (async () => {
-      await handlePrint({ skipConfirmedCheck: true });
+      await handlePrint({
+        skipConfirmedCheck: true,
+        printOriginalDocument: true,
+      });
     })();
   }, [
     hasLoadedNotaMeta,
     handlePrint,
     itemsToRender,
-    isFactura,
     purchasedItems,
     routeNotaId,
     shouldAutoPrintOnLoad,
@@ -6879,7 +6894,6 @@ const PaymentPage = () => {
         {itemsToRender.map((item, rowIndex) => {
           const isZeroOrNegative = (item.cantidad ?? 0) <= 0;
           const isStockNegative = Number(item.stock ?? 0) < 0;
-          const minPrice = getMinAllowedPrice(item);
           const displayLine = getDisplayLineAmounts(item, rowIndex);
 
           return (
@@ -6901,7 +6915,9 @@ const PaymentPage = () => {
                   </p>
                   <p className="mt-1 text-xs text-slate-500">
                     {item.unidadMedida || "UND"}
-                    {item.stock !== undefined ? ` · Stock: ${item.stock}` : ""}
+                    {item.stock !== undefined
+                      ? ` · Stock: ${formatQuantity(item.stock)}`
+                      : ""}
                   </p>
                 </div>
                 <button
@@ -6940,7 +6956,7 @@ const PaymentPage = () => {
                     />
                   ) : (
                     <p className="mt-1 text-base font-semibold text-slate-800">
-                      {item.cantidad}
+                      {formatQuantity(item.cantidad)}
                     </p>
                   )}
                 </div>
@@ -6959,7 +6975,7 @@ const PaymentPage = () => {
                         className="w-full border-0 bg-transparent text-right text-sm outline-none appearance-none [appearance:textfield] disabled:text-slate-500 [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
                         value={
                           priceDrafts[getCartItemKey(item)] ??
-                          formatCurrency(item.precio)
+                          formatCurrencyInput(item.precio)
                         }
                         onChange={(e) => {
                           handlePriceChange(item, e.target.value);
@@ -7012,7 +7028,6 @@ const PaymentPage = () => {
             {itemsToRender.map((item, rowIndex) => {
               const isZeroOrNegative = (item.cantidad ?? 0) <= 0;
               const isStockNegative = Number(item.stock ?? 0) < 0;
-              const minPrice = getMinAllowedPrice(item);
               const displayLine = getDisplayLineAmounts(item, rowIndex);
 
               return (
@@ -7054,7 +7069,7 @@ const PaymentPage = () => {
                       />
                     ) : (
                       <span className="inline-flex h-9 min-w-10 items-center justify-center text-lg">
-                        {item.cantidad}
+                        {formatQuantity(item.cantidad)}
                       </span>
                     )}
                   </div>
@@ -7069,7 +7084,7 @@ const PaymentPage = () => {
                     <p className="mt-1 text-xs text-slate-500">
                       {item.unidadMedida || "UND"}
                       {item.stock !== undefined
-                        ? ` · Stock: ${item.stock}`
+                        ? ` · Stock: ${formatQuantity(item.stock)}`
                         : ""}
                     </p>
                   </div>
@@ -7084,10 +7099,10 @@ const PaymentPage = () => {
                           data-payment-column="price"
                           data-payment-row-index={rowIndex}
                           data-payment-price-key={getCartItemKey(item)}
-                          className="w-16 border-0 bg-transparent text-right text-sm outline-none appearance-none [appearance:textfield] disabled:text-slate-500 [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+                          className="w-24 border-0 bg-transparent text-right text-sm outline-none appearance-none [appearance:textfield] disabled:text-slate-500 [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
                           value={
                             priceDrafts[getCartItemKey(item)] ??
-                            formatCurrency(item.precio)
+                            formatCurrencyInput(item.precio)
                           }
                           onChange={(e) => {
                             handlePriceChange(item, e.target.value);
@@ -7285,28 +7300,7 @@ const PaymentPage = () => {
               <span className="hidden min-[390px]:inline">WhatsApp</span>
             </button>
           )}
-          {canShowOutputDocumentActions && (
-            <button
-              type="button"
-              className="inline-flex shrink-0 items-center justify-center gap-1.5 rounded-lg border border-blue-300 bg-blue-50 px-3 py-2 text-xs font-medium text-blue-800 transition-colors hover:bg-blue-100 disabled:opacity-50"
-              onClick={() => {
-                void handleDownloadComprobante();
-              }}
-              disabled={isDownloadingComprobante || isNotaAnulada}
-              title="Descargar PDF"
-              aria-label="Descargar PDF"
-            >
-              <Download className="h-4 w-4" />
-              <span className="hidden min-[390px]:inline">
-                {isDownloadingComprobante
-                  ? "Descargando..."
-                  : isNotaAnulada
-                    ? "No descargable"
-                    : "Descargar PDF"}
-              </span>
-            </button>
-          )}
-          {canShowOutputDocumentActions && isPdfEnabled && !isFactura && (
+          {canShowOutputDocumentActions && isPdfEnabled && (
             <button
               type="button"
               className="inline-flex shrink-0 items-center justify-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-medium text-slate-800 transition-colors hover:bg-slate-50 disabled:opacity-50"
@@ -7814,27 +7808,6 @@ const PaymentPage = () => {
             Enviar por WhatsApp
           </button>
         )}
-        {canShowOutputDocumentActions &&
-          (!isFactura || shouldPrintOrderNoteAsProforma) && (
-            <button
-              className="inline-flex w-full items-center justify-center gap-2 rounded-lg border border-blue-300 bg-blue-50 py-2.5 text-blue-800 transition-colors hover:bg-blue-100 disabled:opacity-50"
-              onClick={() => {
-                void handleDownloadComprobante();
-              }}
-              disabled={isDownloadingComprobante || isNotaAnulada}
-              title="Descargar PDF"
-              aria-label="Descargar PDF"
-            >
-              <Download className="w-5 h-5" />
-              <span className="hidden min-[390px]:inline">
-                {isDownloadingComprobante
-                  ? "Descargando..."
-                  : isNotaAnulada
-                    ? "No descargable"
-                    : "Descargar PDF"}
-              </span>
-            </button>
-          )}
         {canShowOutputDocumentActions && (
           <button
             className="inline-flex w-full items-center justify-center gap-2 rounded-lg border border-slate-200 bg-white py-2.5 text-slate-800 transition-colors hover:bg-slate-50 disabled:opacity-50"

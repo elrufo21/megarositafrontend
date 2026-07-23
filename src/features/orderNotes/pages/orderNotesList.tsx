@@ -11,18 +11,14 @@ import { esES } from "@mui/x-date-pickers/locales";
 import { createColumnHelper } from "@tanstack/react-table";
 import dayjs, { type Dayjs } from "dayjs";
 import "dayjs/locale/es";
-import { Workbook } from "exceljs";
-import { Eye, FileSpreadsheet, Loader2, Search } from "lucide-react";
+import { Eye, Loader2, Search } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router";
 import { loadOrderNoteView } from "@/features/orderNotes/orderNoteViewLoader";
 
 const columnHelper = createColumnHelper<OrderNote>();
 const ORDER_NOTES_RANGE_STORAGE_KEY = "sgo.orderNotes.range";
-const DEFAULT_ORDER_NOTES_PAGE = 1;
 const DEFAULT_ORDER_NOTES_PAGE_SIZE = 50;
-const MIN_ORDER_NOTES_PAGE_SIZE = 1;
-const MAX_ORDER_NOTES_PAGE_SIZE = 100;
 
 const parseAmount = (value: unknown): number => {
   const raw = String(value ?? "").trim();
@@ -101,16 +97,6 @@ const isCreditNoteDocument = (value: unknown) => {
   );
 };
 
-const isProformaVDocument = (value: unknown) => {
-  const normalized = String(
-    splitDocumentLabel(value).tipoDocumento || value || "",
-  )
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .toUpperCase();
-  return normalized.includes("PROFORMA");
-};
-
 const getSignedTotal = (
   note: Pick<OrderNote, "estado" | "documento">,
   value: unknown,
@@ -127,8 +113,7 @@ const getCustomerRuc = (note: OrderNote) => note.clienteRuc || "-";
 const OrderNotesList = () => {
   const navigate = useNavigate();
   const { state } = useLocation();
-  const { notes, fetchNotes, loading, page, pageSize, total } =
-    useOrderNoteStore();
+  const { notes, fetchNotes, loading } = useOrderNoteStore();
   const [openingNoteId, setOpeningNoteId] = useState<string | null>(null);
   const initialDate = useMemo(() => getLocalDateISO(), []);
   const resetRangeFromMainLayout = useMemo(() => {
@@ -136,6 +121,21 @@ const OrderNotesList = () => {
     return (state as Record<string, unknown>).resetOrderNotesFilters === true;
   }, [state]);
   const initialRange = useMemo(() => {
+    const returnState =
+      state && typeof state === "object"
+        ? (state as Record<string, unknown>).orderNotesReturnState
+        : null;
+    if (
+      !resetRangeFromMainLayout &&
+      returnState &&
+      typeof returnState === "object"
+    ) {
+      const record = returnState as Record<string, unknown>;
+      const from = String(record.fechaInicio ?? "").trim();
+      const to = String(record.fechaFin ?? "").trim();
+      if (from && to && from <= to) return { from, to };
+    }
+
     if (resetRangeFromMainLayout) {
       return { from: initialDate, to: initialDate };
     }
@@ -160,10 +160,19 @@ const OrderNotesList = () => {
     } catch {
       return { from: initialDate, to: initialDate };
     }
-  }, [initialDate, resetRangeFromMainLayout]);
+  }, [initialDate, resetRangeFromMainLayout, state]);
   const [fechaInicio, setFechaInicio] = useState(initialRange.from);
   const [fechaFin, setFechaFin] = useState(initialRange.to);
-  const [tableSearch, setTableSearch] = useState("");
+  const [tableSearch, setTableSearch] = useState(() => {
+    if (resetRangeFromMainLayout || !state || typeof state !== "object") {
+      return "";
+    }
+    const returnState = (state as Record<string, unknown>)
+      .orderNotesReturnState;
+    return returnState && typeof returnState === "object"
+      ? String((returnState as Record<string, unknown>).tableSearch ?? "")
+      : "";
+  });
   const fechaInicioRef = useRef(fechaInicio);
   const fechaFinRef = useRef(fechaFin);
   const endDateAcceptedRef = useRef(false);
@@ -171,13 +180,9 @@ const OrderNotesList = () => {
   const lastFetchedRangeRef = useRef<{
     from: string;
     to: string;
-    page: number;
-    pageSize: number;
   } | null>({
     from: initialRange.from,
     to: initialRange.to,
-    page: DEFAULT_ORDER_NOTES_PAGE,
-    pageSize: DEFAULT_ORDER_NOTES_PAGE_SIZE,
   });
 
   useEffect(() => {
@@ -188,35 +193,10 @@ const OrderNotesList = () => {
     fechaFinRef.current = fechaFin;
   }, [fechaFin]);
 
-  const sanitizePage = useCallback((value: unknown) => {
-    const numeric = Number(value);
-    if (!Number.isFinite(numeric) || numeric <= 0)
-      return DEFAULT_ORDER_NOTES_PAGE;
-    return Math.floor(numeric);
-  }, []);
-
-  const sanitizePageSize = useCallback((value: unknown) => {
-    const numeric = Number(value);
-    if (!Number.isFinite(numeric) || numeric <= 0) {
-      return DEFAULT_ORDER_NOTES_PAGE_SIZE;
-    }
-    const floored = Math.floor(numeric);
-    return Math.max(
-      MIN_ORDER_NOTES_PAGE_SIZE,
-      Math.min(MAX_ORDER_NOTES_PAGE_SIZE, floored),
-    );
-  }, []);
-
   const requestNotesByRange = useCallback(
-    (
-      fromValue: string,
-      toValue: string,
-      options?: { page?: number; pageSize?: number },
-    ) => {
+    (fromValue: string, toValue: string) => {
       const from = String(fromValue ?? "").trim();
       const to = String(toValue ?? "").trim();
-      const nextPage = sanitizePage(options?.page ?? page);
-      const nextPageSize = sanitizePageSize(options?.pageSize ?? pageSize);
 
       if (!from || !to) {
         toast.error("Debes seleccionar fecha inicio y fecha fin.");
@@ -231,18 +211,14 @@ const OrderNotesList = () => {
       void fetchNotes({
         fechaInicio: from,
         fechaFin: to,
-        page: nextPage,
-        pageSize: nextPageSize,
       });
       lastFetchedRangeRef.current = {
         from,
         to,
-        page: nextPage,
-        pageSize: nextPageSize,
       };
       return true;
     },
-    [fetchNotes, page, pageSize, sanitizePage, sanitizePageSize],
+    [fetchNotes],
   );
 
   useEffect(() => {
@@ -253,11 +229,8 @@ const OrderNotesList = () => {
   useEffect(() => {
     if (hasBootstrappedFetchRef.current) return;
     hasBootstrappedFetchRef.current = true;
-    requestNotesByRange(fechaInicioRef.current, fechaFinRef.current, {
-      page: DEFAULT_ORDER_NOTES_PAGE,
-      pageSize: sanitizePageSize(pageSize),
-    });
-  }, [pageSize, requestNotesByRange, sanitizePageSize]);
+    requestNotesByRange(fechaInicioRef.current, fechaFinRef.current);
+  }, [requestNotesByRange]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -271,257 +244,13 @@ const OrderNotesList = () => {
   }, [fechaFin, fechaInicio]);
 
   const handleSearch = useCallback(() => {
-    requestNotesByRange(fechaInicio, fechaFin, {
-      page: DEFAULT_ORDER_NOTES_PAGE,
-      pageSize: sanitizePageSize(pageSize),
-    });
-  }, [fechaFin, fechaInicio, pageSize, requestNotesByRange, sanitizePageSize]);
-
-  const handlePageChange = useCallback(
-    (nextPage: number) => {
-      requestNotesByRange(fechaInicioRef.current, fechaFinRef.current, {
-        page: nextPage,
-        pageSize: sanitizePageSize(pageSize),
-      });
-    },
-    [pageSize, requestNotesByRange, sanitizePageSize],
-  );
-
-  const handlePageSizeChange = useCallback(
-    (nextPageSize: number) => {
-      requestNotesByRange(fechaInicioRef.current, fechaFinRef.current, {
-        page: DEFAULT_ORDER_NOTES_PAGE,
-        pageSize: nextPageSize,
-      });
-    },
-    [requestNotesByRange],
-  );
+    requestNotesByRange(fechaInicio, fechaFin);
+  }, [fechaFin, fechaInicio, requestNotesByRange]);
 
   const parsePickerDate = useCallback((value: Dayjs | null) => {
     const formatted = value?.format("YYYY-MM-DD") ?? "";
     return formatted.trim();
   }, []);
-  const toExcelSafeText = (value: unknown) => {
-    const text = String(value ?? "").trim();
-    if (!text) return "";
-    return /^[=+\-@]/.test(text) ? `'${text}` : text;
-  };
-  const handleExportExcel = useCallback(async () => {
-    if (!notes.length) {
-      toast.info("No hay datos para exportar.");
-      return;
-    }
-
-    try {
-      const workbook = new Workbook();
-      workbook.creator = "SGO";
-      workbook.created = new Date();
-
-      const worksheet = workbook.addWorksheet("Notas de Pedido", {
-        views: [{ state: "frozen", ySplit: 1 }],
-      });
-
-      worksheet.columns = [
-        { header: "ID Nota", key: "notaId", width: 12 },
-        { header: "Tipo Documento", key: "tipoDocumento", width: 20 },
-        { header: "N° Documento", key: "numeroDocumento", width: 18 },
-        { header: "Fecha", key: "fecha", width: 14 },
-        { header: "Cliente", key: "cliente", width: 34 },
-        { header: "DNI", key: "clienteDni", width: 14 },
-        { header: "RUC", key: "clienteRuc", width: 16 },
-        { header: "Forma Pago", key: "formaPago", width: 18 },
-        { header: "Total", key: "total", width: 14 },
-        { header: "A cuenta", key: "acuenta", width: 14 },
-        { header: "Saldo", key: "saldo", width: 14 },
-        { header: "Usuario", key: "usuario", width: 18 },
-        { header: "Estado", key: "estado", width: 14 },
-      ];
-
-      worksheet.autoFilter = {
-        from: { row: 1, column: 1 },
-        to: { row: 1, column: worksheet.columnCount },
-      };
-
-      const headerRow = worksheet.getRow(1);
-      headerRow.height = 22;
-      headerRow.eachCell((cell) => {
-        cell.font = { bold: true, color: { argb: "FFFFFFFF" }, size: 11 };
-        cell.fill = {
-          type: "pattern",
-          pattern: "solid",
-          fgColor: { argb: "B23636" },
-        };
-        cell.alignment = { vertical: "middle", horizontal: "center" };
-        cell.border = {
-          top: { style: "thin", color: { argb: "FFE2E8F0" } },
-          left: { style: "thin", color: { argb: "FFE2E8F0" } },
-          bottom: { style: "thin", color: { argb: "FFE2E8F0" } },
-          right: { style: "thin", color: { argb: "FFE2E8F0" } },
-        };
-      });
-
-      notes.forEach((note, index) => {
-        const { tipoDocumento, numeroDocumento } = splitDocumentLabel(
-          note.documento,
-        );
-
-        const excelRow = worksheet.addRow({
-          notaId: toExcelSafeText(note.notaId),
-          tipoDocumento: toExcelSafeText(tipoDocumento || "-"),
-          numeroDocumento: toExcelSafeText(numeroDocumento || "-"),
-          fecha: toExcelSafeText(note.fecha),
-          cliente: toExcelSafeText(note.cliente),
-          clienteDni: toExcelSafeText(getCustomerDni(note)),
-          clienteRuc: toExcelSafeText(getCustomerRuc(note)),
-          formaPago: toExcelSafeText(note.formaPago),
-          total: Number(getSignedTotal(note, note.total).toFixed(2)),
-          acuenta: Number(parseAmount(note.acuenta).toFixed(2)),
-          saldo: Number(parseAmount(note.saldo).toFixed(2)),
-          usuario: toExcelSafeText(note.usuario),
-          estado: toExcelSafeText(note.estado),
-        });
-
-        excelRow.eachCell((cell, colNumber) => {
-          const isAmountColumn = colNumber >= 9 && colNumber <= 11;
-
-          cell.border = {
-            top: { style: "thin", color: { argb: "FFE2E8F0" } },
-            left: { style: "thin", color: { argb: "FFE2E8F0" } },
-            bottom: { style: "thin", color: { argb: "FFE2E8F0" } },
-            right: { style: "thin", color: { argb: "FFE2E8F0" } },
-          };
-
-          cell.alignment = {
-            vertical: "top",
-            horizontal: isAmountColumn ? "right" : "left",
-            wrapText: colNumber === 5 || colNumber === 6,
-          };
-
-          if (isAmountColumn) {
-            cell.numFmt = "#,##0.00";
-          }
-        });
-
-        if (index % 2 === 1) {
-          excelRow.eachCell((cell) => {
-            cell.fill = {
-              type: "pattern",
-              pattern: "solid",
-              fgColor: { argb: "FFF8FAFC" },
-            };
-          });
-        }
-      });
-
-      const totalGeneral = notes.reduce(
-        (acc, note) => acc + getSignedTotal(note, note.total),
-        0,
-      );
-
-      const acuentaGeneral = notes.reduce(
-        (acc, note) => acc + parseAmount(note.acuenta),
-        0,
-      );
-
-      const saldoGeneral = notes.reduce(
-        (acc, note) => acc + parseAmount(note.saldo),
-        0,
-      );
-
-      worksheet.addRow({});
-
-      const totalsRow = worksheet.addRow({
-        notaId: `Items: ${notes.length}`,
-        formaPago: "Totales S/",
-        total: Number(totalGeneral.toFixed(2)),
-        acuenta: Number(acuentaGeneral.toFixed(2)),
-        saldo: Number(saldoGeneral.toFixed(2)),
-      });
-
-      totalsRow.eachCell((cell, colNumber) => {
-        const isAmountColumn = colNumber >= 9 && colNumber <= 11;
-        const isLabelColumn = colNumber === 1 || colNumber === 8;
-
-        cell.font = { bold: true };
-        cell.border = {
-          top: { style: "thin", color: { argb: "FFCBD5E1" } },
-          left: { style: "thin", color: { argb: "FFCBD5E1" } },
-          bottom: { style: "thin", color: { argb: "FFCBD5E1" } },
-          right: { style: "thin", color: { argb: "FFCBD5E1" } },
-        };
-        cell.fill = {
-          type: "pattern",
-          pattern: "solid",
-          fgColor: { argb: "FFE2E8F0" },
-        };
-        cell.alignment = {
-          vertical: "middle",
-          horizontal: isAmountColumn ? "right" : "left",
-        };
-
-        if (isLabelColumn) {
-          cell.alignment = { vertical: "middle", horizontal: "left" };
-        }
-
-        if (isAmountColumn) {
-          cell.numFmt = "#,##0.00";
-        }
-      });
-
-      const safeFilePart = (value?: string) =>
-        String(value || "sin-fecha").replace(/[\/\\:*?"<>|]/g, "-");
-
-      const fileFrom = safeFilePart(fechaInicio);
-      const fileTo = safeFilePart(fechaFin);
-
-      const buffer = await workbook.xlsx.writeBuffer();
-      const blob = new Blob([buffer], {
-        type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-      });
-
-      const url = URL.createObjectURL(blob);
-      const anchor = document.createElement("a");
-      anchor.href = url;
-      anchor.download = `notas-pedido_${fileFrom}_${fileTo}.xlsx`;
-      document.body.appendChild(anchor);
-      anchor.click();
-      anchor.remove();
-
-      window.setTimeout(() => URL.revokeObjectURL(url), 1200);
-      toast.success("Excel generado correctamente.");
-    } catch (error) {
-      console.error("Error al exportar Excel de notas de pedido", error);
-      toast.error("No se pudo exportar el archivo Excel.");
-    }
-  }, [fechaFin, fechaInicio, notes]);
-
-  const solesTotals = useMemo(() => {
-    const totals = notes.reduce(
-      (acc, note) => {
-        if (isAnnulledStatus(note.estado)) {
-          return acc;
-        }
-        const amount = parseAmount(note.total);
-        const formaPago = String(note.formaPago ?? "").toUpperCase();
-        const isCash =
-          formaPago.includes("EFECT") || formaPago.includes("CONTADO");
-
-        if (isCash) {
-          acc.efectivo += amount;
-        } else {
-          acc.depTarYape += amount;
-        }
-        return acc;
-      },
-      { efectivo: 0, depTarYape: 0 },
-    );
-
-    return {
-      efectivo: totals.efectivo,
-      depTarYape: totals.depTarYape,
-      total: totals.efectivo + totals.depTarYape,
-    };
-  }, [notes]);
 
   const columns = useMemo(
     () => [
@@ -548,6 +277,11 @@ const OrderNotesList = () => {
                     state: {
                       fromOrderNotesViewButton: true,
                       orderNote: row.original,
+                      orderNotesReturnState: {
+                        fechaInicio,
+                        fechaFin,
+                        tableSearch,
+                      },
                     },
                   });
                 } catch (error) {
@@ -652,7 +386,7 @@ const OrderNotesList = () => {
         },
       }),
     ],
-    [navigate, openingNoteId],
+    [fechaFin, fechaInicio, navigate, openingNoteId, tableSearch],
   );
 
   return (
@@ -687,13 +421,8 @@ const OrderNotesList = () => {
         ]}
         globalFilterValue={tableSearch}
         onGlobalFilterValueChange={setTableSearch}
-        manualPagination
-        page={page}
-        pageSize={sanitizePageSize(pageSize)}
-        totalRows={Math.max(0, total)}
+        pageSize={DEFAULT_ORDER_NOTES_PAGE_SIZE}
         pageSizeOptions={[20, 50, 100]}
-        onPageChange={handlePageChange}
-        onPageSizeChange={handlePageSizeChange}
         toolbarLeading={
           <BackArrowButton className="inline-flex  items-center justify-center  text-slate-700 hover:bg-slate-100 transition-colors" />
         }
@@ -745,10 +474,7 @@ const OrderNotesList = () => {
                     const nextValue = parsePickerDate(value);
                     endDateAcceptedRef.current = true;
                     setFechaFin(nextValue);
-                    requestNotesByRange(fechaInicioRef.current, nextValue, {
-                      page: DEFAULT_ORDER_NOTES_PAGE,
-                      pageSize: sanitizePageSize(pageSize),
-                    });
+                    requestNotesByRange(fechaInicioRef.current, nextValue);
                   }}
                   onClose={() => {
                     if (endDateAcceptedRef.current) {
@@ -762,15 +488,10 @@ const OrderNotesList = () => {
                     const mustFetch =
                       !lastRange ||
                       lastRange.from !== currentStart ||
-                      lastRange.to !== currentEnd ||
-                      lastRange.page !== page ||
-                      lastRange.pageSize !== sanitizePageSize(pageSize);
+                      lastRange.to !== currentEnd;
 
                     if (mustFetch) {
-                      requestNotesByRange(currentStart, currentEnd, {
-                        page: DEFAULT_ORDER_NOTES_PAGE,
-                        pageSize: sanitizePageSize(pageSize),
-                      });
+                      requestNotesByRange(currentStart, currentEnd);
                     }
                   }}
                   slotProps={{
@@ -804,38 +525,6 @@ const OrderNotesList = () => {
               </div>
             </div>
           </LocalizationProvider>
-        }
-        footerContent={
-          <div className="flex justify-end">
-            {/**   <div className="grid w-full max-w-3xl grid-cols-1 overflow-hidden rounded-xl border border-slate-200 bg-white sm:grid-cols-3">
-              <div className="border-b border-slate-200 px-4 py-3 text-right sm:border-b-0 sm:border-r">
-                <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
-                  SOLES - EFECTIVO
-                </p>
-                <p className="text-xl font-semibold text-slate-800">
-                  {formatAmount(solesTotals.efectivo)}
-                </p>
-              </div>
-
-              <div className="border-b border-slate-200 px-4 py-3 text-right sm:border-b-0 sm:border-r">
-                <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
-                  SOLES - DEP/TAR/YAPE
-                </p>
-                <p className="text-xl font-semibold text-slate-800">
-                  {formatAmount(solesTotals.depTarYape)}
-                </p>
-              </div>
-
-              <div className="px-4 py-3 text-right">
-                <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
-                  SOLES - TOTAL
-                </p>
-                <p className="text-xl font-semibold text-slate-900">
-                  {formatAmount(solesTotals.total)}
-                </p>
-              </div>
-            </div> */}
-          </div>
         }
       />
     </div>

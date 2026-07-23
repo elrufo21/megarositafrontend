@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Check, Pencil, Plus, Save, X } from "lucide-react";
 import CustomerFormBase from "@/components/CustomerFormBase";
 import { useDialogStore } from "@/store/app/dialog.store";
@@ -44,10 +44,16 @@ export default function CustomerDialogContent({
   const [editingClient, setEditingClient] = useState<Client | null>(
     initialEditingClient,
   );
+  const searchInputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
     void fetchClients("");
   }, [fetchClients]);
+
+  useEffect(() => {
+    if (activeTab !== "list") return;
+    window.requestAnimationFrame(() => searchInputRef.current?.focus());
+  }, [activeTab]);
 
   const filteredClients = useMemo(() => {
     const tokens = tokenizeSearchText(query);
@@ -143,6 +149,7 @@ export default function CustomerDialogContent({
         {activeTab === "list" ? (
           <div className="flex h-full min-h-0 flex-col gap-3">
             <input
+              ref={searchInputRef}
               value={query}
               onChange={(event) => setQuery(event.target.value)}
               placeholder="Buscar por nombre, DNI, RUC o teléfono"

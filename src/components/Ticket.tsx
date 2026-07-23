@@ -18,6 +18,8 @@ const TICKET_PAGE_WIDTH_PT = TICKET_WIDTH_MM * MM_TO_PT;
 export type TicketDocumentProps = {
   clientName?: string;
   clientId?: string;
+  clientDni?: string;
+  clientRuc?: string;
   clientAddress?: string;
   notaUsuario?: string;
   docType?: "boleta" | "factura" | "proforma";
@@ -51,6 +53,11 @@ const AUTH_STORAGE_KEY = "sgo.auth.session";
 const FALLBACK_LOGO_SRC = "/LogoHuillca.PNG";
 
 const formatTicketMoney = (value: number): string =>
+  Number(value || 0).toLocaleString("en-US", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
+const formatTicketQuantity = (value: number): string =>
   Number(value || 0).toLocaleString("en-US", {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
@@ -671,6 +678,8 @@ const styles = StyleSheet.create({
 const TicketDocument = ({
   clientName,
   clientId,
+  clientDni,
+  clientRuc,
   clientAddress,
   notaUsuario,
   docType = "boleta",
@@ -813,6 +822,8 @@ const TicketDocument = ({
     const docLabel = docType === "factura" ? "RUC" : "DNI";
     const clientDoc =
       clientId?.trim() || (docLabel === "RUC" ? "00000000000" : "00000000");
+    const proformaDni = clientDni?.trim() || clientDoc || "00000000";
+    const proformaRuc = clientRuc?.trim() || "";
     const now = new Date();
     const emissionDate = now.toLocaleDateString("es-PE");
     const emissionDateTime = now.toLocaleString("es-PE", {
@@ -876,6 +887,8 @@ const TicketDocument = ({
       clientAddress: clientAddress?.trim() || "-",
       clientDNI: clientDoc,
       clientDocLabel: docLabel,
+      proformaDni,
+      proformaRuc,
       seller: toFirstName(notaUsuario),
       items: hasItems
         ? (items ?? []).map((item) => ({
@@ -888,15 +901,7 @@ const TicketDocument = ({
             unitPrice: Number(item.precio ?? 0),
             total: Number(item.precio ?? 0) * Number(item.cantidad ?? 0),
           }))
-        : [
-            {
-              quantity: 10.0,
-              description: "UNI CHAPA CLASICA 250 CANTOL",
-              unitMeasure: "",
-              unitPrice: 79.0,
-              total: 790.0,
-            },
-          ],
+        : [],
       operacionGravada: safeOperacionGravada,
       cardAdditional: safeCardAdditional,
       cardPercentage: safeCardPercentage,
@@ -920,6 +925,8 @@ const TicketDocument = ({
     };
   }, [
     clientId,
+    clientDni,
+    clientRuc,
     clientAddress,
     clientName,
     notaUsuario,
@@ -1010,7 +1017,7 @@ const TicketDocument = ({
     const DIVIDER2 = 1 + 8 * 2;
 
     const summaryRows = ticketData.isProforma
-      ? 10
+      ? 9 + (ticketData.showCardAdditional ? 1 : 0)
       : 3 + (ticketData.igv > 0 ? 1 : 0) + (ticketData.showDiscount ? 1 : 0);
     const summaryRowsHeight =
       summaryRows * (9 + 3) + (ticketData.isProforma ? 16 : 0);
@@ -1085,10 +1092,23 @@ const TicketDocument = ({
             <Text style={styles.infoLabel}>Cliente</Text>
             <Text style={styles.infoValue}>: {ticketData.clientName}</Text>
           </View>
-          <View style={styles.infoRow}>
-            <Text style={styles.infoLabel}>{ticketData.clientDocLabel}</Text>
-            <Text style={styles.infoValue}>: {ticketData.clientDNI}</Text>
-          </View>
+          {ticketData.isProforma ? (
+            <>
+              <View style={styles.infoRow}>
+                <Text style={styles.infoLabel}>DNI</Text>
+                <Text style={styles.infoValue}>: {ticketData.proformaDni}</Text>
+              </View>
+              <View style={styles.infoRow}>
+                <Text style={styles.infoLabel}>RUC</Text>
+                <Text style={styles.infoValue}>: {ticketData.proformaRuc}</Text>
+              </View>
+            </>
+          ) : (
+            <View style={styles.infoRow}>
+              <Text style={styles.infoLabel}>{ticketData.clientDocLabel}</Text>
+              <Text style={styles.infoValue}>: {ticketData.clientDNI}</Text>
+            </View>
+          )}
 
           {ticketData.isFactura && (
             <View style={styles.infoRow}>
@@ -1122,7 +1142,7 @@ const TicketDocument = ({
                   <View style={styles.tableItemRow}>
                     <View style={styles.tableItemMetaRow}>
                       <Text style={styles.colCant}>
-                        {item.quantity.toFixed(2)}
+                        {formatTicketQuantity(item.quantity)}
                       </Text>
                       <Text style={styles.tableItemDescriptionFull}>
                         {descriptionLine1}
@@ -1230,15 +1250,17 @@ const TicketDocument = ({
                 </Text>
               </View>
               <View style={styles.summaryDivider} />
-              <View style={styles.summaryRow}>
-                <Text style={styles.summaryLabel}>
-                  Adic. {ticketData.cardPercentage.toFixed(1)}%:
-                </Text>
-                <Text style={styles.summaryCurrency}></Text>
-                <Text style={styles.summaryAmount}>
-                  {formatTicketMoney(ticketData.cardAdditional)}
-                </Text>
-              </View>
+              {ticketData.showCardAdditional && (
+                <View style={styles.summaryRow}>
+                  <Text style={styles.summaryLabel}>
+                    Adic. {ticketData.cardPercentage.toFixed(1)}%:
+                  </Text>
+                  <Text style={styles.summaryCurrency}></Text>
+                  <Text style={styles.summaryAmount}>
+                    {formatTicketMoney(ticketData.cardAdditional)}
+                  </Text>
+                </View>
+              )}
               <View style={styles.summaryRow}>
                 <Text style={styles.summaryLabel}>ICBPER S/.</Text>
                 <Text style={styles.summaryCurrency}></Text>

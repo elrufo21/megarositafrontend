@@ -34,10 +34,6 @@ type UsePosCartDraftPersistenceResult = {
 
 const AUTOSAVE_DEBOUNCE_MS = 180;
 
-const toPositiveNumber = (value: unknown, fallback = 0) => {
-  const numeric = Number(value);
-  return Number.isFinite(numeric) && numeric > 0 ? numeric : fallback;
-};
 const normalizeNoteId = (noteId?: number | null): number => {
   const numeric = Number(noteId);
   return Number.isFinite(numeric) && numeric > 0 ? Math.floor(numeric) : 0;
@@ -51,10 +47,7 @@ const resolveContextFromAuthUser = (
   const userId = String(user.id || user.username || user.displayName || "").trim();
   if (!userId) return null;
 
-  const companyId = toPositiveNumber(user.companyId);
-  if (!companyId) return null;
-
-  return { companyId, userId };
+  return { companyId: 1, userId };
 };
 
 export const usePosCartDraftPersistence = ({

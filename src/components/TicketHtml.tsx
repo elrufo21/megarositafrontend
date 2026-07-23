@@ -5,6 +5,8 @@ import { generateTicketQrBase64 } from "@/components/ticketQr";
 type TicketHTMLProps = {
   clientName?: string;
   clientId?: string;
+  clientDni?: string;
+  clientRuc?: string;
   clientAddress?: string;
   docType?: "boleta" | "factura" | "proforma";
   documentTitle?: string;
@@ -39,6 +41,11 @@ const AUTH_STORAGE_KEY = "sgo.auth.session";
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 const formatTicketMoney = (value: number): string =>
+  Number(value || 0).toLocaleString("en-US", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
+const formatTicketQuantity = (value: number): string =>
   Number(value || 0).toLocaleString("en-US", {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
@@ -222,6 +229,8 @@ const injectPrintStyles = () => {
 const TicketHTML = ({
   clientName,
   clientId,
+  clientDni,
+  clientRuc,
   clientAddress,
   docType = "boleta",
   documentTitle,
@@ -305,6 +314,8 @@ const TicketHTML = ({
     const docLabel = docType === "factura" ? "RUC" : "DNI";
     const clientDoc =
       clientId?.trim() || (docLabel === "RUC" ? "00000000000" : "00000000");
+    const proformaDni = clientDni?.trim() || clientDoc || "00000000";
+    const proformaRuc = clientRuc?.trim() || "";
     const now = new Date();
     const emissionDate = now.toLocaleDateString("es-PE");
     const emissionDateISO = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
@@ -360,6 +371,8 @@ const TicketHTML = ({
       clientAddress: clientAddress?.trim() || "-",
       clientDNI: clientDoc,
       clientDocLabel: docLabel,
+      proformaDni,
+      proformaRuc,
       seller: toFirstName(notaUsuario),
       items: hasItems
         ? (items ?? []).map((item) => ({
@@ -369,15 +382,7 @@ const TicketHTML = ({
             unitPrice: Number(item.precio ?? 0),
             total: Number(item.precio ?? 0) * Number(item.cantidad ?? 0),
           }))
-        : [
-            {
-              quantity: 10.0,
-              description: "UNI CHAPA CLASICA 250 CANTOL",
-              unitMeasure: "",
-              unitPrice: 79.0,
-              total: 790.0,
-            },
-          ],
+        : [],
       operacionGravada: safeOperacionGravada,
       cardAdditional: safeCardAdditional,
       cardPercentage: safeCardPercentage,
@@ -401,6 +406,8 @@ const TicketHTML = ({
     };
   }, [
     clientId,
+    clientDni,
+    clientRuc,
     clientAddress,
     clientName,
     notaUsuario,
@@ -670,10 +677,23 @@ const TicketHTML = ({
         <span style={s.infoLabel}>Cliente</span>
         <span style={s.infoValue}>: {ticketData.clientName}</span>
       </div>
-      <div style={s.infoRow}>
-        <span style={s.infoLabel}>{ticketData.clientDocLabel}</span>
-        <span style={s.infoValue}>: {ticketData.clientDNI}</span>
-      </div>
+      {ticketData.isProforma ? (
+        <>
+          <div style={s.infoRow}>
+            <span style={s.infoLabel}>DNI</span>
+            <span style={s.infoValue}>: {ticketData.proformaDni}</span>
+          </div>
+          <div style={s.infoRow}>
+            <span style={s.infoLabel}>RUC</span>
+            <span style={s.infoValue}>: {ticketData.proformaRuc}</span>
+          </div>
+        </>
+      ) : (
+        <div style={s.infoRow}>
+          <span style={s.infoLabel}>{ticketData.clientDocLabel}</span>
+          <span style={s.infoValue}>: {ticketData.clientDNI}</span>
+        </div>
+      )}
       <div style={s.infoRow}>
         <span style={s.infoLabel}>Vendedor</span>
         <span style={s.infoValue}>: {ticketData.seller}</span>
@@ -703,7 +723,7 @@ const TicketHTML = ({
       {/* ── ITEMS ── */}
       {ticketData.items.map((item, index) => (
         <div key={index} style={s.tableRow}>
-          <span style={s.colCant}>{item.quantity.toFixed(2)}</span>
+          <span style={s.colCant}>{formatTicketQuantity(item.quantity)}</span>
           <span style={s.colDesc}>
             {`${formatUnitPrefix(item.unitMeasure)}${item.description}`}
           </span>
@@ -768,15 +788,17 @@ const TicketHTML = ({
             <span style={s.summaryAmount}>{formatTicketMoney(ticketData.total)}</span>
           </div>
           <div style={s.summaryDivider} />
-          <div style={s.summaryRow}>
-            <span style={s.summaryLabel}>
-              Adic. {ticketData.cardPercentage.toFixed(1)}%:
-            </span>
-            <span style={s.summaryCurrency}></span>
-            <span style={s.summaryAmount}>
-              {formatTicketMoney(ticketData.cardAdditional)}
-            </span>
-          </div>
+          {ticketData.showCardAdditional && (
+            <div style={s.summaryRow}>
+              <span style={s.summaryLabel}>
+                Adic. {ticketData.cardPercentage.toFixed(1)}%:
+              </span>
+              <span style={s.summaryCurrency}></span>
+              <span style={s.summaryAmount}>
+                {formatTicketMoney(ticketData.cardAdditional)}
+              </span>
+            </div>
+          )}
           <div style={s.summaryRow}>
             <span style={s.summaryLabel}>ICBPER S/.</span>
             <span style={s.summaryCurrency}></span>

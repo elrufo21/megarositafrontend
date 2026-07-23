@@ -39,6 +39,7 @@ interface CompanyOption {
 }
 
 const POS_RESET_CART_STORAGE_KEY = "sgo.pos.resetCart";
+const POS_COMPANY_SWITCHING_STORAGE_KEY = "sgo.pos.companySwitching";
 const normalizeText = (value: unknown): string => String(value ?? "").trim();
 
 const normalizeCompanyItems = (payload: unknown): CompanyOption[] => {
@@ -269,16 +270,26 @@ export default function MainLayout() {
 
       setSelectedCompanyId(company.id);
 
-      const response = await apiRequest<unknown>({
-        url: buildApiUrl(`/Compania/${company.id}`),
-        blockUi: false,
-        fallback: null,
-      });
+      try {
+        window.sessionStorage.setItem(POS_COMPANY_SWITCHING_STORAGE_KEY, "1");
+        const response = await apiRequest<unknown>({
+          url: buildApiUrl(`/Compania/${company.id}`),
+          blockUi: false,
+          fallback: null,
+        });
 
-      setSessionCompany(toCompanyUserPatch(response, company));
-      setUserMenuOpen(false);
-      if (!pathname.startsWith("/sales/pos") && !pathname.startsWith("/pos")) {
-        window.location.reload();
+        setSessionCompany(toCompanyUserPatch(response, company));
+        setUserMenuOpen(false);
+        if (
+          !pathname.startsWith("/sales/pos") &&
+          !pathname.startsWith("/pos")
+        ) {
+          window.location.reload();
+        }
+      } finally {
+        if (!pathname.startsWith("/sales/pos") && !pathname.startsWith("/pos")) {
+          window.sessionStorage.removeItem(POS_COMPANY_SWITCHING_STORAGE_KEY);
+        }
       }
     },
     [isPaymentViewCompanyLocked, pathname, setSessionCompany],
@@ -552,6 +563,14 @@ export default function MainLayout() {
                             key={company.id}
                             selected={checked}
                             disabled={isPaymentViewCompanyLocked}
+                            onPointerDown={() => {
+                              if (!isPaymentViewCompanyLocked) {
+                                window.sessionStorage.setItem(
+                                  POS_COMPANY_SWITCHING_STORAGE_KEY,
+                                  "1",
+                                );
+                              }
+                            }}
                             onClick={() => {
                               if (!isPaymentViewCompanyLocked) {
                                 void handleSelectCompany(company);

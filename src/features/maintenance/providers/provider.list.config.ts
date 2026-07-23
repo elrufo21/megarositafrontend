@@ -12,6 +12,7 @@ export const providerListConfig: ModuleListConfig<Provider> = {
     { key: "estado", header: "Estado" },
   ],
   idKey: "id",
+  initialPageSize: 50,
   createLabel: "Añadir proveedor",
   deleteMessage: "Seguro que deseas eliminar este proveedor?",
 };

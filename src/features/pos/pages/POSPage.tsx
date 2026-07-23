@@ -55,6 +55,8 @@ import {
 } from "@/shared/helpers/saleMonetary";
 
 const POS_RESET_CART_STORAGE_KEY = "sgo.pos.resetCart";
+const POS_COMPANY_SWITCHING_STORAGE_KEY = "sgo.pos.companySwitching";
+const POS_PAYMENT_FORM_DRAFT_STORAGE_KEY = "sgo.pos.paymentFormDraft";
 
 type PosCatalogProduct = Product & {
   catalogKey: string;
@@ -221,6 +223,7 @@ const columnHelper = createColumnHelper<PosCatalogProduct>();
 const CATALOG_PAGE_SIZE = 50;
 const TABLE_PAGE_SIZE_OPTIONS = [20, 50, 100];
 const PROFORMA_DEFAULT_CONTACT_ID = 47;
+const BOLETA_CUSTOMER_REQUIRED_TOTAL = 700;
 const DEFAULT_POS_SALE_SETTINGS: PosSaleSettings = {
   docTypeCode: "SELECCIONAR",
   paymentMethod: "EFECTIVO",
@@ -315,6 +318,30 @@ const normalizePosSaleSettings = (value: unknown): PosSaleSettings | null => {
     discount: String(record.discount ?? ""),
   };
 };
+const readPosPaymentFormDraft = () => {
+  if (
+    typeof window === "undefined" ||
+    window.sessionStorage.getItem(POS_COMPANY_SWITCHING_STORAGE_KEY) !== "1"
+  ) {
+    return null;
+  }
+
+  try {
+    const parsed = JSON.parse(
+      window.sessionStorage.getItem(POS_PAYMENT_FORM_DRAFT_STORAGE_KEY) ?? "",
+    ) as { saleSettings?: unknown; saleCustomerInput?: unknown };
+    const saleSettings = normalizePosSaleSettings(parsed.saleSettings);
+    if (!saleSettings) return null;
+    return {
+      saleSettings,
+      saleCustomerInput: String(
+        parsed.saleCustomerInput ?? saleSettings.customerName,
+      ),
+    };
+  } catch {
+    return null;
+  }
+};
 const isGenericVariosCustomer = (value: unknown) => {
   const words = String(value ?? "")
     .trim()
@@ -355,7 +382,23 @@ const roundPrice = (value: number) =>
 const formatPrice = (value: unknown) => {
   const numeric = Number(value ?? 0);
   if (!Number.isFinite(numeric)) return "0.00";
+  return roundPrice(numeric).toLocaleString("en-US", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
+};
+const formatPriceInput = (value: unknown) => {
+  const numeric = Number(value ?? 0);
+  if (!Number.isFinite(numeric)) return "0.00";
   return roundPrice(numeric).toFixed(2);
+};
+const formatQuantity = (value: unknown, minimumFractionDigits = 0) => {
+  const numeric = Number(value ?? 0);
+  if (!Number.isFinite(numeric)) return minimumFractionDigits ? "0.00" : "0";
+  return numeric.toLocaleString("en-US", {
+    minimumFractionDigits,
+    maximumFractionDigits: 2,
+  });
 };
 const numericPrice = (value: unknown) => {
   const numeric = Number(String(value ?? "").replace(",", "."));
@@ -532,6 +575,9 @@ const POSPage = () => {
       (location.state as {
         preserveCart?: boolean;
         resetCart?: boolean;
+        cartItems?: PosCartItem[];
+        editingNotaId?: number | null;
+        isEditingMode?: boolean;
         saleSettings?: Partial<PosSaleSettings>;
       } | null) ?? null,
     [location.state],
@@ -561,6 +607,8 @@ const POSPage = () => {
   const clearEditingNota = usePosStore((state) => state.clearEditingNota);
   const editingNotaId = usePosStore((state) => state.editingNotaId);
   const isEditingMode = usePosStore((state) => state.isEditingMode);
+  const setEditingNota = usePosStore((state) => state.setEditingNota);
+  const setEditingMode = usePosStore((state) => state.setEditingMode);
   const setServerItemsInStore = usePosStore(
     (state) => state.setServerItemsFromNota,
   );
@@ -573,11 +621,15 @@ const POSPage = () => {
   const closeDialog = useDialogStore((state) => state.closeDialog);
   const setDialogLoading = useDialogStore((state) => state.setLoading);
   const sessionCompanyId = useAuthStore((state) => state.user?.companyId);
-  const { resetDraftForNewSale } = usePosCartDraftPersistence({
-    enabled: true,
-    autosave: true,
-    hydrateFromStorage: !shouldResetCartOnEntry,
-  });
+  const { resetDraftForNewSale, discardCurrentDraft } =
+    usePosCartDraftPersistence({
+      enabled: true,
+      autosave: true,
+      hydrateFromStorage: !shouldResetCartOnEntry,
+      scope:
+        isEditingMode && Number(editingNotaId ?? 0) > 0 ? "note-edit" : "sale",
+      noteId: editingNotaId,
+    });
   const isCardsView = viewMode === "cards";
   const searchInputRef = useRef<HTMLInputElement | null>(null);
   const catalogScrollRef = useRef<HTMLDivElement | null>(null);
@@ -601,6 +653,13 @@ const POSPage = () => {
   const saleOperationInputRef = useRef<SaleFocusableElement | null>(null);
   const saleMovementCostInputRef = useRef<SaleFocusableElement | null>(null);
   const saleDiscountInputRef = useRef<SaleFocusableElement | null>(null);
+  const editCleanupRef = useRef({
+    isEditingMode,
+    editingNotaId,
+    clearCart,
+    clearEditingNota,
+    discardCurrentDraft,
+  });
   const [priceDrafts, setPriceDrafts] = useState<Record<number, string>>({});
   const [invalidPriceKeys, setInvalidPriceKeys] = useState<
     Record<number, boolean>
@@ -614,10 +673,17 @@ const POSPage = () => {
     null,
   );
   const [isSubmittingQuickSale, setIsSubmittingQuickSale] = useState(false);
+  const initialPaymentFormDraft = readPosPaymentFormDraft();
   const [saleSettings, setSaleSettings] = useState<PosSaleSettings>(
-    DEFAULT_POS_SALE_SETTINGS,
+    () => initialPaymentFormDraft?.saleSettings ?? DEFAULT_POS_SALE_SETTINGS,
   );
-  const [saleCustomerInput, setSaleCustomerInput] = useState("VARIOS");
+  const [saleCustomerInput, setSaleCustomerInput] = useState(
+    () => initialPaymentFormDraft?.saleCustomerInput ?? "VARIOS",
+  );
+  const paymentFormSnapshotRef = useRef({
+    saleSettings,
+    saleCustomerInput,
+  });
 
   const safeTrim = (value: unknown) => String(value ?? "").trim();
   const isPaymentMethodAllowedForCompany = (methodValue: unknown) => {
@@ -1491,6 +1557,12 @@ const POSPage = () => {
     [customerFieldsForSaleUpdate, saleClientByName],
   );
   const ensureExistingSaleCustomer = (rawName: string) => {
+    if (
+      typeof window !== "undefined" &&
+      window.sessionStorage.getItem(POS_COMPANY_SWITCHING_STORAGE_KEY) === "1"
+    ) {
+      return;
+    }
     const typedName = safeTrim(rawName);
     if (!typedName) return;
     const matchedClient = saleClientByName.get(
@@ -1524,6 +1596,12 @@ const POSPage = () => {
     type: "dni" | "ruc",
     rawValue: string,
   ) => {
+    if (
+      typeof window !== "undefined" &&
+      window.sessionStorage.getItem(POS_COMPANY_SWITCHING_STORAGE_KEY) === "1"
+    ) {
+      return;
+    }
     const typedDocument = normalizePosDocumentText(rawValue);
     if (!typedDocument || isSaleProforma) return;
     const options = type === "ruc" ? saleRucOptions : saleDniOptions;
@@ -1694,33 +1772,47 @@ const POSPage = () => {
     if (isSaleFactura) {
       if (!customerName || isGenericVariosCustomer(customerName)) {
         toast.error("Para factura selecciona un cliente valido.");
+        setCartTab("payment");
+        focusSaleField(saleCustomerInputRef);
         return false;
       }
       if (!selectedSaleClient) {
         toast.error("Para factura debes seleccionar un cliente registrado.");
+        setCartTab("payment");
+        focusSaleField(saleCustomerInputRef);
         return false;
       }
       if (customerDocument.length !== 11) {
         toast.error("Para factura ingresa un RUC valido de 11 digitos.");
+        setCartTab("payment");
+        focusSaleField(saleRucInputRef, true);
         return false;
       }
     }
 
-    if (isSaleBoleta && saleSettings.paymentMethod === "TARJETA") {
+    const isBoletaCardPayment =
+      isSaleBoleta && saleSettings.paymentMethod === "TARJETA";
+    const shouldRequireBoletaCustomer =
+      isBoletaCardPayment ||
+      (isSaleBoleta && saleTotalAmount > BOLETA_CUSTOMER_REQUIRED_TOTAL);
+
+    if (shouldRequireBoletaCustomer) {
       if (!customerName || isGenericVariosCustomer(customerName)) {
-        toast.error("Para boleta con tarjeta selecciona un cliente valido.");
+        toast.error("Para boleta selecciona un cliente valido.");
+        setCartTab("payment");
+        focusSaleField(saleCustomerInputRef);
         return false;
       }
-      if (!selectedSaleClient) {
-        toast.error(
-          "Para boleta con tarjeta debes seleccionar un cliente registrado.",
-        );
+      if (isBoletaCardPayment && !selectedSaleClient) {
+        toast.error("Para boleta debes seleccionar un cliente registrado.");
+        setCartTab("payment");
+        focusSaleField(saleCustomerInputRef);
         return false;
       }
       if (customerDocument.length !== 8) {
-        toast.error(
-          "Para boleta con tarjeta ingresa un DNI valido de 8 digitos.",
-        );
+        toast.error("Para boleta ingresa un DNI valido de 8 digitos.");
+        setCartTab("payment");
+        focusSaleField(saleDniInputRef, true);
         return false;
       }
     }
@@ -1857,6 +1949,77 @@ const POSPage = () => {
   );
 
   useEffect(() => {
+    if (
+      window.sessionStorage.getItem(POS_COMPANY_SWITCHING_STORAGE_KEY) === "1"
+    ) {
+      return;
+    }
+    paymentFormSnapshotRef.current = { saleSettings, saleCustomerInput };
+    window.sessionStorage.setItem(
+      POS_PAYMENT_FORM_DRAFT_STORAGE_KEY,
+      JSON.stringify({ saleSettings, saleCustomerInput }),
+    );
+  }, [saleCustomerInput, saleSettings]);
+
+  useEffect(() => {
+    const draft = readPosPaymentFormDraft();
+    if (!draft) return;
+
+    const snapshot =
+      paymentFormSnapshotRef.current.saleSettings === DEFAULT_POS_SALE_SETTINGS
+        ? draft
+        : paymentFormSnapshotRef.current;
+    const restore = () => {
+      setSaleSettings(snapshot.saleSettings);
+      setSaleCustomerInput(snapshot.saleCustomerInput);
+    };
+    restore();
+    const timers = [0, 150, 500, 1000].map((delay) =>
+      window.setTimeout(restore, delay),
+    );
+    const cleanupTimer = window.setTimeout(() => {
+      window.sessionStorage.removeItem(POS_COMPANY_SWITCHING_STORAGE_KEY);
+      window.sessionStorage.setItem(
+        POS_PAYMENT_FORM_DRAFT_STORAGE_KEY,
+        JSON.stringify(snapshot),
+      );
+    }, 1200);
+    return () => {
+      timers.forEach((timer) => window.clearTimeout(timer));
+      window.clearTimeout(cleanupTimer);
+    };
+  }, [sessionCompanyId]);
+
+  useEffect(() => {
+    editCleanupRef.current = {
+      isEditingMode,
+      editingNotaId,
+      clearCart,
+      clearEditingNota,
+      discardCurrentDraft,
+    };
+  }, [
+    clearCart,
+    clearEditingNota,
+    discardCurrentDraft,
+    editingNotaId,
+    isEditingMode,
+  ]);
+
+  useEffect(
+    () => () => {
+      const latest = editCleanupRef.current;
+      if (!latest.isEditingMode || Number(latest.editingNotaId ?? 0) <= 0) {
+        return;
+      }
+      latest.clearCart();
+      latest.clearEditingNota();
+      void latest.discardCurrentDraft();
+    },
+    [],
+  );
+
+  useEffect(() => {
     const restoredSaleSettings = normalizePosSaleSettings(
       routeState?.saleSettings,
     );
@@ -1876,6 +2039,14 @@ const POSPage = () => {
       setSaleCustomerInput(restoredSaleSettings.customerName);
       setCartTab("payment");
     }
+    if (preserveCart && routeState?.cartItems?.length) {
+      usePosStore.getState().setItems(routeState.cartItems);
+      setServerItemsInStore(routeState.cartItems);
+    }
+    if (preserveCart && routeState?.isEditingMode === true) {
+      setEditingNota(routeState.editingNotaId ?? null);
+      setEditingMode(true);
+    }
     if (preserveCart) return;
 
     clearEditingNota();
@@ -1884,6 +2055,9 @@ const POSPage = () => {
     clearEditingNota,
     resetDraftForNewSale,
     routeState,
+    setEditingMode,
+    setEditingNota,
+    setServerItemsInStore,
     shouldResetCartOnEntry,
   ]);
 
@@ -2289,9 +2463,7 @@ const POSPage = () => {
       if (hasEditingNota) {
         setServerItemsInStore(safeItems);
         toast.success("Pedido actualizado");
-        const paymentQuery = isSaleFactura
-          ? "mode=view"
-          : "mode=view&autoprint=1";
+        const paymentQuery = "mode=view&autoprint=1";
         navigate(`${paymentBasePath}/${editingNotaIdNumber}?${paymentQuery}`);
         return;
       }
@@ -2299,9 +2471,7 @@ const POSPage = () => {
       const createdNotaId = parseNotaId(result);
       toast.success("Pedido registrado");
       if (createdNotaId) {
-        const paymentQuery = isSaleFactura
-          ? "mode=view"
-          : "mode=view&autoprint=1";
+        const paymentQuery = "mode=view&autoprint=1";
         navigate(`${paymentBasePath}/${createdNotaId}?${paymentQuery}`);
         window.setTimeout(() => {
           clearCart();
@@ -2911,7 +3081,7 @@ const POSPage = () => {
       const next: Record<number, string> = {};
       items.forEach((item) => {
         const itemKey = getCartItemKey(item);
-        next[itemKey] = prev[itemKey] ?? formatPrice(item.precio);
+        next[itemKey] = prev[itemKey] ?? formatPriceInput(item.precio);
       });
       return next;
     });
@@ -3210,7 +3380,7 @@ const POSPage = () => {
                       step="0.01"
                       value={
                         priceDrafts[getCartItemKey(item)] ??
-                        formatPrice(item.precio)
+                        formatPriceInput(item.precio)
                       }
                       data-pos-price-key={getCartItemKey(item)}
                       onChange={(value) => handlePriceChange(item, value)}
@@ -3283,7 +3453,7 @@ const POSPage = () => {
                         isZeroOrNegative ? "text-red-600" : "text-slate-800"
                       }`}
                     >
-                      S/ {(item.precio * item.cantidad).toFixed(2)}
+                      S/ {formatPrice(item.precio * item.cantidad)}
                     </p>
                   </div>
                   <button
@@ -3411,8 +3581,9 @@ const POSPage = () => {
               applySaleCustomerInput(value);
             }}
             onBlur={() => ensureExistingSaleCustomer(saleCustomerInput)}
-            onChange={(_, client) => {
+            onChange={(_, client, reason) => {
               if (!client) {
+                if (reason !== "clear") return;
                 setSaleCustomerInput("");
                 setSaleSettings((prev) => ({
                   ...prev,
@@ -3955,16 +4126,16 @@ const POSPage = () => {
         <div className="flex justify-between text-sm text-gray-700 md:text-lg xl:text-sm">
           <span>Op. gravada</span>
           <span className="font-semibold">
-            S/ {saleDisplayOperacionGravada.toFixed(2)}
+            S/ {formatPrice(saleDisplayOperacionGravada)}
           </span>
         </div>
         {saleSettings.paymentMethod === "TARJETA" && (
           <div className="flex justify-between text-sm text-gray-700 md:text-lg xl:text-sm">
             <span>
-              Adicional {roundCurrency(cardPercentageFromSession).toFixed(2)}%
+              Adicional {formatPrice(cardPercentageFromSession)}%
             </span>
             <span className="font-semibold">
-              S/ {saleCardAdditional.toFixed(2)}
+              S/ {formatPrice(saleCardAdditional)}
             </span>
           </div>
         )}
@@ -3972,7 +4143,7 @@ const POSPage = () => {
           <div className="flex justify-between text-sm text-rose-700 md:text-lg xl:text-sm">
             <span>Movilidad</span>
             <span className="font-semibold">
-              S/ {saleMovementAmount.toFixed(2)}
+              S/ {formatPrice(saleMovementAmount)}
             </span>
           </div>
         )}
@@ -3980,27 +4151,27 @@ const POSPage = () => {
           <div className="flex justify-between text-sm text-rose-700 md:text-lg xl:text-sm">
             <span>Descuento</span>
             <span className="font-semibold">
-              - S/ {saleDiscountAmount.toFixed(2)}
+              - S/ {formatPrice(saleDiscountAmount)}
             </span>
           </div>
         )}
         <div className="flex justify-between text-sm text-gray-700 md:text-lg xl:text-sm">
           <span>Sub total</span>
           <span className="font-semibold">
-            S/ {saleDisplaySubtotal.toFixed(2)}
+            S/ {formatPrice(saleDisplaySubtotal)}
           </span>
         </div>
         {saleDisplayIgv > 0 && (
           <div className="flex justify-between text-sm text-gray-700 md:text-lg xl:text-sm">
             <span>IGV (18%)</span>
             <span className="font-semibold">
-              S/ {saleDisplayIgv.toFixed(2)}
+              S/ {formatPrice(saleDisplayIgv)}
             </span>
           </div>
         )}
         <div className="flex justify-between text-base font-bold text-slate-800 md:text-xl xl:text-base">
           <span>Total pago</span>
-          <span>S/ {saleTotalAmount.toFixed(2)}</span>
+          <span>S/ {formatPrice(saleTotalAmount)}</span>
         </div>
         <button
           className="mt-3 inline-flex w-full items-center justify-center gap-2 rounded-lg bg-emerald-500 py-2.5 text-white transition-colors hover:bg-emerald-600 disabled:opacity-50 md:py-3 md:text-lg xl:py-2.5 xl:text-base"
@@ -4184,7 +4355,8 @@ const POSPage = () => {
                                     : ""
                                 }
                               >
-                                Stock: {stockValue} {product.unidadMedida}
+                                Stock: {formatQuantity(stockValue)}{" "}
+                                {product.unidadMedida}
                               </span>
                               <span className="font-semibold text-slate-800">
                                 S/ {priceLabel(product, priceMode)}
@@ -4334,7 +4506,7 @@ const POSPage = () => {
                     Stock tienda
                   </p>
                   <p className="mt-1 text-2xl font-semibold text-slate-900">
-                    {stockInquiry.storeStock.toFixed(2)}
+                    {formatQuantity(stockInquiry.storeStock, 2)}
                   </p>
                   <p className="text-xs text-slate-500">{stockInquiry.unit}</p>
                 </div>
@@ -4343,7 +4515,7 @@ const POSPage = () => {
                     Pedido total
                   </p>
                   <p className="mt-1 text-2xl font-semibold text-amber-900">
-                    {stockInquiry.requestedQty.toFixed(2)}
+                    {formatQuantity(stockInquiry.requestedQty, 2)}
                   </p>
                   <p className="text-xs text-amber-700">{stockInquiry.unit}</p>
                 </div>
@@ -4352,7 +4524,7 @@ const POSPage = () => {
                     Falta completar
                   </p>
                   <p className="mt-1 text-2xl font-semibold text-rose-900">
-                    {stockInquiry.missingQty.toFixed(2)}
+                    {formatQuantity(stockInquiry.missingQty, 2)}
                   </p>
                   <p className="text-xs text-rose-700">{stockInquiry.unit}</p>
                 </div>
@@ -4393,10 +4565,10 @@ const POSPage = () => {
                               {row.almacenNombre}
                             </td>
                             <td className="px-3 py-2 text-right font-semibold text-emerald-700">
-                              {row.cantidad.toFixed(2)}
+                              {formatQuantity(row.cantidad, 2)}
                             </td>
                             <td className="px-3 py-2 text-right">
-                              {row.stock.toFixed(2)}
+                              {formatQuantity(row.stock, 2)}
                             </td>
                             <td className="px-3 py-2">{row.unidadMedida}</td>
                           </tr>
@@ -4419,13 +4591,14 @@ const POSPage = () => {
                   <div className="flex items-center gap-2 font-semibold text-slate-800">
                     <span>Cant. total</span>
                     <span className="rounded-md bg-slate-800 px-3 py-1 text-base text-white">
-                      {(
+                      {formatQuantity(
                         stockInquiry.storeStock +
-                        stockInquiry.rows.reduce(
-                          (sum, row) => sum + row.stock,
-                          0,
-                        )
-                      ).toFixed(2)}
+                          stockInquiry.rows.reduce(
+                            (sum, row) => sum + row.stock,
+                            0,
+                          ),
+                        2,
+                      )}
                     </span>
                     <span>{stockInquiry.unit}</span>
                   </div>
@@ -4539,7 +4712,7 @@ const POSPage = () => {
                               </div>
                             </td>
                             <td className="px-3 py-2 text-right font-semibold text-emerald-700">
-                              {item.cantidad.toFixed(2)}
+                              {formatQuantity(item.cantidad, 2)}
                             </td>
                             <td className="px-3 py-2">{item.productoUM}</td>
                             <td className="px-3 py-2 text-right">
