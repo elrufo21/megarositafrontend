@@ -1086,10 +1086,18 @@ const POSPage = () => {
 
       return {
         ...fields,
+        fiscalAddress:
+          isSameClient && safeTrim(prev.fiscalAddress)
+            ? prev.fiscalAddress.toUpperCase()
+            : fields.fiscalAddress,
         shippingAddress:
           isSameClient && safeTrim(prev.shippingAddress)
             ? prev.shippingAddress.toUpperCase()
             : fields.shippingAddress,
+        phone:
+          isSameClient && safeTrim(prev.phone)
+            ? prev.phone.toUpperCase()
+            : fields.phone,
       };
     },
     [customerFieldsFromClient],
@@ -1510,9 +1518,6 @@ const POSPage = () => {
       customerId: "",
       customerRuc: "",
       customerDni: "",
-      fiscalAddress: "",
-      shippingAddress: "",
-      phone: "",
     }));
   };
   const ensureExistingSaleDocument = (
@@ -1549,9 +1554,6 @@ const POSPage = () => {
       customerId: "",
       customerRuc: "",
       customerDni: "",
-      fiscalAddress: "",
-      shippingAddress: "",
-      phone: "",
     }));
   };
 
@@ -1600,9 +1602,6 @@ const POSPage = () => {
         customerId: isInvalidFacturaClient ? "" : documentValue,
         customerRuc: isInvalidFacturaClient ? "" : prev.customerRuc,
         customerDni: isInvalidFacturaClient ? "" : prev.customerDni,
-        fiscalAddress: isInvalidFacturaClient ? "" : prev.fiscalAddress,
-        shippingAddress: isInvalidFacturaClient ? "" : prev.shippingAddress,
-        phone: isInvalidFacturaClient ? "" : prev.phone,
       };
     });
     if (docTypeCode === "01") {
@@ -3422,9 +3421,6 @@ const POSPage = () => {
                   customerId: "",
                   customerRuc: "",
                   customerDni: "",
-                  fiscalAddress: "",
-                  shippingAddress: "",
-                  phone: "",
                 }));
                 return;
               }
@@ -3736,7 +3732,10 @@ const POSPage = () => {
             minRows={2}
             value={saleSettings.shippingAddress}
             InputLabelProps={{ shrink: true }}
-            inputProps={{ style: { textTransform: "uppercase" } }}
+            inputProps={{
+              "data-no-uppercase": "true",
+              style: { textTransform: "uppercase" },
+            }}
             inputRef={saleShippingAddressInputRef}
             onKeyDown={handleSaleEnterFocus(salePhoneInputRef)}
             onChange={(event) =>
@@ -3755,7 +3754,10 @@ const POSPage = () => {
             size="small"
             label="Teléfono/Cel."
             value={saleSettings.phone}
-            inputProps={{ style: { textTransform: "uppercase" } }}
+            inputProps={{
+              "data-no-uppercase": "true",
+              style: { textTransform: "uppercase" },
+            }}
             inputRef={salePhoneInputRef}
             onKeyDown={handleSaleEnterFocus(nextSaleAfterPhoneRef, true)}
             onChange={(event) =>

@@ -121,9 +121,8 @@ const getSignedTotal = (
   }
   return amount;
 };
-const getNoteDispatchAddress = (note: OrderNote) =>
-  note.notaDireccion || "-";
-const getNotePhone = (note: OrderNote) => note.notaTelefono || "-";
+const getCustomerDni = (note: OrderNote) => note.clienteDni || "-";
+const getCustomerRuc = (note: OrderNote) => note.clienteRuc || "-";
 
 const OrderNotesList = () => {
   const navigate = useNavigate();
@@ -328,8 +327,8 @@ const OrderNotesList = () => {
         { header: "N° Documento", key: "numeroDocumento", width: 18 },
         { header: "Fecha", key: "fecha", width: 14 },
         { header: "Cliente", key: "cliente", width: 34 },
-        { header: "Dirección despacho", key: "notaDireccion", width: 36 },
-        { header: "Teléfono", key: "notaTelefono", width: 16 },
+        { header: "DNI", key: "clienteDni", width: 14 },
+        { header: "RUC", key: "clienteRuc", width: 16 },
         { header: "Forma Pago", key: "formaPago", width: 18 },
         { header: "Total", key: "total", width: 14 },
         { header: "A cuenta", key: "acuenta", width: 14 },
@@ -372,8 +371,8 @@ const OrderNotesList = () => {
           numeroDocumento: toExcelSafeText(numeroDocumento || "-"),
           fecha: toExcelSafeText(note.fecha),
           cliente: toExcelSafeText(note.cliente),
-          notaDireccion: toExcelSafeText(getNoteDispatchAddress(note)),
-          notaTelefono: toExcelSafeText(getNotePhone(note)),
+          clienteDni: toExcelSafeText(getCustomerDni(note)),
+          clienteRuc: toExcelSafeText(getCustomerRuc(note)),
           formaPago: toExcelSafeText(note.formaPago),
           total: Number(getSignedTotal(note, note.total).toFixed(2)),
           acuenta: Number(parseAmount(note.acuenta).toFixed(2)),
@@ -595,14 +594,14 @@ const OrderNotesList = () => {
         cell: (info) => info.getValue(),
       }),
       columnHelper.display({
-        id: "notaDireccion",
-        header: "Dirección despacho",
-        cell: ({ row }) => getNoteDispatchAddress(row.original),
+        id: "clienteDni",
+        header: "DNI",
+        cell: ({ row }) => getCustomerDni(row.original),
       }),
       columnHelper.display({
-        id: "notaTelefono",
-        header: "Teléfono",
-        cell: ({ row }) => getNotePhone(row.original),
+        id: "clienteRuc",
+        header: "RUC",
+        cell: ({ row }) => getCustomerRuc(row.original),
       }),
       columnHelper.accessor("formaPago", {
         header: "Forma Pago",
@@ -681,8 +680,8 @@ const OrderNotesList = () => {
           "estadoSunat",
           "fecha",
           "documento",
-          "notaDireccion",
-          "notaTelefono",
+          "clienteDni",
+          "clienteRuc",
           "formaPago",
           "usuario",
         ]}

@@ -2779,13 +2779,19 @@ const PaymentPage = () => {
           : null;
       const source = fullClient ?? client;
 
-      setValue("fiscalAddress", safeTrim(source?.direccionFiscal).toUpperCase(), {
+      setValue(
+        "fiscalAddress",
+        safeTrim(source?.direccionFiscal).toUpperCase(),
+        { shouldDirty },
+      );
+      setValue(
+        "shippingAddress",
+        safeTrim(source?.direccionDespacho).toUpperCase(),
+        { shouldDirty },
+      );
+      setValue("phone", safeTrim(source?.telefonoMovil).toUpperCase(), {
         shouldDirty,
       });
-      setValue("shippingAddress", safeTrim(source?.direccionDespacho).toUpperCase(), {
-        shouldDirty,
-      });
-      setValue("phone", safeTrim(source?.telefonoMovil).toUpperCase(), { shouldDirty });
     },
     [clients, setValue],
   );
@@ -2807,15 +2813,17 @@ const PaymentPage = () => {
     [docTypeCode, fillCustomerContactFields, setClienteIdFromOption, setValue],
   );
   const clearCustomerSelection = useCallback(
-    (shouldDirty = true) => {
+    (shouldDirty = true, clearContact = false) => {
       setValue("clienteId", null, { shouldDirty });
       setValue("customerName", "", { shouldDirty });
       setValue("customerId", "", { shouldDirty });
       setValue("customerDni", "", { shouldDirty });
       setValue("customerRuc", "", { shouldDirty });
-      setValue("fiscalAddress", "", { shouldDirty });
-      setValue("shippingAddress", "", { shouldDirty });
-      setValue("phone", "", { shouldDirty });
+      if (clearContact) {
+        setValue("fiscalAddress", "", { shouldDirty });
+        setValue("shippingAddress", "", { shouldDirty });
+        setValue("phone", "", { shouldDirty });
+      }
     },
     [setValue],
   );
@@ -4048,9 +4056,16 @@ const PaymentPage = () => {
         safeTrim(customerName).toLowerCase(),
     );
     const selectedClient = selectedClientById ?? selectedClientByName ?? null;
+    const selectedClientDocument =
+      docTypeForTicket === "factura"
+        ? safeTrim(selectedClient?.ruc)
+        : safeTrim(selectedClient?.dni);
     return {
-      clientName: safeTrim(customerName) || "Ultimo cliente",
-      clientId: safeTrim(selectedDocument),
+      clientName:
+        safeTrim(customerName) ||
+        safeTrim(selectedClient?.nombreRazon) ||
+        "Ultimo cliente",
+      clientId: safeTrim(selectedDocument) || selectedClientDocument,
       clientAddress:
         safeTrim(shippingAddress) ||
         safeTrim(fiscalAddress) ||
@@ -5299,6 +5314,8 @@ const PaymentPage = () => {
     };
     const savedPreviewProps = {
       ...ticketPreviewProps,
+      items: sourceItems,
+      totals: sourceTotals,
       ...savedCompanyPreviewOverride,
       ...(immediateDocumentNumber
         ? { documentNumber: immediateDocumentNumber }
@@ -7585,9 +7602,9 @@ const PaymentPage = () => {
           inputProps={{ style: { textTransform: "uppercase" } }}
           sx={{ mt: 2 }}
           onChange={(event) =>
-              setValue("shippingAddress", event.target.value.toUpperCase(), {
-                shouldDirty: true,
-              })
+            setValue("shippingAddress", event.target.value.toUpperCase(), {
+              shouldDirty: true,
+            })
           }
         />
         <div className="mt-6">

@@ -772,7 +772,8 @@ const TicketDocument = ({
     const igvValue = Number(summary?.igv);
     const totalValue = Number(summary?.total);
 
-    const safeOperacionGravada = Number.isFinite(operacionGravadaValue)
+    const safeOperacionGravada = Number.isFinite(operacionGravadaValue) &&
+      (operacionGravadaValue > 0 || fallbackOperacionGravada <= 0)
       ? Math.max(0, operacionGravadaValue)
       : fallbackOperacionGravada;
     const safeDescuento = Number.isFinite(descuentoValue)
@@ -798,13 +799,15 @@ const TicketDocument = ({
             Boolean,
           );
     const detailAdjustmentAmount = safeMovilidad + safeCardAdditional;
-    const safeSubtotal = Number.isFinite(subtotalValue)
+    const safeSubtotal = Number.isFinite(subtotalValue) &&
+      (subtotalValue > 0 || fallbackSubtotal <= 0)
       ? Math.max(0, subtotalValue)
       : fallbackSubtotal;
     const safeIgv = Number.isFinite(igvValue)
       ? Math.max(0, igvValue)
       : Math.max(0, safeSubtotal - safeOperacionGravada);
-    const safeTotal = Number.isFinite(totalValue)
+    const safeTotal = Number.isFinite(totalValue) &&
+      (totalValue > 0 || fallbackTotal <= 0)
       ? Math.max(0, totalValue)
       : fallbackTotal;
     const docLabel = docType === "factura" ? "RUC" : "DNI";
