@@ -8,6 +8,8 @@ type TicketHTMLProps = {
   clientDni?: string;
   clientRuc?: string;
   clientAddress?: string;
+  clientPhone?: string;
+  notaUsuario?: string;
   docType?: "boleta" | "factura" | "proforma";
   documentTitle?: string;
   paymentMethod?: string;
@@ -232,6 +234,8 @@ const TicketHTML = ({
   clientDni,
   clientRuc,
   clientAddress,
+  clientPhone,
+  notaUsuario,
   docType = "boleta",
   documentTitle,
   paymentMethod,
@@ -369,6 +373,7 @@ const TicketHTML = ({
       paymentMethod: paymentMethod ?? "AL CONTADO",
       clientName: clientName || "Ultimo cliente",
       clientAddress: clientAddress?.trim() || "-",
+      clientPhone: clientPhone?.trim() || "-",
       clientDNI: clientDoc,
       clientDocLabel: docLabel,
       proformaDni,
@@ -409,6 +414,7 @@ const TicketHTML = ({
     clientDni,
     clientRuc,
     clientAddress,
+    clientPhone,
     clientName,
     notaUsuario,
     docType,
@@ -546,8 +552,8 @@ const TicketHTML = ({
       fontSize: 8,
     } as React.CSSProperties,
 
-    colCant: { width: "14%" } as React.CSSProperties,
-    colDesc: { width: "42%" } as React.CSSProperties,
+    colCant: { width: "22%", flexShrink: 0 } as React.CSSProperties,
+    colDesc: { width: "34%", paddingLeft: 4 } as React.CSSProperties,
     colPUni: {
       width: "20%",
       textAlign: "right" as const,
@@ -697,6 +703,14 @@ const TicketHTML = ({
       <div style={s.infoRow}>
         <span style={s.infoLabel}>Vendedor</span>
         <span style={s.infoValue}>: {ticketData.seller}</span>
+      </div>
+      <div style={s.infoRow}>
+        <span style={s.infoLabel}>Despacho</span>
+        <span style={s.infoValue}>: {ticketData.clientAddress}</span>
+      </div>
+      <div style={s.infoRow}>
+        <span style={s.infoLabel}>Telefono</span>
+        <span style={s.infoValue}>: {ticketData.clientPhone}</span>
       </div>
       <div style={s.infoRow}>
         <span style={s.infoLabel}>NotaId</span>

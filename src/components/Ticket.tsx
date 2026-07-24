@@ -21,6 +21,7 @@ export type TicketDocumentProps = {
   clientDni?: string;
   clientRuc?: string;
   clientAddress?: string;
+  clientPhone?: string;
   notaUsuario?: string;
   docType?: "boleta" | "factura" | "proforma";
   documentTitle?: string;
@@ -517,10 +518,11 @@ const styles = StyleSheet.create({
     fontWeight: "bold",
   },
   colCant: {
-    width: "12%",
+    width: "22%",
   },
   colDesc: {
-    width: "40%",
+    width: "30%",
+    paddingLeft: 3,
   },
   colPUni: {
     width: "20%",
@@ -552,13 +554,14 @@ const styles = StyleSheet.create({
     textAlign: "left",
   },
   tableItemDescriptionSecondRow: {
-    width: "52%",
+    width: "58%",
     fontSize: 9,
     fontWeight: "bold",
     textAlign: "left",
   },
   tableItemDescriptionFull: {
-    width: "88%",
+    width: "78%",
+    paddingLeft: 3,
     fontSize: 9,
     fontWeight: "bold",
     textAlign: "left",
@@ -681,6 +684,7 @@ const TicketDocument = ({
   clientDni,
   clientRuc,
   clientAddress,
+  clientPhone,
   notaUsuario,
   docType = "boleta",
   documentTitle,
@@ -885,6 +889,7 @@ const TicketDocument = ({
       paymentMethod: paymentMethod ?? "AL CONTADO",
       clientName: clientName || "Ultimo cliente",
       clientAddress: clientAddress?.trim() || "-",
+      clientPhone: clientPhone?.trim() || "-",
       clientDNI: clientDoc,
       clientDocLabel: docLabel,
       proformaDni,
@@ -928,6 +933,7 @@ const TicketDocument = ({
     clientDni,
     clientRuc,
     clientAddress,
+    clientPhone,
     clientName,
     notaUsuario,
     docType,
@@ -980,7 +986,7 @@ const TicketDocument = ({
     const TICKET_NUMBER = 11 + 10; // fontSize + marginBottom
     const DIVIDER = 1 + 8 * 2; // border + marginVertical x2
 
-    const INFO_ROWS = ticketData.isFactura ? 8 : 7;
+    const INFO_ROWS = ticketData.isFactura ? 10 : 9;
     const INFO_ROW_H = 8 + 4; // fontSize + marginBottom
     const clientNameLines = Math.ceil(
       (ticketData.clientName?.length ?? 0) / 28,
@@ -1119,6 +1125,14 @@ const TicketDocument = ({
           <View style={styles.infoRow}>
             <Text style={styles.infoLabel}>Vendedor</Text>
             <Text style={styles.infoValue}>: {ticketData.seller}</Text>
+          </View>
+          <View style={styles.infoRow}>
+            <Text style={styles.infoLabel}>Despacho</Text>
+            <Text style={styles.infoValue}>: {ticketData.clientAddress}</Text>
+          </View>
+          <View style={styles.infoRow}>
+            <Text style={styles.infoLabel}>Telefono</Text>
+            <Text style={styles.infoValue}>: {ticketData.clientPhone}</Text>
           </View>
           <View style={styles.divider} />
           <View style={styles.tableHeader}>

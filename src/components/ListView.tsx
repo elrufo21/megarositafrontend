@@ -23,6 +23,9 @@ export interface CrudListConfig<T> {
   deleteMessage?: string;
   filterKeys?: (keyof T & string)[];
   initialPageSize?: number;
+  pageSizeOptions?: number[];
+  persistPageSize?: boolean;
+  tableMaxHeight?: string;
   renderFilters?: React.ReactNode;
   footerContent?: React.ReactNode;
   onFilteredDataChange?: (rows: T[]) => void;
@@ -61,6 +64,9 @@ interface CrudListProps<T> {
   deleteMessage?: string;
   filterKeys?: (keyof T & string)[];
   initialPageSize?: number;
+  pageSizeOptions?: number[];
+  persistPageSize?: boolean;
+  tableMaxHeight?: string;
   renderFilters?: React.ReactNode;
   footerContent?: React.ReactNode;
   onFilteredDataChange?: (rows: T[]) => void;
@@ -80,6 +86,9 @@ export function CrudList<T>(props: CrudListProps<T>) {
     deleteMessage = "¿Seguro que deseas eliminar este elemento?",
     filterKeys,
     initialPageSize,
+    pageSizeOptions,
+    persistPageSize,
+    tableMaxHeight,
     renderFilters,
     footerContent,
     onFilteredDataChange,
@@ -289,6 +298,9 @@ export function CrudList<T>(props: CrudListProps<T>) {
         columns={tableColumns}
         filterKeys={filterKeys}
         initialPageSize={initialPageSize}
+        pageSizeOptions={pageSizeOptions}
+        persistPageSize={persistPageSize}
+        tableMaxHeight={tableMaxHeight}
         toolbarLeading={
           !isMaintenanceList ? (
             <BackArrowButton

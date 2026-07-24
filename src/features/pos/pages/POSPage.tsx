@@ -299,10 +299,12 @@ const normalizePosSaleSettings = (value: unknown): PosSaleSettings | null => {
         ? (record.clienteId ?? null)
         : DEFAULT_POS_SALE_SETTINGS.clienteId,
     customerId,
-    customerDni:
-      docTypeCode === "01" ? "" : String(record.customerDni ?? customerId),
-    customerRuc:
-      docTypeCode === "01" ? String(record.customerRuc ?? customerId) : "",
+    customerDni: String(
+      record.customerDni ?? (docTypeCode === "01" ? "" : customerId),
+    ),
+    customerRuc: String(
+      record.customerRuc ?? (docTypeCode === "01" ? customerId : ""),
+    ),
     customerName: String(
       record.customerName ?? DEFAULT_POS_SALE_SETTINGS.customerName,
     ),
@@ -1149,9 +1151,26 @@ const POSPage = () => {
       const fields = customerFieldsFromClient(client, prev.docTypeCode);
       const isSameClient =
         client !== null && Number(prev.clienteId) === Number(client.id);
+      const isSameCustomer =
+        isSameClient ||
+        (client !== null &&
+          normalizePosSearchText(prev.customerName) ===
+            normalizePosSearchText(client.label));
 
       return {
         ...fields,
+        customerRuc:
+          isSameCustomer &&
+          safeTrim(prev.customerRuc) &&
+          !safeTrim(fields.customerRuc)
+            ? prev.customerRuc
+            : fields.customerRuc,
+        customerDni:
+          isSameCustomer &&
+          safeTrim(prev.customerDni) &&
+          !safeTrim(fields.customerDni)
+            ? prev.customerDni
+            : fields.customerDni,
         fiscalAddress:
           isSameClient && safeTrim(prev.fiscalAddress)
             ? prev.fiscalAddress.toUpperCase()
@@ -1556,15 +1575,29 @@ const POSPage = () => {
     },
     [customerFieldsForSaleUpdate, saleClientByName],
   );
+  const clearSaleCustomerSelection = () => {
+    setSaleCustomerInput("");
+    setSaleSettings((prev) => ({
+      ...prev,
+      clienteId: null,
+      customerName: "",
+      customerId: "",
+      customerRuc: "",
+      customerDni: "",
+      fiscalAddress: "",
+      shippingAddress: "",
+      phone: "",
+    }));
+  };
   const ensureExistingSaleCustomer = (rawName: string) => {
     if (
       typeof window !== "undefined" &&
       window.sessionStorage.getItem(POS_COMPANY_SWITCHING_STORAGE_KEY) === "1"
     ) {
-      return;
+      return true;
     }
     const typedName = safeTrim(rawName);
-    if (!typedName) return;
+    if (!typedName) return true;
     const matchedClient = saleClientByName.get(
       normalizePosSearchText(typedName),
     );
@@ -1576,21 +1609,14 @@ const POSPage = () => {
         customerName: matchedClient.label,
         ...customerFieldsForSaleUpdate(prev, matchedClient),
       }));
-      return;
+      return true;
     }
-    if (isSaleProforma) return;
     toast.error(
       "Intentaste seleccionar un cliente que no existe, por favor agrega el cliente y seleccionalo.",
     );
-    setSaleCustomerInput("");
-    setSaleSettings((prev) => ({
-      ...prev,
-      clienteId: null,
-      customerName: "",
-      customerId: "",
-      customerRuc: "",
-      customerDni: "",
-    }));
+    clearSaleCustomerSelection();
+    focusSaleField(saleCustomerInputRef);
+    return false;
   };
   const ensureExistingSaleDocument = (
     type: "dni" | "ruc",
@@ -1600,10 +1626,10 @@ const POSPage = () => {
       typeof window !== "undefined" &&
       window.sessionStorage.getItem(POS_COMPANY_SWITCHING_STORAGE_KEY) === "1"
     ) {
-      return;
+      return true;
     }
     const typedDocument = normalizePosDocumentText(rawValue);
-    if (!typedDocument || isSaleProforma) return;
+    if (!typedDocument) return true;
     const options = type === "ruc" ? saleRucOptions : saleDniOptions;
     const matchedOption = options.find(
       (option) => normalizePosDocumentText(option.value) === typedDocument,
@@ -1619,20 +1645,14 @@ const POSPage = () => {
           ? { customerRuc: matchedOption.value }
           : { customerDni: matchedOption.value }),
       }));
-      return;
+      return true;
     }
     toast.error(
       `El ${type === "ruc" ? "RUC" : "DNI"} no existe. Agrega el cliente y seleccionalo.`,
     );
-    setSaleCustomerInput("");
-    setSaleSettings((prev) => ({
-      ...prev,
-      clienteId: null,
-      customerName: "",
-      customerId: "",
-      customerRuc: "",
-      customerDni: "",
-    }));
+    clearSaleCustomerSelection();
+    focusSaleField(type === "ruc" ? saleRucInputRef : saleDniInputRef, true);
+    return false;
   };
 
   useEffect(() => {
@@ -1719,11 +1739,41 @@ const POSPage = () => {
       return false;
     }
 
-    const customerName = safeTrim(saleSettings.customerName);
-    const customerDocument = safeTrim(saleSettings.customerId).replace(
-      /\D/g,
-      "",
-    );
+    const customerName = safeTrim(saleCustomerInput || saleSettings.customerName);
+    const customerDni = saleDniInputRef.current?.value ?? saleSettings.customerDni;
+    const customerRuc = saleRucInputRef.current?.value ?? saleSettings.customerRuc;
+    const matchedCustomerByName = customerName
+      ? saleClientByName.get(normalizePosSearchText(customerName)) ?? null
+      : null;
+    const matchedDniOption = normalizePosDocumentText(customerDni)
+      ? saleDniOptions.find(
+          (option) =>
+            normalizePosDocumentText(option.value) ===
+            normalizePosDocumentText(customerDni),
+        ) ?? null
+      : null;
+    const matchedRucOption = normalizePosDocumentText(customerRuc)
+      ? saleRucOptions.find(
+          (option) =>
+            normalizePosDocumentText(option.value) ===
+            normalizePosDocumentText(customerRuc),
+        ) ?? null
+      : null;
+    const selectedSaleClientForValidation =
+      matchedCustomerByName ??
+      (selectedSaleClient &&
+      normalizePosSearchText(selectedSaleClient.label) ===
+        normalizePosSearchText(customerName)
+        ? selectedSaleClient
+        : null) ??
+      matchedDniOption?.client ??
+      matchedRucOption?.client ??
+      null;
+    const resolvedCustomerName =
+      customerName || safeTrim(selectedSaleClientForValidation?.label);
+    const customerDocument = safeTrim(
+      isSaleFactura ? customerRuc : customerDni,
+    ).replace(/\D/g, "");
 
     if (saleSettings.docTypeCode === "SELECCIONAR") {
       toast.error("Selecciona el tipo de documento.");
@@ -1759,7 +1809,7 @@ const POSPage = () => {
     if (
       saleSettings.docTypeCode === "101" &&
       saleSettings.paymentMethod === "TARJETA" &&
-      isGenericVariosCustomer(customerName)
+      isGenericVariosCustomer(resolvedCustomerName)
     ) {
       toast.error(
         "Para Proforma V con tarjeta ingresa un cliente distinto a VARIOS.",
@@ -1769,14 +1819,27 @@ const POSPage = () => {
       return false;
     }
 
+    if (!ensureExistingSaleCustomer(customerName)) {
+      setCartTab("payment");
+      return false;
+    }
+    if (!ensureExistingSaleDocument("dni", customerDni)) {
+      setCartTab("payment");
+      return false;
+    }
+    if (!ensureExistingSaleDocument("ruc", customerRuc)) {
+      setCartTab("payment");
+      return false;
+    }
+
     if (isSaleFactura) {
-      if (!customerName || isGenericVariosCustomer(customerName)) {
+      if (!resolvedCustomerName || isGenericVariosCustomer(resolvedCustomerName)) {
         toast.error("Para factura selecciona un cliente valido.");
         setCartTab("payment");
         focusSaleField(saleCustomerInputRef);
         return false;
       }
-      if (!selectedSaleClient) {
+      if (!selectedSaleClientForValidation) {
         toast.error("Para factura debes seleccionar un cliente registrado.");
         setCartTab("payment");
         focusSaleField(saleCustomerInputRef);
@@ -1797,13 +1860,13 @@ const POSPage = () => {
       (isSaleBoleta && saleTotalAmount > BOLETA_CUSTOMER_REQUIRED_TOTAL);
 
     if (shouldRequireBoletaCustomer) {
-      if (!customerName || isGenericVariosCustomer(customerName)) {
+      if (!resolvedCustomerName || isGenericVariosCustomer(resolvedCustomerName)) {
         toast.error("Para boleta selecciona un cliente valido.");
         setCartTab("payment");
         focusSaleField(saleCustomerInputRef);
         return false;
       }
-      if (isBoletaCardPayment && !selectedSaleClient) {
+      if (isBoletaCardPayment && !selectedSaleClientForValidation) {
         toast.error("Para boleta debes seleccionar un cliente registrado.");
         setCartTab("payment");
         focusSaleField(saleCustomerInputRef);
@@ -2352,6 +2415,12 @@ const POSPage = () => {
     );
     const flagMovil = 1;
     const notaFecha = getLocalDateTimeISO();
+    const activeCompanyId =
+      Number(
+        localStorage.getItem("companiaId") ??
+          useAuthStore.getState().user?.companyId ??
+          companyId,
+      ) || companyId;
 
     const payload = {
       nota: {
@@ -2374,7 +2443,7 @@ const POSPage = () => {
         notaTarjeta: isCardPayment ? safePayTotal : 0,
         notaPagar: safePayTotal,
         notaEstado: saleDocConfig.docu === "BOLETA" ? "EMITIDO" : "PENDIENTE",
-        companiaId: companyId,
+        companiaId: activeCompanyId,
         notaEntrega: "INMEDIATA",
         notaConcepto: "MERCADERIA",
         notaSerie: saleDocConfig.serie,
@@ -2461,7 +2530,17 @@ const POSPage = () => {
       }
 
       if (hasEditingNota) {
-        setServerItemsInStore(safeItems);
+        try {
+          await discardCurrentDraft();
+        } catch (error) {
+          console.error("No se pudo limpiar el borrador de edicion", error);
+        }
+        clearCart();
+        clearEditingNota();
+        setPriceDrafts({});
+        setCartPriceMode("A");
+        setQuantityDrafts({});
+        setMobileCartOpen(false);
         toast.success("Pedido actualizado");
         const paymentQuery = "mode=view&autoprint=1";
         navigate(`${paymentBasePath}/${editingNotaIdNumber}?${paymentQuery}`);
@@ -3584,15 +3663,7 @@ const POSPage = () => {
             onChange={(_, client, reason) => {
               if (!client) {
                 if (reason !== "clear") return;
-                setSaleCustomerInput("");
-                setSaleSettings((prev) => ({
-                  ...prev,
-                  clienteId: null,
-                  customerName: "",
-                  customerId: "",
-                  customerRuc: "",
-                  customerDni: "",
-                }));
+                clearSaleCustomerSelection();
                 return;
               }
               selectSaleClientOption(client);

@@ -3502,7 +3502,6 @@ const PaymentPage = () => {
 
       const currentNameFromForm = safeTrim(getValues("customerName"));
       const typedName = safeTrim(rawName ?? currentNameFromForm);
-      if (isProforma) return true;
       if (!typedName) {
         if (!hasInvalidCustomerSelectionRef.current) return true;
         window.requestAnimationFrame(() => {
@@ -3523,7 +3522,7 @@ const PaymentPage = () => {
         toast.error(
           "Intentaste seleccionar un cliente que no existe, por favor agrega el cliente y seleccionalo.",
         );
-        clearCustomerSelection(true);
+        clearCustomerSelection(true, true);
         window.requestAnimationFrame(() => {
           setFocus("customerName");
         });
@@ -3536,7 +3535,6 @@ const PaymentPage = () => {
     },
     [
       formLocked,
-      isProforma,
       clientOptions,
       facturaClientOptions,
       docTypeCode,
@@ -3546,7 +3544,6 @@ const PaymentPage = () => {
       fillCustomerFromOption,
     ],
   );
-
   // Sincronizacion consistente: si hay clienteId seleccionado, nombre/documento
   // se alinean a ese cliente (especialmente al cambiar tipo de documento).
   useEffect(() => {
@@ -3675,6 +3672,52 @@ const PaymentPage = () => {
       return safeTrim(fallback);
     },
     [dniOptions, rucOptions],
+  );
+  const ensureExistingCustomerDocument = useCallback(
+    (type: "dni" | "ruc", rawValue?: any, selectedOption?: any) => {
+      if (formLocked) return true;
+      const field = type === "ruc" ? "customerRuc" : "customerDni";
+      const typedDoc = normalizeDocumentText(
+        resolveDocumentValue(rawValue ?? getValues(field), type),
+      );
+      if (!typedDoc || selectedOption) return true;
+
+      const sourceOptions =
+        type === "ruc"
+          ? docTypeCode === "01"
+            ? facturaRucOptions
+            : rucOptions
+          : dniOptions;
+      const matchedOption = sourceOptions.find(
+        (option) => normalizeDocumentText(option.value) === typedDoc,
+      );
+
+      if (matchedOption) {
+        fillCustomerFromOption(matchedOption, true);
+        return true;
+      }
+
+      toast.error(
+        `El ${type === "ruc" ? "RUC" : "DNI"} no existe. Agrega el cliente y seleccionalo.`,
+      );
+      clearCustomerSelection(true, true);
+      window.requestAnimationFrame(() => {
+        setFocus(field);
+      });
+      return false;
+    },
+    [
+      clearCustomerSelection,
+      dniOptions,
+      docTypeCode,
+      facturaRucOptions,
+      fillCustomerFromOption,
+      formLocked,
+      getValues,
+      resolveDocumentValue,
+      rucOptions,
+      setFocus,
+    ],
   );
 
   const validateDniLength = useCallback(
@@ -4105,6 +4148,12 @@ const PaymentPage = () => {
         safeTrim((selectedClient as any)?.direccionFiscal ?? "") ||
         safeTrim((selectedClient as any)?.direccionDespacho ?? "") ||
         "-",
+      clientPhone:
+        safeTrim(phone) ||
+        safeTrim((selectedClient as any)?.telefonoMovil ?? "") ||
+        safeTrim((notaCabeceraActual as any)?.notaTelefono ?? "") ||
+        safeTrim((notaCabeceraActual as any)?.NotaTelefono ?? "") ||
+        "-",
       notaUsuario:
         safeTrim(
           (notaCabeceraActual as any)?.notaUsuario ??
@@ -4147,6 +4196,7 @@ const PaymentPage = () => {
     notaCabeceraActual,
     shippingAddress,
     fiscalAddress,
+    phone,
     resolvedNotaUsuario,
     docTypeForTicket,
     docTypeName,
@@ -4203,6 +4253,8 @@ const PaymentPage = () => {
         pdfPreviewProps.summary?.showDiscount ? "discount-on" : "discount-off",
         pdfPreviewProps.clientName,
         pdfPreviewProps.clientId,
+        pdfPreviewProps.clientAddress,
+        pdfPreviewProps.clientPhone,
         pdfPreviewProps.documentNumber,
         formatCurrency(pdfPreviewProps.summary?.operacionGravada ?? 0),
         formatCurrency(pdfPreviewProps.summary?.total ?? 0),
@@ -4212,6 +4264,8 @@ const PaymentPage = () => {
       ].join("|"),
     [
       pdfPreviewProps.clientId,
+      pdfPreviewProps.clientAddress,
+      pdfPreviewProps.clientPhone,
       pdfPreviewProps.clientName,
       pdfPreviewProps.docType,
       pdfPreviewProps.documentNumber,
@@ -4540,14 +4594,20 @@ const PaymentPage = () => {
       setFocus("customerName");
       return;
     }
-    const shouldSkipCustomerValidation =
+    const typedCustomerName = safeTrim(getValues("customerName"));
+    const shouldSkipRequiredCustomerValidation =
       isProforma || (docTypeCode === "03" && !shouldRequireBoletaCustomerData);
+    const shouldValidateTypedCustomer =
+      Boolean(typedCustomerName) &&
+      !isGenericVariosCustomer(typedCustomerName);
     if (
-      !shouldSkipCustomerValidation &&
-      !ensureExistingCustomerByName(getValues("customerName"))
+      (!shouldSkipRequiredCustomerValidation || shouldValidateTypedCustomer) &&
+      !ensureExistingCustomerByName(typedCustomerName)
     ) {
       return;
     }
+    if (!ensureExistingCustomerDocument("dni")) return;
+    if (!ensureExistingCustomerDocument("ruc")) return;
     if (!ensureBoletaCustomerAndDni()) return;
     if (!ensureFacturaCustomerAndRuc()) return;
 
@@ -4586,7 +4646,7 @@ const PaymentPage = () => {
           notaEntrega: baseNota.notaEntrega,
           notaSerie: baseNota.notaSerie,
           notaNumero: baseNota.notaNumero,
-          companiaId: baseNota.companiaId,
+          companiaId: activeCompanyId,
           icbper: baseNota.icbper,
           docuSubtotal: baseNota.docuSubtotal,
           docuIgv: baseNota.docuIgv,
@@ -5394,6 +5454,71 @@ const PaymentPage = () => {
     }, 0);
   };
 
+  const buildPosSaleSettings = useCallback(() => {
+    const currentClienteId = Number(getValues("clienteId") ?? clienteId ?? 0);
+    const currentName = safeTrim(getValues("customerName")) || customerName;
+    const selectedClient =
+      uniqueClients.find((client) => Number(client.id) === currentClienteId) ??
+      uniqueClients.find(
+        (client) =>
+          normalizeSearchText(client.nombreRazon) ===
+          normalizeSearchText(currentName),
+      ) ??
+      null;
+    const noteRecord = notaCabeceraActual as Record<string, unknown> | null;
+    const resolvedDni =
+      safeTrim(getValues("customerDni")) ||
+      safeTrim(selectedClient?.dni) ||
+      safeTrim(noteRecord?.clienteDni) ||
+      safeTrim(noteRecord?.ClienteDni) ||
+      safeTrim(noteRecord?.notaDni) ||
+      safeTrim(noteRecord?.NotaDni);
+    const resolvedRuc =
+      safeTrim(getValues("customerRuc")) ||
+      safeTrim(selectedClient?.ruc) ||
+      safeTrim(noteRecord?.clienteRuc) ||
+      safeTrim(noteRecord?.ClienteRuc) ||
+      safeTrim(noteRecord?.notaRuc) ||
+      safeTrim(noteRecord?.NotaRuc);
+
+    return {
+      docTypeCode,
+      paymentMethod,
+      clienteId: currentClienteId || clienteId,
+      customerName:
+        currentName || safeTrim(selectedClient?.nombreRazon) || customerName,
+      customerId:
+        docTypeCode === "01"
+          ? resolvedRuc
+          : resolvedDni || safeTrim(getValues("customerId")) || customerId,
+      customerDni: resolvedDni,
+      customerRuc: resolvedRuc,
+      fiscalAddress: safeTrim(getValues("fiscalAddress")) || fiscalAddress,
+      shippingAddress: safeTrim(getValues("shippingAddress")) || shippingAddress,
+      phone: safeTrim(getValues("phone")) || phone,
+      movementCost: String(notaMovilidad || ""),
+      bankEntity: safeTrim(getValues("bankEntity")),
+      nroOperacion: safeTrim(getValues("nroOperacion")),
+      applyDiscount: Boolean(applyDiscount && descuento > 0),
+      discount: String(descuento || ""),
+    };
+  }, [
+    applyDiscount,
+    clienteId,
+    customerId,
+    customerName,
+    descuento,
+    docTypeCode,
+    fiscalAddress,
+    getValues,
+    notaCabeceraActual,
+    notaMovilidad,
+    paymentMethod,
+    phone,
+    shippingAddress,
+    uniqueClients,
+  ]);
+
   const handleGoToPosFromEdit = (ev?: MouseEvent) => {
     ev?.preventDefault();
     if (!notaId) return;
@@ -5426,23 +5551,7 @@ const PaymentPage = () => {
         cartItems: itemsForReturn,
         editingNotaId: notaId,
         isEditingMode: Boolean(isEditingMode && notaId),
-        saleSettings: {
-          docTypeCode,
-          paymentMethod,
-          clienteId,
-          customerName,
-          customerId,
-          customerDni,
-          customerRuc,
-          fiscalAddress,
-          shippingAddress,
-          phone,
-          movementCost: String(notaMovilidad || ""),
-          bankEntity: safeTrim(getValues("bankEntity")),
-          nroOperacion: safeTrim(getValues("nroOperacion")),
-          applyDiscount: Boolean(applyDiscount && descuento > 0),
-          discount: String(descuento || ""),
-        },
+        saleSettings: buildPosSaleSettings(),
       },
     });
   };
@@ -5474,50 +5583,21 @@ const PaymentPage = () => {
         cartItems: itemsForEditing,
         editingNotaId: notaId,
         isEditingMode: true,
-        saleSettings: {
-          docTypeCode,
-          paymentMethod,
-          clienteId,
-          customerName,
-          customerId,
-          customerDni,
-          customerRuc,
-          fiscalAddress,
-          shippingAddress,
-          phone,
-          movementCost: String(notaMovilidad || ""),
-          bankEntity: safeTrim(getValues("bankEntity")),
-          nroOperacion: safeTrim(getValues("nroOperacion")),
-          applyDiscount: Boolean(applyDiscount && descuento > 0),
-          discount: String(descuento || ""),
-        },
+        saleSettings: buildPosSaleSettings(),
       },
     });
     return true;
   }, [
-    applyDiscount,
-    clienteId,
-    customerDni,
-    customerId,
-    customerName,
-    customerRuc,
-    descuento,
-    docTypeCode,
-    fiscalAddress,
-    getValues,
+    buildPosSaleSettings,
     items,
     navigate,
     notaId,
-    notaMovilidad,
-    paymentMethod,
-    phone,
     purchasedItems,
     serverItems,
     setEditingModeInStore,
     setEditingNotaInStore,
     setServerItemsInStore,
     setStoreItems,
-    shippingAddress,
   ]);
 
   useEffect(() => {
@@ -7454,11 +7534,11 @@ const PaymentPage = () => {
             disableClearable={formLocked}
             disabled={formLocked}
             onInputBlur={({ inputValue }) => {
-              if (!isProforma) ensureExistingCustomerByName(inputValue);
+              ensureExistingCustomerByName(inputValue);
             }}
             onOptionSelected={(opt: any) => {
               if (!opt) {
-                clearCustomerSelection(true);
+                clearCustomerSelection(true, true);
                 return;
               }
 
@@ -7498,19 +7578,7 @@ const PaymentPage = () => {
               fillCustomerFromOption(opt, true);
             }}
             onInputBlur={({ inputValue, selectedOption }) => {
-              const typedDoc = normalizeDocumentText(inputValue);
-              if (!typedDoc || selectedOption) return;
-              const matchedOption = dniOptions.find(
-                (option) => normalizeDocumentText(option.value) === typedDoc,
-              );
-              if (matchedOption) {
-                fillCustomerFromOption(matchedOption, true);
-                return;
-              }
-              toast.error(
-                "El DNI no existe. Agrega el cliente y seleccionalo.",
-              );
-              clearCustomerSelection(true);
+              ensureExistingCustomerDocument("dni", inputValue, selectedOption);
             }}
           />
         )}
@@ -7546,21 +7614,7 @@ const PaymentPage = () => {
               fillCustomerFromOption(opt, true);
             }}
             onInputBlur={({ inputValue, selectedOption }) => {
-              const typedDoc = normalizeDocumentText(inputValue);
-              if (!typedDoc || selectedOption) return;
-              const sourceOptions =
-                docTypeCode === "01" ? facturaRucOptions : rucOptions;
-              const matchedOption = sourceOptions.find(
-                (option) => normalizeDocumentText(option.value) === typedDoc,
-              );
-              if (matchedOption) {
-                fillCustomerFromOption(matchedOption, true);
-                return;
-              }
-              toast.error(
-                "El RUC no existe. Agrega el cliente y seleccionalo.",
-              );
-              clearCustomerSelection(true);
+              ensureExistingCustomerDocument("ruc", inputValue, selectedOption);
             }}
           />
         )}

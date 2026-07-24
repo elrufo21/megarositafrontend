@@ -29,6 +29,10 @@ const CustomerList = () => {
       createLabel="Añadir cliente"
       deleteMessage="¿Estás seguro de eliminar este cliente?"
       filterKeys={["nombreRazon", "ruc", "dni", "email"]}
+      initialPageSize={20}
+      pageSizeOptions={[20, 50, 100]}
+      persistPageSize={false}
+      tableMaxHeight="calc(100dvh - 245px)"
     />
   );
 };

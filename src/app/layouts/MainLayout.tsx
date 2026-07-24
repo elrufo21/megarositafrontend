@@ -287,7 +287,10 @@ export default function MainLayout() {
           window.location.reload();
         }
       } finally {
-        if (!pathname.startsWith("/sales/pos") && !pathname.startsWith("/pos")) {
+        if (
+          !pathname.startsWith("/sales/pos") &&
+          !pathname.startsWith("/pos")
+        ) {
           window.sessionStorage.removeItem(POS_COMPANY_SWITCHING_STORAGE_KEY);
         }
       }
@@ -328,8 +331,7 @@ export default function MainLayout() {
     const shouldResetPosCart =
       item.to === "/sales/pos" &&
       /^\/(?:sales\/pos|pos)\/payment(?:\/|$)/i.test(pathname);
-    const itemState =
-      shouldResetPosCart ? { resetCart: true } : item.state;
+    const itemState = shouldResetPosCart ? { resetCart: true } : item.state;
 
     return (
       <Link
@@ -387,7 +389,7 @@ export default function MainLayout() {
               open ? "opacity-100" : "opacity-0"
             }`}
           >
-            CAMBIO RUBEN
+            SGO VENTAS
           </h1>
 
           <button
