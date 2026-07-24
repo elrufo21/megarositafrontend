@@ -278,10 +278,11 @@ const TicketHTML = ({
     const igvValue = Number(summary?.igv);
     const totalValue = Number(summary?.total);
 
-    const safeOperacionGravada = Number.isFinite(operacionGravadaValue) &&
+    const safeOperacionGravada =
+      Number.isFinite(operacionGravadaValue) &&
       (operacionGravadaValue > 0 || fallbackOperacionGravada <= 0)
-      ? Math.max(0, operacionGravadaValue)
-      : fallbackOperacionGravada;
+        ? Math.max(0, operacionGravadaValue)
+        : fallbackOperacionGravada;
     const safeDescuento = Number.isFinite(descuentoValue)
       ? Math.max(0, descuentoValue)
       : 0;
@@ -298,22 +299,25 @@ const TicketHTML = ({
       Boolean(summary?.showCardAdditional) && safeCardAdditional > 0;
     const showMovement = safeMovilidad > 0;
     const showDiscount = Boolean(summary?.showDiscount) || safeDescuento > 0;
-    const detailAdjustments = docType === "proforma" ? [] : [
-      showMovement ? "MV" : "",
-      showCardAdditional ? "CT" : "",
-    ].filter(Boolean);
+    const detailAdjustments =
+      docType === "proforma"
+        ? []
+        : [showMovement ? "MV" : "", showCardAdditional ? "CT" : ""].filter(
+            Boolean,
+          );
     const detailAdjustmentAmount = safeMovilidad + safeCardAdditional;
-    const safeSubtotal = Number.isFinite(subtotalValue) &&
+    const safeSubtotal =
+      Number.isFinite(subtotalValue) &&
       (subtotalValue > 0 || fallbackSubtotal <= 0)
-      ? Math.max(0, subtotalValue)
-      : fallbackSubtotal;
+        ? Math.max(0, subtotalValue)
+        : fallbackSubtotal;
     const safeIgv = Number.isFinite(igvValue)
       ? Math.max(0, igvValue)
       : Math.max(0, safeSubtotal - safeOperacionGravada);
-    const safeTotal = Number.isFinite(totalValue) &&
-      (totalValue > 0 || fallbackTotal <= 0)
-      ? Math.max(0, totalValue)
-      : fallbackTotal;
+    const safeTotal =
+      Number.isFinite(totalValue) && (totalValue > 0 || fallbackTotal <= 0)
+        ? Math.max(0, totalValue)
+        : fallbackTotal;
 
     const docLabel = docType === "factura" ? "RUC" : "DNI";
     const clientDoc =
@@ -531,6 +535,23 @@ const TicketHTML = ({
       width: "65%",
     } as React.CSSProperties,
 
+    infoBlock: {
+      display: "flex" as const,
+      marginBottom: 7,
+      fontSize: 8,
+      textTransform: "uppercase" as const,
+    } as React.CSSProperties,
+
+    infoBlockLabel: {
+      width: "35%",
+      fontWeight: "bold" as const,
+    } as React.CSSProperties,
+
+    infoBlockValue: {
+      width: "65%",
+      overflowWrap: "anywhere" as const,
+    } as React.CSSProperties,
+
     // Table header row
     tableHeader: {
       display: "flex" as const,
@@ -700,26 +721,31 @@ const TicketHTML = ({
           <span style={s.infoValue}>: {ticketData.clientDNI}</span>
         </div>
       )}
+
+      {ticketData.isProforma ? (
+        <>
+          <div style={s.infoBlock}>
+            <span style={s.infoBlockLabel}>Despacho</span>
+            <span style={s.infoBlockValue}>: {ticketData.clientAddress}</span>
+          </div>
+          <div style={s.infoRow}>
+            <span style={s.infoLabel}>Telefono</span>
+            <span style={s.infoValue}>: {ticketData.clientPhone}</span>
+          </div>
+        </>
+      ) : null}
       <div style={s.infoRow}>
         <span style={s.infoLabel}>Vendedor</span>
         <span style={s.infoValue}>: {ticketData.seller}</span>
-      </div>
-      <div style={s.infoRow}>
-        <span style={s.infoLabel}>Despacho</span>
-        <span style={s.infoValue}>: {ticketData.clientAddress}</span>
-      </div>
-      <div style={s.infoRow}>
-        <span style={s.infoLabel}>Telefono</span>
-        <span style={s.infoValue}>: {ticketData.clientPhone}</span>
       </div>
       <div style={s.infoRow}>
         <span style={s.infoLabel}>NotaId</span>
         <span style={s.infoValue}>: {ticketData.id}</span>
       </div>
       {ticketData.isFactura && (
-        <div style={s.infoRow}>
-          <span style={s.infoLabel}>DIRECCION</span>
-          <span style={s.infoValue}>: {ticketData.clientAddress}</span>
+        <div style={s.infoBlock}>
+          <span style={s.infoBlockLabel}>DIRECCION</span>
+          <span style={s.infoBlockValue}>: {ticketData.clientAddress}</span>
         </div>
       )}
 
@@ -788,7 +814,9 @@ const TicketHTML = ({
           <div style={s.summaryRow}>
             <span style={s.summaryLabel}>Op Gravada S/.</span>
             <span style={s.summaryCurrency}></span>
-            <span style={s.summaryAmount}>{formatTicketMoney(ticketData.total)}</span>
+            <span style={s.summaryAmount}>
+              {formatTicketMoney(ticketData.total)}
+            </span>
           </div>
           <div style={s.summaryDivider} />
           <div style={s.summaryRow}>
@@ -799,7 +827,9 @@ const TicketHTML = ({
           <div style={s.summaryRow}>
             <span style={s.summaryLabel}>Saldo S/.</span>
             <span style={s.summaryCurrency}></span>
-            <span style={s.summaryAmount}>{formatTicketMoney(ticketData.total)}</span>
+            <span style={s.summaryAmount}>
+              {formatTicketMoney(ticketData.total)}
+            </span>
           </div>
           <div style={s.summaryDivider} />
           {ticketData.showCardAdditional && (
@@ -821,7 +851,9 @@ const TicketHTML = ({
           <div style={s.totalRow}>
             <span style={s.totalLabel}>Total A Pagar S/.</span>
             <span style={s.totalCurrency}></span>
-            <span style={s.totalAmount}>{formatTicketMoney(ticketData.total)}</span>
+            <span style={s.totalAmount}>
+              {formatTicketMoney(ticketData.total)}
+            </span>
           </div>
         </>
       ) : (
@@ -866,7 +898,9 @@ const TicketHTML = ({
           <div style={s.totalRow}>
             <span style={s.totalLabel}>TOTAL :</span>
             <span style={s.totalCurrency}>S/</span>
-            <span style={s.totalAmount}>{formatTicketMoney(ticketData.total)}</span>
+            <span style={s.totalAmount}>
+              {formatTicketMoney(ticketData.total)}
+            </span>
           </div>
         </>
       )}

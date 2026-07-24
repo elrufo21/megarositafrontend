@@ -12,7 +12,6 @@ type CustomerDialogContentProps = {
     client: Client,
     data: Omit<Client, "id">,
   ) => Promise<boolean>;
-  initialQuery?: string;
   initialEditingClient?: Client | null;
 };
 
@@ -33,14 +32,13 @@ export default function CustomerDialogContent({
   onSelectClient,
   onCreateClient,
   onUpdateClient,
-  initialQuery = "",
   initialEditingClient = null,
 }: CustomerDialogContentProps) {
   const clients = useClientsStore((state) => state.clients);
   const fetchClients = useClientsStore((state) => state.fetchClients);
   const closeDialog = useDialogStore((state) => state.closeDialog);
   const [activeTab, setActiveTab] = useState<"list" | "form">("form");
-  const [query, setQuery] = useState(initialQuery);
+  const [query, setQuery] = useState("");
   const [editingClient, setEditingClient] = useState<Client | null>(
     initialEditingClient,
   );
@@ -71,6 +69,7 @@ export default function CustomerDialogContent({
 
   const openNewForm = () => {
     setEditingClient(null);
+    setQuery("");
     setActiveTab("form");
   };
 
@@ -87,16 +86,7 @@ export default function CustomerDialogContent({
 
   return (
     <div className="flex h-[68dvh] max-h-[38rem] flex-col overflow-hidden bg-white">
-      <div className="relative shrink-0 bg-[#B23636] px-2 py-2 pr-12 text-white sm:px-3">
-        <button
-          type="button"
-          className="absolute right-2 top-2 inline-flex h-9 w-9 items-center justify-center rounded-md border border-white/20 bg-white/10 hover:bg-white/20"
-          onClick={closeDialog}
-          title="Cerrar"
-          aria-label="Cerrar"
-        >
-          <X className="h-5 w-5" />
-        </button>
+      <div className="shrink-0 bg-[#B23636] px-2 py-2 text-white sm:px-3">
         <div className="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
           <div className="grid w-full grid-cols-2 rounded-md bg-white/10 p-1 lg:w-[28rem]">
             <button
@@ -122,7 +112,7 @@ export default function CustomerDialogContent({
               Formulario
             </button>
           </div>
-          <div className="flex items-center justify-end gap-2 overflow-x-auto pb-1 pr-12 lg:pb-0">
+          <div className="flex items-center justify-end gap-2 overflow-x-auto pb-1 lg:pb-0">
             <button
               type="button"
               className="inline-flex h-9 shrink-0 items-center gap-2 rounded-md bg-white/10 px-3 text-sm font-semibold hover:bg-white/20"
@@ -141,6 +131,15 @@ export default function CustomerDialogContent({
                 Guardar
               </button>
             ) : null}
+            <button
+              type="button"
+              className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-white/20 bg-white/10 hover:bg-white/20"
+              onClick={closeDialog}
+              title="Cerrar"
+              aria-label="Cerrar"
+            >
+              <X className="h-5 w-5" />
+            </button>
           </div>
         </div>
       </div>

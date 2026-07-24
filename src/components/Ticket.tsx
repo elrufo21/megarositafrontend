@@ -165,7 +165,11 @@ const resolveInitialLogoSource = (companyLogo?: string): string => {
   const rawLogo = companyLogo?.trim() || readCompanyLogoFromStorage();
   const fallbackAbsolute = toAbsoluteLogoUrl(FALLBACK_LOGO_SRC);
   const normalizedLogo = toAbsoluteLogoUrl(rawLogo);
-  return mapLogoToDevProxyUrl(normalizedLogo) || fallbackAbsolute || FALLBACK_LOGO_SRC;
+  return (
+    mapLogoToDevProxyUrl(normalizedLogo) ||
+    fallbackAbsolute ||
+    FALLBACK_LOGO_SRC
+  );
 };
 
 const loadImageElement = (
@@ -505,6 +509,20 @@ const styles = StyleSheet.create({
   infoValue: {
     width: "65%",
   },
+  infoBlock: {
+    marginBottom: 7,
+    fontSize: 9,
+    textTransform: "uppercase",
+    flexDirection: "row",
+  },
+  infoBlockLabel: {
+    width: "35%",
+    fontWeight: "bold",
+  },
+  infoBlockValue: {
+    width: "65%",
+    fontSize: 9,
+  },
   tableHeader: {
     flexDirection: "row",
     borderBottomWidth: 1,
@@ -785,10 +803,11 @@ const TicketDocument = ({
     const igvValue = Number(summary?.igv);
     const totalValue = Number(summary?.total);
 
-    const safeOperacionGravada = Number.isFinite(operacionGravadaValue) &&
+    const safeOperacionGravada =
+      Number.isFinite(operacionGravadaValue) &&
       (operacionGravadaValue > 0 || fallbackOperacionGravada <= 0)
-      ? Math.max(0, operacionGravadaValue)
-      : fallbackOperacionGravada;
+        ? Math.max(0, operacionGravadaValue)
+        : fallbackOperacionGravada;
     const safeDescuento = Number.isFinite(descuentoValue)
       ? Math.max(0, descuentoValue)
       : 0;
@@ -812,17 +831,18 @@ const TicketDocument = ({
             Boolean,
           );
     const detailAdjustmentAmount = safeMovilidad + safeCardAdditional;
-    const safeSubtotal = Number.isFinite(subtotalValue) &&
+    const safeSubtotal =
+      Number.isFinite(subtotalValue) &&
       (subtotalValue > 0 || fallbackSubtotal <= 0)
-      ? Math.max(0, subtotalValue)
-      : fallbackSubtotal;
+        ? Math.max(0, subtotalValue)
+        : fallbackSubtotal;
     const safeIgv = Number.isFinite(igvValue)
       ? Math.max(0, igvValue)
       : Math.max(0, safeSubtotal - safeOperacionGravada);
-    const safeTotal = Number.isFinite(totalValue) &&
-      (totalValue > 0 || fallbackTotal <= 0)
-      ? Math.max(0, totalValue)
-      : fallbackTotal;
+    const safeTotal =
+      Number.isFinite(totalValue) && (totalValue > 0 || fallbackTotal <= 0)
+        ? Math.max(0, totalValue)
+        : fallbackTotal;
     const docLabel = docType === "factura" ? "RUC" : "DNI";
     const clientDoc =
       clientId?.trim() || (docLabel === "RUC" ? "00000000000" : "00000000");
@@ -986,14 +1006,24 @@ const TicketDocument = ({
     const TICKET_NUMBER = 11 + 10; // fontSize + marginBottom
     const DIVIDER = 1 + 8 * 2; // border + marginVertical x2
 
-    const INFO_ROWS = ticketData.isFactura ? 10 : 9;
+    const singleLineInfoRows = ticketData.isProforma
+      ? 7
+      : ticketData.isFactura
+        ? 5
+        : 5;
     const INFO_ROW_H = 8 + 4; // fontSize + marginBottom
     const clientNameLines = Math.ceil(
       (ticketData.clientName?.length ?? 0) / 28,
     );
+    const addressLines =
+      ticketData.isProforma || ticketData.isFactura
+        ? Math.max(1, Math.ceil((ticketData.clientAddress?.length ?? 0) / 32))
+        : 0;
+    const addressBlock = addressLines ? INFO_ROW_H + addressLines * 9 : 0;
     const infoSection =
-      (INFO_ROWS - 1) * INFO_ROW_H +
+      singleLineInfoRows * INFO_ROW_H +
       (clientNameLines * 8 + 4) + // fila cliente con wrap
+      addressBlock +
       DIVIDER;
 
     const TABLE_HEADER = 8 + 4 + 6 + 8 + 1; // row + margins + padding + separator
@@ -1117,22 +1147,31 @@ const TicketDocument = ({
           )}
 
           {ticketData.isFactura && (
-            <View style={styles.infoRow}>
-              <Text style={styles.infoLabel}>DIRECCION</Text>
-              <Text style={styles.infoValue}>: {ticketData.clientAddress}</Text>
+            <View style={styles.infoBlock}>
+              <Text style={styles.infoBlockLabel}>DIRECCION</Text>
+              <Text style={styles.infoBlockValue}>
+                : {ticketData.clientAddress}
+              </Text>
             </View>
           )}
+
+          {ticketData.isProforma ? (
+            <>
+              <View style={styles.infoBlock}>
+                <Text style={styles.infoBlockLabel}>Dirección</Text>
+                <Text style={styles.infoBlockValue}>
+                  : {ticketData.clientAddress}
+                </Text>
+              </View>
+              <View style={styles.infoRow}>
+                <Text style={styles.infoLabel}>Telefono</Text>
+                <Text style={styles.infoValue}>: {ticketData.clientPhone}</Text>
+              </View>
+            </>
+          ) : null}
           <View style={styles.infoRow}>
             <Text style={styles.infoLabel}>Vendedor</Text>
             <Text style={styles.infoValue}>: {ticketData.seller}</Text>
-          </View>
-          <View style={styles.infoRow}>
-            <Text style={styles.infoLabel}>Despacho</Text>
-            <Text style={styles.infoValue}>: {ticketData.clientAddress}</Text>
-          </View>
-          <View style={styles.infoRow}>
-            <Text style={styles.infoLabel}>Telefono</Text>
-            <Text style={styles.infoValue}>: {ticketData.clientPhone}</Text>
           </View>
           <View style={styles.divider} />
           <View style={styles.tableHeader}>

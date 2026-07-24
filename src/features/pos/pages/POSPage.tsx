@@ -224,6 +224,8 @@ const CATALOG_PAGE_SIZE = 50;
 const TABLE_PAGE_SIZE_OPTIONS = [20, 50, 100];
 const PROFORMA_DEFAULT_CONTACT_ID = 47;
 const BOLETA_CUSTOMER_REQUIRED_TOTAL = 700;
+const POS_DNI_MAX_LENGTH = 9;
+const POS_RUC_MAX_LENGTH = 11;
 const DEFAULT_POS_SALE_SETTINGS: PosSaleSettings = {
   docTypeCode: "SELECCIONAR",
   paymentMethod: "EFECTIVO",
@@ -435,6 +437,11 @@ const normalizePosSearchText = (value: unknown) =>
     .replace(/[\u0300-\u036f]/g, "");
 const normalizePosDocumentText = (value: unknown) =>
   String(value ?? "").replace(/\D/g, "");
+const clampSaleDocumentValue = (type: "dni" | "ruc", value: unknown) =>
+  normalizePosDocumentText(value).slice(
+    0,
+    type === "ruc" ? POS_RUC_MAX_LENGTH : POS_DNI_MAX_LENGTH,
+  );
 const tokenizePosSearchText = (value: unknown) =>
   normalizePosSearchText(value).split(/\s+/).filter(Boolean);
 const priceLabel = (product: Product, mode: PosPriceMode = "A") =>
@@ -742,6 +749,58 @@ const POSPage = () => {
         responseDataRecord?.Message ??
         "",
     );
+  };
+  const isEditableNotaStatus = (value: unknown) => {
+    const normalized = safeTrim(value).toUpperCase();
+    return normalized.startsWith("PENDIENTE") || normalized.includes("RECHAZ");
+  };
+  const validateEditingNotaState = async (notaIdToEdit: number) => {
+    try {
+      const response = await apiRequest({
+        url: buildApiUrl(`/Nota/${notaIdToEdit}/estado`),
+        method: "GET",
+        fallback: null,
+      });
+      const responseRecord = parseRecordLikeValue(response);
+      const nestedDataRecord = parseRecordLikeValue(responseRecord?.data);
+      const estadoRecord = nestedDataRecord ?? responseRecord;
+      const httpStatus = resolveHttpStatus(response);
+
+      if (httpStatus === 404) {
+        toast.error(
+          resolveApiMessage(response) ||
+            `No se encontró la nota con NotaId=${notaIdToEdit}.`,
+        );
+        return false;
+      }
+      if (httpStatus >= 400 || !estadoRecord) {
+        toast.error("No se pudo validar el estado de la nota para edición.");
+        return false;
+      }
+
+      const estadoActual = safeTrim(
+        estadoRecord.estado ?? estadoRecord.notaEstado ?? "",
+      );
+      const estadoSunatActual = safeTrim(
+        estadoRecord.estadoSunat ?? estadoRecord.notaEstadoSunat ?? "",
+      );
+      const canEdit =
+        isEditableNotaStatus(estadoActual) &&
+        isEditableNotaStatus(estadoSunatActual);
+
+      if (!canEdit) {
+        toast.info(
+          `No se puede editar. Estado actual: ${
+            estadoActual || estadoSunatActual || "NO DISPONIBLE"
+          }.`,
+        );
+      }
+      return canEdit;
+    } catch (error) {
+      console.error("Error validando estado para edición", error);
+      toast.error("No se pudo validar el estado de la nota para edición.");
+      return false;
+    }
   };
   const parseNotaId = (value: unknown): number | null => {
     if (value === null || value === undefined) return null;
@@ -1339,11 +1398,6 @@ const POSPage = () => {
       hideActions: true,
       content: (
         <CustomerDialogContent
-          initialQuery={
-            safeTrim(saleCustomerInput).toUpperCase() === "VARIOS"
-              ? ""
-              : saleCustomerInput
-          }
           onSelectClient={handleSelectClientFromDialog}
           onCreateClient={handleCreateClientFromDialog}
           onUpdateClient={handleUpdateClientFromDialog}
@@ -1355,7 +1409,6 @@ const POSPage = () => {
     handleSelectClientFromDialog,
     handleUpdateClientFromDialog,
     openDialog,
-    saleCustomerInput,
   ]);
   const saleDniOptions = useMemo(() => {
     const byDocument = new Map<
@@ -1496,6 +1549,10 @@ const POSPage = () => {
     type: "dni" | "ruc",
     option: (typeof saleDniOptions)[number],
   ) => {
+    const documentValue = clampSaleDocumentValue(type, option.value);
+    const clientDni = clampSaleDocumentValue("dni", option.client.dni);
+    const clientRuc = clampSaleDocumentValue("ruc", option.client.ruc);
+
     setSaleCustomerInput(option.client.label);
     setSaleSettings((prev) => ({
       ...prev,
@@ -1504,18 +1561,18 @@ const POSPage = () => {
       ...customerFieldsForSaleUpdate(prev, option.client),
       ...(type === "ruc"
         ? {
-          customerRuc: option.value,
+          customerRuc: documentValue,
           customerId:
               prev.docTypeCode === "01"
-                ? option.value
-                : safeTrim(option.client.dni),
+                ? documentValue
+                : clientDni,
         }
         : {
-            customerDni: option.value,
+            customerDni: documentValue,
             customerId:
               prev.docTypeCode === "01"
-                ? safeTrim(option.client.ruc)
-                : option.value,
+                ? clientRuc
+                : documentValue,
           }),
     }));
     focusSaleField(
@@ -1642,8 +1699,8 @@ const POSPage = () => {
         customerName: matchedOption.client.label,
         ...customerFieldsForSaleUpdate(prev, matchedOption.client),
         ...(type === "ruc"
-          ? { customerRuc: matchedOption.value }
-          : { customerDni: matchedOption.value }),
+          ? { customerRuc: clampSaleDocumentValue("ruc", matchedOption.value) }
+          : { customerDni: clampSaleDocumentValue("dni", matchedOption.value) }),
       }));
       return true;
     }
@@ -1872,8 +1929,8 @@ const POSPage = () => {
         focusSaleField(saleCustomerInputRef);
         return false;
       }
-      if (customerDocument.length !== 8) {
-        toast.error("Para boleta ingresa un DNI valido de 8 digitos.");
+      if (![8, 9].includes(customerDocument.length)) {
+        toast.error("Para boleta ingresa un DNI valido de 8 o 9 digitos.");
         setCartTab("payment");
         focusSaleField(saleDniInputRef, true);
         return false;
@@ -1884,9 +1941,9 @@ const POSPage = () => {
       !isSaleFactura &&
       !isSaleProforma &&
       customerDocument &&
-      customerDocument.length !== 8
+      ![8, 9].includes(customerDocument.length)
     ) {
-      toast.error("El DNI debe tener 8 digitos.");
+      toast.error("El DNI debe tener 8 o 9 digitos.");
       return false;
     }
 
@@ -2384,6 +2441,9 @@ const POSPage = () => {
     if (!validateCartItemsBeforePayment()) return;
 
     if (!validateSaleSettings(true)) return;
+    if (hasEditingNota && !(await validateEditingNotaState(editingNotaIdNumber))) {
+      return;
+    }
 
     const authorizedPersonalName =
       await requestPersonalAuthorizationForPayment();
@@ -3759,7 +3819,7 @@ const POSPage = () => {
               }
               onInputChange={(_, value, reason) => {
                 if (reason === "reset") return;
-                const numericValue = value.replace(/\D/g, "");
+                const numericValue = clampSaleDocumentValue("dni", value);
                 setSaleSettings((prev) => ({
                   ...prev,
                   customerDni: numericValue,
@@ -3806,6 +3866,7 @@ const POSPage = () => {
                       "data-auto-next": "true",
                       inputMode: "numeric",
                       pattern: "[0-9]*",
+                      maxLength: POS_DNI_MAX_LENGTH,
                       autoComplete: "one-time-code",
                       autoCorrect: "off",
                       autoCapitalize: "off",
@@ -3862,7 +3923,7 @@ const POSPage = () => {
               }
               onInputChange={(_, value, reason) => {
                 if (reason === "reset") return;
-                const numericValue = value.replace(/\D/g, "");
+                const numericValue = clampSaleDocumentValue("ruc", value);
                 setSaleSettings((prev) => ({
                   ...prev,
                   customerRuc: numericValue,
@@ -3909,6 +3970,7 @@ const POSPage = () => {
                       "data-auto-next": "true",
                       inputMode: "numeric",
                       pattern: "[0-9]*",
+                      maxLength: POS_RUC_MAX_LENGTH,
                       autoComplete: "one-time-code",
                       autoCorrect: "off",
                       autoCapitalize: "off",

@@ -438,6 +438,31 @@ const PaymentPage = () => {
     }
     return "";
   };
+  const formatPaymentEmissionDateTime = (value: unknown) => {
+    const raw = safeTrim(value);
+    if (!raw) return "";
+    const [datePart = "", timePart = ""] = raw.split(/[T\s]/);
+    const cleanTime = timePart ? timePart.slice(0, 8) : "";
+    const slashMatch = datePart.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+    if (slashMatch) return cleanTime ? `${datePart} ${cleanTime}` : datePart;
+    const isoMatch = datePart.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    if (isoMatch) {
+      const [, yyyy, mm, dd] = isoMatch;
+      const date = `${dd}/${mm}/${yyyy}`;
+      return cleanTime ? `${date} ${cleanTime}` : date;
+    }
+    const parsed = new Date(raw);
+    if (Number.isNaN(parsed.getTime())) return "";
+    return parsed.toLocaleString("es-PE", {
+      day: "2-digit",
+      month: "2-digit",
+      year: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+      hour12: false,
+    });
+  };
   const parseBooleanLikeValue = (value: unknown): boolean => {
     if (typeof value === "boolean") return value;
     const normalized = safeTrim(value).toLowerCase();
@@ -1687,6 +1712,28 @@ const PaymentPage = () => {
   const selectedCompanyName =
     companyOptions.find((company) => Number(company.id) === activeCompanyId)
       ?.nombre ?? "";
+  const paymentEmissionRawDate =
+    readRecordField(
+      notaCabeceraActual,
+      "notaFecha",
+      "NotaFecha",
+      "fechaEmision",
+      "FechaEmision",
+      "fecha",
+      "Fecha",
+    ) ||
+    readRecordField(
+      orderNoteFromRouteState,
+      "notaFecha",
+      "NotaFecha",
+      "fechaEmision",
+      "FechaEmision",
+      "fecha",
+      "Fecha",
+    );
+  const paymentEmissionDateLabel =
+    formatPaymentEmissionDateTime(paymentEmissionRawDate) ||
+    formatPaymentEmissionDateTime(new Date().toISOString());
 
   useEffect(() => {
     const cached = localStorage.getItem("companiaMap");
@@ -3013,11 +3060,6 @@ const PaymentPage = () => {
       content: (
         <CustomerDialogContent
           initialEditingClient={editableCurrentClient}
-          initialQuery={
-            safeTrim(customerName).toUpperCase() === "VARIOS"
-              ? ""
-              : customerName
-          }
           onSelectClient={(client) => {
             fillCustomerFromOption(client, true);
             closeDialog();
@@ -3136,7 +3178,6 @@ const PaymentPage = () => {
     clienteId,
     clients,
     closeDialog,
-    customerName,
     fetchClients,
     fillCustomerFromOption,
     formLocked,
@@ -7882,9 +7923,8 @@ const PaymentPage = () => {
     <div className="space-y-4 sm:space-y-6">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <p className="text-sm text-gray-500">Confirmar cobro</p>
           <h1 className="text-xl font-semibold text-slate-800 sm:text-2xl">
-            Pago y comprobante
+            Fecha y hora: {paymentEmissionDateLabel}
           </h1>
         </div>
         <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-center">
