@@ -17,6 +17,7 @@ type TicketHTMLProps = {
   totals?: PosTotals;
   documentNumber?: string;
   noteId?: number | string | null;
+  emissionDateTime?: string;
   companyName?: string;
   companyRuc?: string;
   companyAddress?: string;
@@ -52,6 +53,32 @@ const formatTicketQuantity = (value: number): string =>
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   });
+
+const parseTicketDate = (value: unknown): Date => {
+  const raw = String(value ?? "").trim();
+  if (raw) {
+    const slashMatch = raw.match(
+      /^(\d{2})\/(\d{2})\/(\d{4}),?(?:\s+(\d{2}):(\d{2})(?::(\d{2}))?)?$/,
+    );
+    if (slashMatch) {
+      const [, dd, mm, yyyy, hh = "0", min = "0", ss = "0"] = slashMatch;
+      const parsed = new Date(
+        Number(yyyy),
+        Number(mm) - 1,
+        Number(dd),
+        Number(hh),
+        Number(min),
+        Number(ss),
+      );
+      if (!Number.isNaN(parsed.getTime())) return parsed;
+    }
+
+    const parsed = new Date(raw);
+    if (!Number.isNaN(parsed.getTime())) return parsed;
+  }
+
+  return new Date();
+};
 
 const normalizePhoneLine = (value: unknown): string => {
   const raw = String(value ?? "").trim();
@@ -243,6 +270,7 @@ const TicketHTML = ({
   totals,
   documentNumber,
   noteId,
+  emissionDateTime: emissionDateTimeProp,
   companyName,
   companyRuc,
   companyAddress,
@@ -324,8 +352,17 @@ const TicketHTML = ({
       clientId?.trim() || (docLabel === "RUC" ? "00000000000" : "00000000");
     const proformaDni = clientDni?.trim() || clientDoc || "00000000";
     const proformaRuc = clientRuc?.trim() || "";
-    const now = new Date();
+    const now = parseTicketDate(emissionDateTimeProp);
     const emissionDate = now.toLocaleDateString("es-PE");
+    const emissionDateTime = now.toLocaleString("es-PE", {
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+      hour12: false,
+    });
     const emissionDateISO = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
     const amountInWords = numberToWords(safeTotal, "SOLES");
     const normalizedNoteId = String(noteId ?? "").trim();
@@ -373,6 +410,7 @@ const TicketHTML = ({
             : "BOLETA DE VENTA ELECTRONICA",
       documentNumber: documentNumber || "",
       emissionDate,
+      emissionDateTime,
       currency: "SOLES",
       paymentMethod: paymentMethod ?? "AL CONTADO",
       clientName: clientName || "Ultimo cliente",
@@ -425,6 +463,7 @@ const TicketHTML = ({
     documentTitle,
     documentNumber,
     noteId,
+    emissionDateTimeProp,
     items,
     paymentMethod,
     totals,
@@ -689,8 +728,8 @@ const TicketHTML = ({
 
       {/* ── INFO ROWS ── */}
       <div style={s.infoRow}>
-        <span style={s.infoLabel}>Fecha Emision</span>
-        <span style={s.infoValue}>: {ticketData.emissionDate}</span>
+        <span style={s.infoLabel}>Fecha y Hora</span>
+        <span style={s.infoValue}>: {ticketData.emissionDateTime}</span>
       </div>
       <div style={s.infoRow}>
         <span style={s.infoLabel}>Tipo Moneda</span>

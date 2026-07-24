@@ -4207,6 +4207,7 @@ const PaymentPage = () => {
       items: safeItems,
       totals: safeTotals,
       noteId: notaId,
+      emissionDateTime: paymentEmissionDateLabel,
       summary: {
         operacionGravada: roundCurrency(displayOperacionGravada),
         cardAdditional: roundCurrency(notaAdicional),
@@ -4243,6 +4244,7 @@ const PaymentPage = () => {
     docTypeName,
     documentNumber,
     notaId,
+    paymentEmissionDateLabel,
     paymentMethod,
     itemsToRender,
     totalsToRender,
@@ -4297,6 +4299,7 @@ const PaymentPage = () => {
         pdfPreviewProps.clientAddress,
         pdfPreviewProps.clientPhone,
         pdfPreviewProps.documentNumber,
+        pdfPreviewProps.emissionDateTime,
         formatCurrency(pdfPreviewProps.summary?.operacionGravada ?? 0),
         formatCurrency(pdfPreviewProps.summary?.total ?? 0),
         formatCurrency(pdfPreviewProps.summary?.movilidad ?? 0),
@@ -4310,6 +4313,7 @@ const PaymentPage = () => {
       pdfPreviewProps.clientName,
       pdfPreviewProps.docType,
       pdfPreviewProps.documentNumber,
+      pdfPreviewProps.emissionDateTime,
       pdfPreviewProps.items?.length,
       pdfPreviewProps.paymentMethod,
       pdfPreviewProps.summary?.descuento,
@@ -6604,8 +6608,14 @@ const PaymentPage = () => {
           }
         : pdfPreviewProps;
       const clean = (value: unknown) => String(value ?? "").trim();
-      const now = new Date();
-      const emissionDateISO = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+      const rawEmissionDate = clean(effectiveTicketPreviewProps.emissionDateTime);
+      const slashDate = rawEmissionDate.match(/^(\d{2})\/(\d{2})\/(\d{4})/);
+      const parsedEmissionDate = slashDate
+        ? new Date(Number(slashDate[3]), Number(slashDate[2]) - 1, Number(slashDate[1]))
+        : new Date(rawEmissionDate);
+      const emissionDateISO = Number.isNaN(parsedEmissionDate.getTime())
+        ? getLocalDateISO(new Date())
+        : getLocalDateISO(parsedEmissionDate);
       const qrDocTypeCode =
         effectiveTicketPreviewProps.docType === "factura"
           ? "01"
@@ -6792,7 +6802,10 @@ const PaymentPage = () => {
             },
           }
         : basePrintPreviewProps;
-      const blob = await createComprobanteBlob(printPreviewOverride);
+      const blob = await createComprobanteBlob({
+        ...printPreviewOverride,
+        emissionDateTime: new Date().toISOString(),
+      });
       const fileName = getComprobanteFileName();
       const file = new File([blob], fileName, { type: "application/pdf" });
       const formData = new FormData();
@@ -7923,9 +7936,10 @@ const PaymentPage = () => {
     <div className="space-y-4 sm:space-y-6">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h1 className="text-xl font-semibold text-slate-800 sm:text-2xl">
-            Fecha y hora: {paymentEmissionDateLabel}
-          </h1>
+          <div className="space-y-1 text-xl font-semibold text-slate-800 sm:text-2xl">
+            <div>Nota Id : {notaId || "------"}</div>
+            <div>Fecha y Hora : {paymentEmissionDateLabel}</div>
+          </div>
         </div>
         <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-center">
           {showMainBackShortcut && (

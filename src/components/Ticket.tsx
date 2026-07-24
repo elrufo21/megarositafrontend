@@ -30,6 +30,7 @@ export type TicketDocumentProps = {
   totals?: PosTotals;
   documentNumber?: string;
   noteId?: number | string | null;
+  emissionDateTime?: string;
   companyName?: string;
   companyRuc?: string;
   companyAddress?: string;
@@ -63,6 +64,32 @@ const formatTicketQuantity = (value: number): string =>
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   });
+
+const parseTicketDate = (value: unknown): Date => {
+  const raw = String(value ?? "").trim();
+  if (raw) {
+    const slashMatch = raw.match(
+      /^(\d{2})\/(\d{2})\/(\d{4}),?(?:\s+(\d{2}):(\d{2})(?::(\d{2}))?)?$/,
+    );
+    if (slashMatch) {
+      const [, dd, mm, yyyy, hh = "0", min = "0", ss = "0"] = slashMatch;
+      const parsed = new Date(
+        Number(yyyy),
+        Number(mm) - 1,
+        Number(dd),
+        Number(hh),
+        Number(min),
+        Number(ss),
+      );
+      if (!Number.isNaN(parsed.getTime())) return parsed;
+    }
+
+    const parsed = new Date(raw);
+    if (!Number.isNaN(parsed.getTime())) return parsed;
+  }
+
+  return new Date();
+};
 
 const normalizePhoneLine = (value: unknown): string => {
   const raw = String(value ?? "").trim();
@@ -711,6 +738,7 @@ const TicketDocument = ({
   totals,
   documentNumber,
   noteId,
+  emissionDateTime: emissionDateTimeProp,
   companyName,
   companyRuc,
   companyAddress,
@@ -848,7 +876,7 @@ const TicketDocument = ({
       clientId?.trim() || (docLabel === "RUC" ? "00000000000" : "00000000");
     const proformaDni = clientDni?.trim() || clientDoc || "00000000";
     const proformaRuc = clientRuc?.trim() || "";
-    const now = new Date();
+    const now = parseTicketDate(emissionDateTimeProp);
     const emissionDate = now.toLocaleDateString("es-PE");
     const emissionDateTime = now.toLocaleString("es-PE", {
       year: "numeric",
@@ -960,6 +988,7 @@ const TicketDocument = ({
     documentTitle,
     documentNumber,
     noteId,
+    emissionDateTimeProp,
     items,
     paymentMethod,
     totals,
